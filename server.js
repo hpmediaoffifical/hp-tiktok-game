@@ -10,7 +10,9 @@ const PORT = process.env.PORT || 3000;
 const SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
 const SHEET_NAME = 'DANH SACH QUA';
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
-const DATA_DIR = path.join(__dirname, 'data');
+// HP_DATA_DIR được set bởi electron-main.js trong môi trường đóng gói (vì __dirname nằm trong asar read-only).
+// Khi chạy dev / node trực tiếp: fallback về data/ cạnh server.js
+const DATA_DIR = process.env.HP_DATA_DIR || path.join(__dirname, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'app-config.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });

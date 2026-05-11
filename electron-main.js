@@ -4,6 +4,7 @@
  */
 const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,12 @@ function startServer() {
     serverStarted = true;
     try {
         process.env.PORT = String(PORT);
+        // Khi đóng gói (asar archive), __dirname là read-only. Đặt data dir ở userData
+        // (vd: C:\Users\<user>\AppData\Roaming\HP Action LIVE\data) để ghi được + persist
+        const userDataDir = app.getPath('userData');
+        const writableDataDir = path.join(userDataDir, 'data');
+        if (!fs.existsSync(writableDataDir)) fs.mkdirSync(writableDataDir, { recursive: true });
+        process.env.HP_DATA_DIR = writableDataDir;
         require('./server.js');
     } catch (err) {
         dialog.showErrorBox('Lỗi khởi động server', String(err && err.stack || err));
