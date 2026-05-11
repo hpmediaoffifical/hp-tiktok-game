@@ -1160,6 +1160,63 @@
         });
     });
 
+    // ===== Update checker (poll GitHub Releases mỗi 10 phút) =====
+    function cmpVersion(a, b) {
+        const aP = String(a).split('.').map(n => parseInt(n, 10) || 0);
+        const bP = String(b).split('.').map(n => parseInt(n, 10) || 0);
+        for (let i = 0; i < Math.max(aP.length, bP.length); i++) {
+            const da = aP[i] || 0, db = bP[i] || 0;
+            if (da > db) return 1;
+            if (da < db) return -1;
+        }
+        return 0;
+    }
+    let dismissedUpdateVer = '';
+    async function checkForUpdate() {
+        try {
+            const local = await (await fetch('/api/version')).json();
+            const localVer = local?.version || '0.0.0';
+            const repo = local?.repo;
+            if (!repo) return;
+            const remote = await (await fetch(`https://api.github.com/repos/${repo}/releases/latest`)).json();
+            if (!remote?.tag_name) return;
+            const remoteVer = String(remote.tag_name).replace(/^v/i, '');
+            if (cmpVersion(remoteVer, localVer) <= 0) return;
+            if (remoteVer === dismissedUpdateVer) return;
+            const exeAsset = (remote.assets || []).find(a => /\.exe$/i.test(a.name));
+            showUpdateBanner({
+                version: remoteVer,
+                releaseUrl: remote.html_url,
+                downloadUrl: exeAsset?.browser_download_url || remote.html_url,
+                title: remote.name || `v${remoteVer}`,
+                body: remote.body || ''
+            });
+        } catch (e) { /* offline / rate-limited — ignore */ }
+    }
+    function showUpdateBanner(info) {
+        let banner = document.getElementById('update-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'update-banner';
+            banner.className = 'update-banner';
+            document.body.appendChild(banner);
+        }
+        banner.innerHTML = `
+            <span class="ub-ico">🎉</span>
+            <span class="ub-text">Có bản cập nhật mới: <b>v${info.version}</b></span>
+            <button class="ub-btn ub-download">📥 Tải về</button>
+            <button class="ub-btn ub-info" title="Mở trang chi tiết">📖 Chi tiết</button>
+            <button class="ub-close" title="Đóng (sẽ nhắc lại sau)">✕</button>
+        `;
+        banner.classList.add('show');
+        banner.querySelector('.ub-download').onclick = () => window.open(info.downloadUrl, '_blank');
+        banner.querySelector('.ub-info').onclick = () => window.open(info.releaseUrl, '_blank');
+        banner.querySelector('.ub-close').onclick = () => {
+            banner.classList.remove('show');
+            dismissedUpdateVer = info.version; // không hiện lại version này trong session
+        };
+    }
+
     // ===== Init =====
     (async function init() {
         setStatus(null, 'Chưa kết nối');
@@ -1175,5 +1232,8 @@
         } catch (e) {}
         await loadGames();
         if (games.length) openGame(games[0].id);
+        // Check update sau 3s khi app khởi động + mỗi 10 phút
+        setTimeout(checkForUpdate, 3000);
+        setInterval(checkForUpdate, 10 * 60 * 1000);
     })();
 })();

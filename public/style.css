@@ -436,6 +436,55 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     transform: translate(-50%, 0);
 }
 
+/* Update banner — hiện khi phát hiện bản mới trên GitHub Releases */
+.update-banner {
+    position: fixed;
+    left: 50%; top: 18px;
+    transform: translate(-50%, -16px);
+    background: linear-gradient(135deg, #7c3aed, #2563eb);
+    color: #fff;
+    padding: 10px 12px 10px 16px;
+    border-radius: 14px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 14px 36px rgba(124, 58, 237, 0.5);
+    opacity: 0; pointer-events: none;
+    z-index: 10002;
+    border: 1px solid rgba(255,255,255,0.18);
+    transition: opacity .25s ease, transform .3s cubic-bezier(.2,1.4,.4,1);
+    max-width: 720px;
+}
+.update-banner.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    pointer-events: auto;
+}
+.update-banner .ub-ico { font-size: 18px; line-height: 1; }
+.update-banner .ub-text { white-space: nowrap; }
+.update-banner .ub-text b { color: #ffd166; padding-left: 2px; }
+.update-banner .ub-btn {
+    background: rgba(255,255,255,0.16);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.28);
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+.update-banner .ub-btn:hover { background: rgba(255,255,255,0.28); }
+.update-banner .ub-download { background: rgba(34,197,94,0.85); border-color: rgba(255,255,255,0.4); }
+.update-banner .ub-download:hover { background: rgba(34,197,94,1); }
+.update-banner .ub-close {
+    background: transparent;
+    color: rgba(255,255,255,0.7);
+    border: none;
+    padding: 0 4px;
+    font-size: 16px;
+    cursor: pointer;
+}
+.update-banner .ub-close:hover { color: #fff; }
+
 /* Trigger gift list */
 .trigger-list {
     padding: 6px 10px 10px;

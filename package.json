@@ -33,6 +33,7 @@
       "server.js",
       "public/**/*",
       "hp-logo.png",
+      "hp-logo-512.png",
       "hp-logo.ico",
       "package.json",
       "node_modules/**/*"
@@ -41,7 +42,7 @@
       { "from": "data", "to": "data" }
     ],
     "win": {
-      "icon": "hp-logo.ico",
+      "icon": "hp-logo-512.png",
       "target": [
         { "target": "nsis", "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }

@@ -259,6 +259,18 @@ app.get('/api/games/:id/state', (req, res) => {
     res.json(gameStateCache[req.params.id] || null);
 });
 
+// Trả về version app hiện tại + tên GitHub repo để client check update
+app.get('/api/version', (req, res) => {
+    try {
+        const pkg = require('./package.json');
+        res.json({
+            version: pkg.version,
+            name: pkg.name,
+            repo: 'hpmediaoffifical/hp-tiktok-game'
+        });
+    } catch (e) { res.json({ version: '0.0.0', repo: '' }); }
+});
+
 app.get('/api/last-user', (req, res) => {
     res.json({ username: appConfig.lastUsername || '' });
 });
