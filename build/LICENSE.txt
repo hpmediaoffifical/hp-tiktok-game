@@ -1,0 +1,91 @@
+HP ACTION LIVE — ĐIỀU KHOẢN SỬ DỤNG / END USER LICENSE AGREEMENT
+=====================================================================
+
+© 2026 HP Media. Bảo lưu mọi quyền.
+
+VUI LÒNG ĐỌC KỸ TRƯỚC KHI CÀI ĐẶT. Bằng việc bấm "Tôi đồng ý"
+(I Agree), bạn xác nhận đã đọc và chấp thuận toàn bộ các điều khoản
+sau đây. Nếu bạn không đồng ý, vui lòng huỷ cài đặt.
+
+
+1. CẤP PHÉP SỬ DỤNG
+---------------------------------------------------------------------
+HP Media cấp cho bạn quyền sử dụng phần mềm HP Action LIVE
+("Phần mềm") trên máy tính cá nhân để phục vụ mục đích phát trực
+tiếp (livestream) trên nền tảng TikTok. Giấy phép này KHÔNG có
+quyền sở hữu — bạn chỉ được dùng trong phạm vi được cấp.
+
+Phần mềm yêu cầu một KEY BẢN QUYỀN hợp lệ do HP Media phát hành.
+Key được kích hoạt online qua Google Sheet quản lý của HP Media và
+có thể bị thu hồi nếu phát hiện sử dụng sai mục đích.
+
+
+2. PHẠM VI SỬ DỤNG
+---------------------------------------------------------------------
+- Mỗi key tương ứng với một (01) người dùng. Không chia sẻ.
+- Cho phép cài đặt trên một hoặc nhiều thiết bị cá nhân của
+  CÙNG một streamer (mỗi máy độc lập, không đồng bộ giữa các máy).
+- Không được phân phối, bán lại, hoặc cho thuê Phần mềm dưới bất
+  kỳ hình thức nào.
+- Không được giải mã ngược, đảo ngược kỹ thuật (reverse engineer),
+  hay sửa đổi mã nguồn đóng gói.
+
+
+3. THU THẬP THÔNG TIN
+---------------------------------------------------------------------
+Phần mềm chỉ kết nối tới:
+- Server TikTok LIVE (qua thư viện tiktok-live-connector) để nhận
+  sự kiện realtime (quà tặng, bình luận, member, viewer count).
+- Google Sheet công khai của HP Media để xác thực key bản quyền và
+  tải danh sách quà tặng (giftSheet).
+- GitHub Releases API để kiểm tra phiên bản mới.
+
+KHÔNG thu thập dữ liệu cá nhân ngoài key bản quyền và last-username
+TikTok đã kết nối. Toàn bộ cài đặt + state lưu LOCAL trong thư mục
+%APPDATA%\hp-action-live, không upload lên server.
+
+
+4. CẬP NHẬT
+---------------------------------------------------------------------
+Phần mềm KHÔNG tự động cập nhật. Khi có bản mới, Phần mềm sẽ hỏi
+xác nhận trước khi mở trang tải. Bạn có quyền chọn "Không đồng ý"
+để tiếp tục dùng phiên bản hiện tại.
+
+
+5. KHÔNG BẢO HÀNH
+---------------------------------------------------------------------
+Phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS). HP Media không cam
+kết Phần mềm sẽ hoạt động không lỗi, không gián đoạn, hay tương
+thích với mọi cấu hình. HP Media không chịu trách nhiệm cho:
+- Mất mát doanh thu khi sử dụng Phần mềm trong livestream.
+- Bị TikTok khoá tài khoản do vi phạm điều khoản nền tảng TikTok.
+- Hỏng hóc phần cứng hoặc xung đột phần mềm khác.
+
+
+6. GIỚI HẠN TRÁCH NHIỆM
+---------------------------------------------------------------------
+Trong mọi trường hợp, tổng trách nhiệm tài chính của HP Media đối
+với bạn không vượt quá số tiền bạn đã trả để mua key bản quyền của
+Phần mềm.
+
+
+7. CHẤM DỨT
+---------------------------------------------------------------------
+Giấy phép tự động chấm dứt nếu bạn:
+- Vi phạm bất kỳ điều khoản nào trong văn bản này.
+- Cố ý sử dụng key trên nhiều thiết bị / chia sẻ key.
+- Tiến hành đảo ngược kỹ thuật.
+
+Khi chấm dứt, bạn phải gỡ Phần mềm khỏi mọi thiết bị.
+
+
+8. HỖ TRỢ
+---------------------------------------------------------------------
+Mọi câu hỏi về Phần mềm và bản quyền vui lòng liên hệ:
+- GitHub: https://github.com/hpmediaoffifical/hp-tiktok-game
+- Sheet bản quyền: liên hệ qua HP Media để mua key
+
+
+=====================================================================
+Phiên bản: 1.0.3 | Hiệu lực: 11/05/2026
+=====================================================================

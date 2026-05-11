@@ -24,9 +24,11 @@
   "build": {
     "appId": "com.hpmedia.actionlive",
     "productName": "HP Action LIVE",
+    "copyright": "© 2026 HP Media. All rights reserved.",
     "asar": true,
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "electron-main.js",
@@ -43,21 +45,40 @@
     ],
     "win": {
       "icon": "hp-logo-512.png",
+      "verifyUpdateCodeSignature": false,
+      "requestedExecutionLevel": "asInvoker",
       "target": [
         { "target": "nsis", "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }
-      ]
+      ],
+      "artifactName": "HP-Action-LIVE-Setup-${version}.exe"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "allowElevation": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "HP Action LIVE"
+      "menuCategory": "HP Media",
+      "shortcutName": "HP Action LIVE",
+      "uninstallDisplayName": "HP Action LIVE — TikTok Game Library",
+      "displayLanguageSelector": false,
+      "language": "1066",
+      "installerIcon": "hp-logo.ico",
+      "uninstallerIcon": "hp-logo.ico",
+      "installerHeaderIcon": "hp-logo.ico",
+      "license": "build/LICENSE.txt",
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false,
+      "differentialPackage": false,
+      "artifactName": "HP-Action-LIVE-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "HP-Action-LIVE-Portable-${version}.exe"
+      "artifactName": "HP-Action-LIVE-Portable-${version}.exe",
+      "requestExecutionLevel": "user"
     }
   }
 }
