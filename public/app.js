@@ -1516,24 +1516,27 @@
         const isCreator = role === 'CREATOR';
         const isVip = /vip/i.test(vipText);
 
-        // Tag: ưu tiên role mới (ADMIN/CREATOR) → fallback VIP/Thường cho key cũ
+        // Tag: role mới (ADMIN/CREATOR) → fallback VIP/Thường cho key cũ
         let tagIco, tagText;
         if (isCreator) { tagIco = '🎥'; tagText = 'CREATOR'; }
-        else if (isAdmin && role === 'ADMIN') { tagIco = '👑'; tagText = 'ADMIN'; }
+        else if (isAdmin) { tagIco = '👑'; tagText = 'ADMIN'; }
         else if (isVip) { tagIco = '⭐'; tagText = 'VIP'; }
         else { tagIco = ''; tagText = vipText || 'Bản quyền'; }
 
         const offlinePrefix = info.offline ? '🌐 Offline · ' : '';
         const tag = offlinePrefix + (tagIco ? tagIco + ' ' : '') + tagText;
-        const keyMask = info.key ? info.key.slice(0, 4) + '****' + info.key.slice(-4) : '';
+        // CREATOR: key chính là TikTok ID → hiển thị full để user dễ thấy
+        // ADMIN/VIP: mask key cho bảo mật
+        const keyDisplay = isCreator
+            ? '@' + (info.key || '')
+            : (info.key ? info.key.slice(0, 4) + '****' + info.key.slice(-4) : '');
         const expiry = info.expiry || '—';
 
-        // Hàng 1: ⭐ ROLE · HDUS****EDIA · HSD 27/11/2029
-        let html = `${escAttrInline(tag)} <span class="lic-sep">·</span> <span class="lic-keymask">${escAttrInline(keyMask)}</span> <span class="lic-sep">·</span> HSD <b>${escAttrInline(expiry)}</b>`;
+        let html = `${escAttrInline(tag)} <span class="lic-sep">·</span> <span class="lic-keymask">${escAttrInline(keyDisplay)}</span> <span class="lic-sep">·</span> HSD <b>${escAttrInline(expiry)}</b>`;
 
-        // Hàng 2 (chỉ CREATOR): hiện TikTok ID đã bind để user biết cần connect bằng tên gì
-        if (isCreator && info.tiktokId) {
-            html += `<div class="lic-creator-bind">🔗 Liên kết với <b>@${escAttrInline(info.tiktokId)}</b></div>`;
+        // Hàng 2 (CREATOR): nhắc TikTok ID cần connect
+        if (isCreator && info.key) {
+            html += `<div class="lic-creator-bind">🔗 Chỉ kết nối được với TikTok <b>@${escAttrInline(info.key)}</b></div>`;
         }
 
         licStatusText.innerHTML = html;
@@ -1542,9 +1545,9 @@
         if (licMeta) licMeta.innerHTML = '';
 
         // === CREATOR auto-fill username ===
-        // Nếu key CREATOR + có bound TikTok ID + field username đang trống → auto-điền
-        if (isCreator && info.tiktokId && dom.usernameInput && !dom.usernameInput.value.trim()) {
-            dom.usernameInput.value = info.tiktokId;
+        // Key CREATOR = TikTok ID. Auto-fill field username nếu đang trống.
+        if (isCreator && info.key && dom.usernameInput && !dom.usernameInput.value.trim()) {
+            dom.usernameInput.value = info.key;
         }
     }
     async function tryActivate() {

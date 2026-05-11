@@ -207,7 +207,6 @@ async function validateLicenseKey(rawKey) {
         key: body.key,
         role: body.role || 'ADMIN',            // ADMIN | CREATOR
         vip: body.vip || body.role || '',      // text display: VIP / Thường / ADMIN / CREATOR
-        tiktokId: body.tiktokId || '',         // chỉ CREATOR mới có
         expiry: body.expiry,
         expiryISO: body.expiryISO,
         status: 'Đang sử dụng',
@@ -389,12 +388,11 @@ app.get('/api/license/status', async (req, res) => {
     try {
         const result = await validateLicenseKey(stored.key);
         if (result.ok) {
-            // Cập nhật info mới nhất từ sheet (bao gồm role + tiktokId — có thể đổi từ server)
+            // Cập nhật info mới nhất từ sheet (role có thể đổi server-side)
             appConfig.license = {
                 ...stored,
                 vip: result.vip,
                 role: result.role || 'ADMIN',
-                tiktokId: result.tiktokId || '',
                 expiry: result.expiry,
                 note: result.note,
                 lastValidated: Date.now()
@@ -405,7 +403,6 @@ app.get('/api/license/status', async (req, res) => {
                 key: result.key,
                 role: result.role || 'ADMIN',
                 vip: result.vip,
-                tiktokId: result.tiktokId || '',
                 expiry: result.expiry,
                 note: result.note
             });
@@ -420,7 +417,6 @@ app.get('/api/license/status', async (req, res) => {
                     key: stored.key,
                     role: stored.role || 'ADMIN',
                     vip: stored.vip || 'Thường',
-                    tiktokId: stored.tiktokId || '',
                     expiry: stored.expiry || '',
                     offline: true,
                     note: 'Offline grace period'
@@ -445,7 +441,6 @@ app.post('/api/license/activate', async (req, res) => {
         key: result.key,
         role: result.role || 'ADMIN',          // ADMIN | CREATOR
         vip: result.vip,
-        tiktokId: result.tiktokId || '',       // chỉ CREATOR có giá trị
         expiry: result.expiry,
         note: result.note,
         activatedAt: Date.now(),
@@ -478,18 +473,18 @@ app.post('/api/connect', async (req, res) => {
     const cleanName = String(username).replace(/^@/, '').trim();
 
     // === CREATOR role enforcement ===
-    // Key role CREATOR chỉ được connect với TikTok ID đã bind ở cột F của sheet.
-    // Nếu user nhập username khác → reject, hướng dẫn liên hệ HP Media đổi ID.
+    // Với role=CREATOR: KEY column A chính là TikTok ID. User phải connect với
+    // TikTok username TRÙNG khớp key đang active.
+    // Nếu khác → reject. User phải liên hệ HP Media (đổi key tương ứng TikTok ID mới).
     const lic = appConfig.license || {};
-    if (lic.activated && lic.role === 'CREATOR' && lic.tiktokId) {
-        const boundId = String(lic.tiktokId).replace(/^@/, '').toLowerCase().trim();
+    if (lic.activated && lic.role === 'CREATOR' && lic.key) {
+        const boundId = String(lic.key).replace(/^@/, '').toLowerCase().trim();
         if (cleanName.toLowerCase() !== boundId) {
             return res.status(403).json({
                 ok: false,
-                error: `Key của bạn chỉ được liên kết với TikTok @${lic.tiktokId}. `
-                    + `Nếu bạn đã đổi tên TikTok, vui lòng liên hệ HP Media (hpvn.media) để cập nhật ID gắn với key.`,
+                error: 'Bạn đã thay đổi TikTok ID hoặc nhập sai\nLIÊN HỆ HP MEDIA ĐỂ ĐƯỢC HỖ TRỢ',
                 _creatorLocked: true,
-                boundTiktokId: lic.tiktokId
+                boundTiktokId: lic.key
             });
         }
     }

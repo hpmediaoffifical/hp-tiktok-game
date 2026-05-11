@@ -30,31 +30,43 @@ Server Node.js riêng xác thực key bản quyền HP Action LIVE.
 
 | Cột | Tên | Ví dụ | Bắt buộc | Ý nghĩa |
 |---|---|---|---|---|
-| **A** | Key | `HDUSN67HUN...` | ✅ | Key bản quyền (case-insensitive) |
+| **A** | Key | `HDUSN67HUN...` HOẶC `kyder_npc` | ✅ | Key bản quyền — với CREATOR thì KEY chính là TikTok ID |
 | **B** | Expiry | `27/11/2029` | ✅ | Ngày hết hạn DD/MM/YYYY |
 | **C** | Role | `ADMIN` / `CREATOR` / `VIP` / `Thường` | ✅ | Quyền hạn (xem dưới) |
 | **D** | Status | `Đang sử dụng` / `Hết hạn` | ✅ | Trạng thái — `Hết hạn` / `Tạm khoá` sẽ reject |
 | **E** | Note | text tự do | ❌ | Ghi chú (không hiển thị cho user) |
-| **F** | TikTok ID | `username123` | ⚠️ | **CHỈ điền khi Role = CREATOR**. Không có `@` |
+
+→ Chỉ 5 cột, không cần thêm cột F. Với CREATOR key, KEY column A **chính là** TikTok ID của creator.
 
 ### Role logic
 
 | Role | Hành vi |
 |---|---|
-| `ADMIN` | Toàn quyền — connect bất kỳ TikTok ID nào |
-| `CREATOR` | BIND với TikTok ID ở cột F. Nhập username khác → app reject với thông báo "liên hệ HP Media để đổi ID" |
+| `ADMIN` | Toàn quyền — connect bất kỳ TikTok ID nào. Key có thể là random string tùy ý. |
+| `CREATOR` | **KEY = TikTok ID**. User phải nhập username TikTok trùng với key đang activate. Khác → reject. |
 | `VIP` | Backward compat — treat same as ADMIN (key cũ vẫn dùng được) |
 | `Thường` | Backward compat — treat same as ADMIN |
 | (trống) | Treat same as ADMIN |
 
-→ Sheet cũ với cột C = `VIP` / `Thường` vẫn hoạt động bình thường, không cần migrate. Khi tạo key mới, dùng `ADMIN` hoặc `CREATOR` để rõ ràng.
+→ Sheet cũ với cột C = `VIP` / `Thường` vẫn hoạt động bình thường, không cần migrate.
 
 ### Use case CREATOR
 
-- Bán key cho creator A có TikTok `@creator_a` → cột C = `CREATOR`, cột F = `creator_a`
-- Creator A chỉ kết nối được khi nhập `@creator_a` trong app
-- Nếu creator A đổi tên TikTok thành `@creator_a_new` → kết nối fail → liên hệ HP Media cập nhật cột F → kích hoạt lại
-- App có **auto-fill** username field bằng bound TikTok ID khi key activate
+**Ví dụ:** bán key cho creator có TikTok `@kyder_npc`:
+
+| A (Key) | B (Expiry) | C (Role) | D (Status) | E (Note) |
+|---|---|---|---|---|
+| `kyder_npc` | `28/11/2026` | `CREATOR` | `Chưa sử dụng` | Khách hàng A |
+
+Flow:
+1. Bạn báo creator: "Key của bạn là `kyder_npc`"
+2. Creator nhập `kyder_npc` vào license gate của app → activate OK
+3. Creator bấm "Kết nối LIVE" với username `kyder_npc` → app check `username === key` → match → kết nối OK
+4. Nếu creator đổi tên TikTok → `kyder_npc_new` → nhập username này → app báo:
+   > "Bạn đã thay đổi TikTok ID hoặc nhập sai
+   > LIÊN HỆ HP MEDIA ĐỂ ĐƯỢC HỖ TRỢ"
+5. Creator liên hệ → bạn xác minh → đổi cột A từ `kyder_npc` → `kyder_npc_new` → creator re-activate với key mới
+6. App auto-fill username = key khi creator activate → tránh nhập nhầm
 
 ## Bảo mật đường truyền
 

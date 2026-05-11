@@ -73,6 +73,7 @@ async function handleActivate(request, env) {
     }
 
     // Flat response — không ký, dựa vào HTTPS
+    // Với role=CREATOR, key chính là TikTok ID. App check username connect === key.
     return jsonResponse({
         ok: true,
         key: row.key,
@@ -81,7 +82,6 @@ async function handleActivate(request, env) {
         expiry: row.expiry,
         expiryISO: expiryDate ? expiryDate.toISOString() : null,
         note: row.note || '',
-        tiktokId: row.role === 'CREATOR' ? row.tiktokId : '',
         issued_at: Date.now()
     });
 }
@@ -113,8 +113,8 @@ function parseCsv(text) {
     return rows;
 }
 
-// Sheet cột:
-//   A=Key | B=Expiry | C=Role | D=Status | E=Note | F=TikTok ID
+// Sheet cột: A=Key | B=Expiry | C=Role | D=Status | E=Note
+// Với role=CREATOR, key cột A chính là TikTok ID — app check username connect === key.
 function findKey(csvText, queryKey) {
     const rows = parseCsv(csvText);
     const q = queryKey.toLowerCase();
@@ -130,8 +130,7 @@ function findKey(csvText, queryKey) {
                 role,
                 roleRaw,
                 status: String(r[3] || '').trim(),
-                note: String(r[4] || '').trim(),
-                tiktokId: String(r[5] || '').trim().replace(/^@/, '')
+                note: String(r[4] || '').trim()
             };
         }
     }

@@ -88,11 +88,11 @@ async function fetchSheet(force = false) {
     return sheetCache;
 }
 
-// Sheet cột:
-//   A=Key | B=Expiry | C=Role | D=Status | E=Note | F=TikTok ID (chỉ CREATOR)
+// Sheet cột (chỉ 5 cột, không cần thêm gì):
+//   A=Key | B=Expiry | C=Role | D=Status | E=Note
 // Role values (cột C):
 //   ADMIN     — toàn quyền, connect bất kỳ TikTok ID nào
-//   CREATOR   — bind TikTok ID ở cột F, không match thì reject
+//   CREATOR   — key CHÍNH LÀ TikTok ID. Connect TikTok phải = key. Khác → reject.
 //   VIP       — backward compat, full access (= ADMIN)
 //   Thường    — backward compat, full access (= ADMIN)
 function parseSheet(csvText) {
@@ -107,10 +107,9 @@ function parseSheet(csvText) {
             key,
             expiry: String(r[1] || '').trim(),
             role: normalizeRole(String(r[2] || '').trim()),
-            roleRaw: String(r[2] || '').trim(),   // giữ nguyên text để display (VIP / Thường / ADMIN / CREATOR)
+            roleRaw: String(r[2] || '').trim(),
             status: String(r[3] || '').trim(),
-            note: String(r[4] || '').trim(),
-            tiktokId: String(r[5] || '').trim().replace(/^@/, '')   // bỏ @ nếu có
+            note: String(r[4] || '').trim()
         });
     }
     return list;
@@ -268,16 +267,17 @@ app.post('/activate', activateLimiter, async (req, res) => {
     }
 
     // === Flat response ===
-    logLine(`ACTIVATE_OK ip=${ip} key=${row.key.slice(0, 6)}*** role=${row.role} tiktok=${row.tiktokId || '-'} device=${deviceId ? String(deviceId).slice(0, 8) + '***' : 'none'}`);
+    // Với role=CREATOR, key chính là TikTok ID. App kiểm tra
+    // username connect === key khi user bấm "Kết nối LIVE".
+    logLine(`ACTIVATE_OK ip=${ip} key=${row.key.slice(0, 6)}*** role=${row.role} device=${deviceId ? String(deviceId).slice(0, 8) + '***' : 'none'}`);
     res.json({
         ok: true,
         key: row.key,
         role: row.role,             // ADMIN | CREATOR (normalized)
-        vip: row.roleRaw,           // text gốc để display: VIP / Thường / ADMIN / CREATOR
+        vip: row.roleRaw,           // text gốc display: VIP / Thường / ADMIN / CREATOR
         expiry: row.expiry,
         expiryISO: expiryDate ? expiryDate.toISOString() : null,
         note: row.note,
-        tiktokId: row.role === 'CREATOR' ? row.tiktokId : '',   // CREATOR mới có tiktokId, ADMIN bỏ trống
         issued_at: Date.now()
     });
 });
