@@ -17,6 +17,32 @@ let tray = null;
 let serverStarted = false;
 let isQuitting = false;
 
+// ============================================================
+// PROCESS HYGIENE — Đảm bảo MỌI electron.exe terminate sạch
+// ============================================================
+// Architecture insight: OBS overlay tự động ẩn (trống/trong suốt) khi socket disconnect.
+// Socket chỉ disconnect khi server process (main electron) chết. Nếu helper processes
+// (GPU, Crashpad, NetworkService, Utility...) lingering → server vẫn chạy → socket vẫn live
+// → OBS không tự ẩn được. Vì vậy MỌI process phải terminate khi user đóng app.
+//
+// Nghiên cứu Electron + Chromium docs:
+//  1. GPU process: tắt bằng disableHardwareAcceleration + --disable-gpu*
+//  2. Crashpad handler: --disable-features=Crashpad
+//  3. Network service utility: chỉ exit khi main process exit (handled by app.exit(0))
+//  4. Renderer processes: BrowserWindow.destroy() kill renderer
+//  5. Hard fallback: taskkill /F /T /PID <main> kill cả tree con cháu (Windows)
+// ============================================================
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+// Tắt Crashpad handler process (giảm bớt 1 helper process)
+app.commandLine.appendSwitch('disable-features', 'Crashpad,DialMediaRouteProvider');
+// Giảm renderer code integrity check → renderer thoát nhanh hơn
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
 // === Single-instance lock ===
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); return; }
@@ -147,10 +173,13 @@ function createMainWindow() {
     });
 
     mainWindow.on('close', (e) => {
+        // X button = THOÁT HOÀN TOÀN (không hide xuống tray nữa).
+        // Lý do: user muốn OBS overlay tự ẩn khi đóng app. OBS chỉ ẩn khi socket disconnect.
+        // Socket chỉ disconnect khi server (main process) chết. Nếu X chỉ hide → server vẫn chạy
+        // → OBS vẫn nhận state → KHÔNG ẨN. Vì vậy X PHẢI fullQuit để OBS biết app offline.
         if (!isQuitting) {
-            e.preventDefault();
-            mainWindow.hide();
-            if (!tray) buildTray();
+            e.preventDefault();   // chặn close mặc định, để fullQuit destroy theo trình tự
+            fullQuit();
         }
     });
 }
@@ -162,12 +191,88 @@ function buildTray() {
             { label: 'Mở HP Action LIVE', click: () => { mainWindow.show(); mainWindow.focus(); } },
             { label: 'Mở overlay OBS trong trình duyệt', click: () => shell.openExternal(`${APP_URL}/overlay/thuytinh`) },
             { type: 'separator' },
-            { label: 'Thoát', click: () => { isQuitting = true; app.quit(); } }
+            { label: 'Thoát', click: () => fullQuit() }
         ]);
         tray.setToolTip(APP_NAME);
         tray.setContextMenu(contextMenu);
         tray.on('double-click', () => { mainWindow.show(); mainWindow.focus(); });
     } catch (e) {}
+}
+
+// ============================================================
+// fullQuit() — Cleanup TỔNG + force exit MỌI process con
+// ============================================================
+// 5-tier shutdown để đảm bảo 0 electron.exe sót trong Task Manager:
+//   Tier 1: Socket.IO close → disconnect tất cả OBS browser sources
+//   Tier 2: forcefullyCrashRenderer + destroy → kill renderer processes
+//   Tier 3: tray destroy → release tray icon slot
+//   Tier 4: httpServer close → release port + giải phóng node socket lib
+//   Tier 5: app.exit(0) → main process exit chính thức
+//   Hard fallback: taskkill /F /T /PID → kill TREE (kể cả grandchildren) sau 1.5s
+// ============================================================
+function fullQuit() {
+    if (isQuitting) return;
+    isQuitting = true;
+
+    // === Tier 1: Đóng Socket.IO (disconnect mọi OBS client) ===
+    try {
+        const srv = require('./server.js');
+        if (srv && srv.io && typeof srv.io.close === 'function') {
+            srv.io.close();           // disconnect all sockets
+        }
+    } catch (e) {}
+
+    // === Tier 2: Crash + destroy renderer processes ===
+    try {
+        for (const w of BrowserWindow.getAllWindows()) {
+            try {
+                if (!w.isDestroyed()) {
+                    // forcefullyCrashRenderer() ép renderer process exit ngay
+                    if (w.webContents && typeof w.webContents.forcefullyCrashRenderer === 'function') {
+                        try { w.webContents.forcefullyCrashRenderer(); } catch (e) {}
+                    }
+                    w.destroy();
+                }
+            } catch (e) {}
+        }
+    } catch (e) {}
+
+    // === Tier 3: Destroy tray ===
+    if (tray && !tray.isDestroyed()) {
+        try { tray.destroy(); } catch (e) {}
+        tray = null;
+    }
+
+    // === Tier 4: Close HTTP server ===
+    try {
+        const srv = require('./server.js');
+        if (srv && srv.httpServer && typeof srv.httpServer.close === 'function') {
+            srv.httpServer.close();
+        }
+    } catch (e) {}
+
+    // === Tier 5: app.exit(0) sau 200ms (cho cleanup async hoàn tất) ===
+    setTimeout(() => {
+        try { app.exit(0); } catch (e) {}
+
+        // === Hard fallback (Windows-specific): taskkill /F /T /PID <main>
+        // Kill TREE — terminate main process + tất cả descendants
+        // (helper electron.exe, GPU process nếu còn, utility processes, v.v.)
+        setTimeout(() => {
+            try {
+                if (process.platform === 'win32') {
+                    const { spawn } = require('child_process');
+                    spawn('taskkill', ['/F', '/T', '/PID', String(process.pid)], {
+                        detached: true,
+                        stdio: 'ignore',
+                        windowsHide: true
+                    }).unref();
+                }
+            } catch (e) {}
+            // Hard process exit nếu trên đây vẫn không kill được
+            try { process.exit(0); } catch (e) {}
+        }, 800);
+    }, 200);
 }
 
 app.whenReady().then(async () => {
@@ -177,7 +282,7 @@ app.whenReady().then(async () => {
         await waitForServerReady();
     } catch (e) {
         dialog.showErrorBox('Server không phản hồi', 'Không thể kết nối tới ' + APP_URL);
-        app.quit();
+        fullQuit();
         return;
     }
     createMainWindow();
@@ -186,10 +291,16 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => { isQuitting = true; });
 app.on('window-all-closed', () => {
-    // Giữ app sống ở tray trên Windows; thoát hẳn nếu macOS
+    // Theo behavior cũ: macOS auto-quit, Windows giữ ở tray.
+    // KHÔNG fullQuit ở đây — nếu GPU crash khiến windows đóng trước khi tray dựng xong,
+    // fullQuit sẽ bị trigger nhầm. fullQuit() chỉ từ tray menu "Thoát" hoặc signal.
     if (process.platform === 'darwin') app.quit();
 });
 app.on('activate', () => {
     if (!mainWindow) createMainWindow();
     else mainWindow.show();
 });
+
+// Kéo signal ctrl+c / kill từ terminal về fullQuit để cleanup đầy đủ
+process.on('SIGINT', fullQuit);
+process.on('SIGTERM', fullQuit);

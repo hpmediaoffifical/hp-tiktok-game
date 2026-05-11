@@ -17,41 +17,51 @@
     const JAR_ASPECT = 1024 / 1536;
 
     function defaultConfig() {
+        // ⭐ DEFAULTS đã được tinh chỉnh theo setup vận hành tốt — áp dụng cho install MỚI.
+        // User cũ đã có app-config.json sẽ giữ nguyên config riêng.
+        // (Cài đặt này khớp giao diện idol đang dùng cho live TikTok: hũ ở góc dưới phải, gravity nặng,
+        // ma sát cao để quà ổn định nhanh, chỉ bật Top tặng + Goal bar + CS — gọn gàng cho stream.)
         return {
-            jar: { xPercent: 50, yPercent: 56, height: 1200 },
+            // Vị trí + kích thước hũ — góc dưới-phải canvas, hũ nhỏ gọn (height 400 thay vì 1200)
+            jar: { xPercent: 79.43, yPercent: 76.63, height: 400 },
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
-            physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
+            // Physics nặng + ma sát cao → quà rơi nhanh, ổn định nhanh, ít văng lung tung
+            physics: { gravity: 2, bounce: 0.5, friction: 0.5 },
             jarVisible: true,
+            jarLocked: false,
             maxCapacity: 0,
+            // Chỉ bật những feature thiết yếu cho stream: Âm thanh + Top tặng + Goal Bar + Cảnh sát.
+            // Welcome/Crown/Combo/Quà to v.v. mặc định TẮT cho gọn — user bật lại nếu muốn.
             features: {
                 audio: true,
-                welcome: true,
-                crown: true,
+                welcome: false,
+                crown: false,
                 leaderboard: true,
-                sessionTotals: true,
+                sessionTotals: false,
                 goalBar: true,
-                combo: true,
-                tierBorder: true,
-                bigGiftFx: true,
-                autoShake: true,
+                combo: false,
+                tierBorder: false,
+                bigGiftFx: false,
+                autoShake: false,
                 randomEvents: false,
                 thiefAuto: false,
                 police: true
             },
-            goal: { target: 1000 },
+            goal: { target: 4100 },
             autoShakeAt: 200,
             randomEventEverySec: 90,
             thiefEverySec: 60,
             thiefMissRate: 0.1,
-            policeCatchRate: 0.25,
-            policeBanSec: 30,
+            policeCatchRate: 0.2,
+            policeBanSec: 60,
             policeName: '',
-            // Map: giftId → action ('thief'|'fireworks'|'megaboom'|'tornado'|'tilt'|'gravflip'|'shake'|'clear'|'slow')
-            // Quà có trong map sẽ KHÔNG rơi vào hũ, chỉ kích hoạt hiệu ứng tương ứng
+            // Map: giftId → action ('thief'|'fireworks'|'megaboom'|'tornado'|'tilt'|'gravflip'|'shake'|'clear'|'slow'|'osin')
+            // Quà có trong map sẽ KHÔNG rơi vào hũ, chỉ kích hoạt hiệu ứng tương ứng.
+            // Default trống — user assign per gift qua chuột phải.
             triggers: {},
             // Thông số chi tiết của từng hiệu ứng
             effects: {
-                tornado:  { intensity: 1.0 },
+                tornado:  { intensity: 0.2 },
                 megaboom: { intensity: 1.0 },
                 fireworks:{ intensity: 1.0 },
                 shake:    { intensity: 1.0 },
@@ -62,12 +72,12 @@
                 stealJar: { durationSec: 8 },
                 combo:    { sequence: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5' }
             },
-            // Vị trí panel UI (đơn vị %) — nếu null thì dùng default CSS
+            // Vị trí panel UI (đơn vị %) — null = dùng default CSS
             panelPositions: {
-                leaderboard: null,  // { left:%, top:% }
+                leaderboard: null,
                 caught: null
             },
-            // Tỉ lệ scale từng panel (1 = 100%, 0.7 → nhỏ hơn, 1.5 → to hơn)
+            // Tỉ lệ scale panel (1 = 100%)
             panelScales: {
                 leaderboard: 1,
                 caught: 1
@@ -119,6 +129,14 @@
         const onStatsChange = opts.onStatsChange || (() => {});
         const onPanelMoved = opts.onPanelMoved || (() => {});
         const onBail = opts.onBail || (() => {});
+        // ===== MIRROR MODE =====
+        // mirrorMode = true → instance này là OBS overlay (đứng đọc), KHÔNG tự chạy trigger logic.
+        // OBS chỉ render bodies + state nhận từ App. Trigger animations (thief, fxFireworks...)
+        // chạy qua gameCmd từ App đẩy sang.
+        // mirrorMode = false (mặc định) → App preview là authoritative, chạy tất cả logic.
+        const mirrorMode = !!opts.mirrorMode;
+        // onTrigger callback — App gọi sau khi resolve random outcome → broadcast cmd cho OBS replay
+        const onTrigger = opts.onTrigger || (() => {});
 
         let config = mergeConfig(defaultConfig(), opts.config || {});
         const engine = Engine.create();
@@ -244,10 +262,14 @@
             const n = Math.max(1, parseInt(count || g.repeatCount || 1, 10));
             const triggerAction = config.triggers && config.triggers[String(g.giftId)];
             if (triggerAction) {
-                // Quà kích hoạt — KHÔNG rơi vào hũ, chỉ fire hiệu ứng
+                // Quà kích hoạt — KHÔNG rơi vào hũ
+                // Mirror mode (OBS): KHÔNG chạy trigger ở local. Đợi App broadcast gameCmd với
+                // outcome đã được resolve để OBS replay đồng bộ. Vẫn record tipper + welcome cho
+                // visual UI consistency.
                 recordTipper(g, n);
                 handleWelcome(g);
                 checkGoal();
+                if (mirrorMode) return;
                 const userInfo = {
                     name: g.nickname || g.uniqueId || 'Khách',
                     avatar: g.profilePicture,
@@ -281,8 +303,11 @@
                 case 'slow': fxSlow(); break;
                 case 'crackJar': fxCrackJar(); break;
                 case 'stealJar': fxStealJar(); break;
+                case 'osin': triggerOsin(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
             }
+            // App broadcast cmd cho OBS replay cùng action (chỉ chạy ở authoritative mode)
+            if (!mirrorMode) onTrigger(action, userInfo);
         }
         function fxCombo(userInfo) {
             const seq = (config.effects?.combo?.sequence || '').trim();
@@ -320,14 +345,14 @@
             if (config.features.audio) audio.ting();
         }
         function flashPoliceJoinToast(name, joined) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = joined
-                ? 'linear-gradient(135deg, #2563eb, #0ea5e9)'
-                : 'linear-gradient(135deg, #6b7280, #4b5563)';
-            comboToastEl.innerHTML = joined
-                ? `🚓 <b>${escHtml(name)}</b> gia nhập lực lượng Cảnh sát!`
-                : `🚪 <b>${escHtml(name)}</b> rời lực lượng Cảnh sát`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(
+                joined
+                    ? `🚓 <b>${escHtml(name)}</b> gia nhập lực lượng Cảnh sát!`
+                    : `🚪 <b>${escHtml(name)}</b> rời lực lượng Cảnh sát`,
+                joined
+                    ? 'linear-gradient(135deg, #2563eb, #0ea5e9)'
+                    : 'linear-gradient(135deg, #6b7280, #4b5563)'
+            );
         }
         function isInPoliceForce(uid) { return !!uid && policeForce.has(String(uid)); }
         function processQueue() {
@@ -368,7 +393,18 @@
             const r = jarRect();
             const nl = r.x + r.w * SHAPE.neckLeftX + 8;
             const nr = r.x + r.w * SHAPE.neckRightX - 8;
-            const dx = nl + Math.random() * (nr - nl);
+            // ===== Spawn vị trí — TẬP TRUNG GIỮA =====
+            // Vấn đề cũ: Math.random() đều khắp [nl, nr] → quà rơi sát mép cổ hũ → đập viền,
+            // dội ra ngoài, gây cảm giác "trượt mép" liên tục.
+            // Giải pháp: phân phối tam giác (triangular distribution) qua trung bình 2 random.
+            // → Đỉnh phân phối ở center, giảm tuyến tính về 2 mép → ít quà rơi sát mép hơn nhiều.
+            // Thêm margin 12% mỗi bên để chừa thêm khoảng an toàn.
+            // Tham khảo: Irwin-Hall distribution, common technique in physics simulation spawns.
+            const margin = (nr - nl) * 0.12;
+            const innerL = nl + margin;
+            const innerR = nr - margin;
+            const t = (Math.random() + Math.random()) / 2;   // triangular peak = 0.5
+            const dx = innerL + t * (innerR - innerL);
             const dy = r.y + r.h * SHAPE.neckTopY - sz - 200 - Math.random() * 80;
             const body = Bodies.circle(dx, dy, sz / 2, {
                 restitution: config.physics.bounce,
@@ -642,10 +678,7 @@
             }, durMs);
         }
         function flashShatterToast(text, color) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = color || 'linear-gradient(135deg, #dc2626, #f59e0b)';
-            comboToastEl.innerHTML = text;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(text, color || 'linear-gradient(135deg, #dc2626, #f59e0b)');
         }
         function shatterJar() {
             flashShatterToast(`💥 <b>HŨ VỠ TAN!</b> Quà rơi tung toé`);
@@ -700,13 +733,14 @@
             engine.timing.timeScale = 0;
 
             const r = jarRect();
-            const fromLeft = Math.random() < 0.5;
-            const enterX = fromLeft ? -260 : CANVAS_W + 260;
-            const exitX = fromLeft ? -1200 : CANVAS_W + 600;
+            // Trộm cả hũ LUÔN xuất phát từ BÊN TRÁI (theo yêu cầu — nhất quán hướng cướp)
+            const fromLeft = true;
+            const enterX = -260;
+            const exitX = -1200;
 
             // Tạo ninja khổng lồ
             const ninja = document.createElement('div');
-            ninja.className = 'tt-big-thief' + (fromLeft ? '' : ' flip');
+            ninja.className = 'tt-big-thief';
             ninja.innerHTML = NINJA_SVG;
             overlayLayer.appendChild(ninja);
             const posBig = (x) => {
@@ -762,13 +796,13 @@
             clearInterval(cdTimer);
             if (stealCountdownEl) stealCountdownEl.style.display = 'none';
 
-            // Phase 4: ninja quay lại từ rìa đối diện, mang theo hũ
-            const returnX = fromLeft ? CANVAS_W + 600 : -1200;
-            ninja.classList.toggle('flip');
+            // Phase 4: ninja quay lại TỪ BÊN TRÁI (cùng hướng đã cướp đi) trả hũ
+            const returnX = -1200;
+            // KHÔNG flip — ninja vẫn quay mặt cùng hướng cũ
             ninja.style.display = 'block';
             targets.forEach(el => {
                 el.style.transition = 'none';
-                el.style.transform = `translateX(${returnX - r.cx}px) rotate(${fromLeft ? 18 : -18}deg)`;
+                el.style.transform = `translateX(${returnX - r.cx}px) rotate(-18deg)`;
                 el.style.opacity = el.dataset._stealOp || '1';
             });
             posBig(returnX);
@@ -776,13 +810,13 @@
 
             await tween(t => {
                 const dx = lerp(returnX - r.cx, 0, t);
-                const rot = lerp(fromLeft ? 18 : -18, 0, t);
+                const rot = lerp(-18, 0, t);
                 targets.forEach(el => el.style.transform = `translateX(${dx}px) rotate(${rot}deg)`);
                 posBig(lerp(returnX, r.cx, t));
             }, flyMs);
 
-            // Phase 5: ninja bỏ đi
-            const finalExit = fromLeft ? CANVAS_W + 260 : -260;
+            // Phase 5: ninja bỏ đi về lại bên trái
+            const finalExit = -260;
             await tween(t => posBig(lerp(r.cx, finalExit, t)), 500);
 
             // Cleanup
@@ -804,14 +838,14 @@
             overlayLayer.appendChild(stealCountdownEl);
         }
         function flashStealJarToast(seconds, isStart) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = isStart
-                ? 'linear-gradient(135deg, #ef4444, #f59e0b)'
-                : 'linear-gradient(135deg, #22c55e, #10b981)';
-            comboToastEl.innerHTML = isStart
-                ? `🚚 Cướp tẩu thoát với cả hũ! Quay lại sau <b>${seconds}s</b>`
-                : `🎉 Hũ đã quay về!`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(
+                isStart
+                    ? `🚚 Cướp tẩu thoát với cả hũ! Quay lại sau <b>${seconds}s</b>`
+                    : `🎉 Hũ đã quay về!`,
+                isStart
+                    ? 'linear-gradient(135deg, #ef4444, #f59e0b)'
+                    : 'linear-gradient(135deg, #22c55e, #10b981)'
+            );
         }
 
         // ===== Random events =====
@@ -963,6 +997,7 @@
                 return;
             }
             caughtEl.style.display = 'block';
+            // Overlay (App preview + OBS) chỉ hiển thị THÔNG TIN — nút BẢO LÃNH đã chuyển ra popup
             caughtEl.innerHTML = `<div class="tt-lb-title">BỊ TÓM 🚔</div>` + stats.caughtList.map(c => {
                 const left = Math.max(0, Math.ceil((c.releaseAt - now) / 1000));
                 const thiefAv = c.avatar
@@ -981,7 +1016,6 @@
                         ${metaLine}
                         <div class="caught-actions">
                             <span class="caught-cd">${left}s</span>
-                            <button class="caught-bail" data-uid="${escAttr(c.uid)}" title="Idol bảo lãnh ra sớm">BẢO LÃNH</button>
                         </div>
                     </div>
                 </div>`;
@@ -1103,17 +1137,21 @@
             welcomeEl._t = setTimeout(() => welcomeEl.classList.remove('show'), 3000);
             if (config.features.audio) audio.ting();
         }
-        function flashComboToast(name, count) {
+        // Helper chung: show toast, auto-hide sau 3s (tránh sticky toast)
+        let _comboToastTimer = null;
+        function showComboToast(html, bg) {
             if (!comboToastEl) return;
-            comboToastEl.style.background = '';
-            comboToastEl.innerHTML = `🔥 <b>${escHtml(name)}</b> combo <span>x${count}</span>`;
+            comboToastEl.style.background = bg || '';
+            comboToastEl.innerHTML = html;
             comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            clearTimeout(_comboToastTimer);
+            _comboToastTimer = setTimeout(() => comboToastEl.classList.remove('show'), 3000);
+        }
+        function flashComboToast(name, count) {
+            showComboToast(`🔥 <b>${escHtml(name)}</b> combo <span>x${count}</span>`);
         }
         function flashMissToast(name) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = 'linear-gradient(135deg, #ef4444, #ff8a00)';
-            comboToastEl.innerHTML = `💥 <b>${escHtml(name)}</b> bị TUỘT TAY!`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(`💥 <b>${escHtml(name)}</b> bị TUỘT TAY!`, 'linear-gradient(135deg, #ef4444, #ff8a00)');
         }
         function respawnLoot(gm, x, y) {
             if (!gm) return;
@@ -1296,10 +1334,10 @@
             return { name: 'Cảnh sát', avatar: '' };
         }
         function flashPoliceCantStealToast(name) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = 'linear-gradient(135deg, #2563eb, #1e40af)';
-            comboToastEl.innerHTML = `🚓 <b>${escHtml(name || 'User')}</b> là Cảnh sát · không được trộm`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(
+                `🚓 <b>${escHtml(name || 'User')}</b> là Cảnh sát · không được trộm`,
+                'linear-gradient(135deg, #2563eb, #1e40af)'
+            );
         }
         function positionEl(el, xCanvas, yCanvas) {
             el.style.position = 'absolute';
@@ -1307,19 +1345,19 @@
             el.style.top = (yCanvas / CANVAS_H * 100) + '%';
         }
         function flashBanRejected(uid, name) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = 'linear-gradient(135deg, #2563eb, #1e40af)';
             const t = bannedUntilByUid.get(String(uid || ''));
             const left = t ? Math.max(0, Math.ceil((t - Date.now()) / 1000)) : 0;
-            comboToastEl.innerHTML = `🚔 <b>${escHtml(name || 'Trộm')}</b> đang bị giam · còn ${left}s`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(
+                `🚔 <b>${escHtml(name || 'Trộm')}</b> đang bị giam · còn ${left}s`,
+                'linear-gradient(135deg, #2563eb, #1e40af)'
+            );
         }
         function flashPoliceCatchToast(thiefName, copName) {
-            if (!comboToastEl) return;
-            comboToastEl.style.background = 'linear-gradient(135deg, #2563eb, #ef4444)';
             const cop = copName ? `<b style="color:#60a5fa">${escHtml(copName)}</b> ` : '🚔 Cảnh sát ';
-            comboToastEl.innerHTML = `${cop}tóm <b style="color:#ffd166">${escHtml(thiefName)}</b>!`;
-            comboToastEl.classList.remove('show'); void comboToastEl.offsetWidth; comboToastEl.classList.add('show');
+            showComboToast(
+                `${cop}tóm <b style="color:#ffd166">${escHtml(thiefName)}</b>!`,
+                'linear-gradient(135deg, #2563eb, #ef4444)'
+            );
         }
 
         function buildThiefNode({ name, avatar } = {}) {
@@ -1364,17 +1402,35 @@
                 flashBanRejected(opts.uid, opts.name);
                 return;
             }
+            // 40% chuyển sang RUNNER (chạy từ trái, leo hũ) thay vì rope.
+            // Gán vào opts.mode để onTrigger broadcast đúng mode cho OBS replay.
+            if (!opts.mode) opts.mode = (Math.random() < 0.4 ? 'runner' : 'rope');
+            if (opts.mode === 'runner') {
+                return triggerThiefRunner(opts);
+            }
             const { name, avatar, uid } = opts;
             {
                 const { wrap, rope, body, loot } = buildThiefNode({ name, avatar });
                 thiefLayer.appendChild(wrap);
                 const r = jarRect();
-                // Điểm hạ rope: hai bên ngoài hũ, ngẫu nhiên trái/phải
-                const fromLeft = Math.random() < 0.5;
-                const dropX = fromLeft ? Math.max(40, r.x - 80) : Math.min(CANVAS_W - 40, r.x + r.w + 80);
+                // Điểm hạ rope: ƯU TIÊN VÙNG GIỮA màn hình (tránh viền 2 bên do TikTok UI che).
+                // Lấy tâm hũ + offset ngẫu nhiên ±35% bề ngang hũ, clamp vào vùng an toàn 18%-82% canvas.
+                const jarCenterX = r.x + r.w / 2;
+                const offset = (Math.random() - 0.5) * r.w * 0.7;
+                const dropX = Math.max(CANVAS_W * 0.18, Math.min(CANVAS_W * 0.82, jarCenterX + offset));
                 const ropeStartY = 20;
                 const mouthY = r.y + r.h * SHAPE.neckTopY + 10;
-                const targetBody = bodies[Math.floor(Math.random() * bodies.length)];
+                // ƯU TIÊN trộm icon trong hũ (60-80%): bodies có y nằm giữa miệng và đáy hũ,
+                // và x nằm trong vùng hũ. Nếu không có thì rơi về random toàn bộ.
+                const jarBottomY = r.y + r.h * 0.95;
+                const insideJar = bodies.filter(b => {
+                    const p = b.position;
+                    return p.x >= r.x && p.x <= r.x + r.w
+                        && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomY;
+                });
+                const preferInside = insideJar.length > 0 && Math.random() < 0.75;  // 75% prefer inside
+                const pool = preferInside ? insideJar : bodies;
+                const targetBody = pool[Math.floor(Math.random() * pool.length)];
                 const targetX = targetBody.position.x;
                 const targetY = targetBody.position.y;
 
@@ -1569,6 +1625,162 @@
         }
         function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
         function lerp(a, b, t) { return a + (b - a) * t; }
+
+        // ===== Trộm Runner: chạy từ trái → leo lên thành hũ → trộm → chạy về =====
+        // Sử dụng CÙNG buildThiefNode như rope thief để visual đồng bộ — chỉ thêm class
+        // .tt-thief-runner để ẨN dây (rope) và điều chỉnh position anchor.
+        async function triggerThiefRunner(opts = {}) {
+            const { name, avatar, uid } = opts;
+            const r = jarRect();
+            // Reuse buildThiefNode (giống rope thief 100%): có rope + body + name + loot
+            // → class .tt-thief-runner sẽ ẩn rope qua CSS
+            const { wrap, rope, body, loot } = buildThiefNode({ name, avatar });
+            wrap.classList.add('tt-thief-runner');
+            thiefLayer.appendChild(wrap);
+
+            // Mặt sàn (ground): y ~ 91% canvas
+            const groundY = CANVAS_H * 0.91;
+            // Cạnh trái hũ (để leo)
+            const climbX = r.x - r.w * 0.04;
+            // Bắt đầu off-screen bên trái
+            const startX = -CANVAS_W * 0.15;
+            // Helper: đặt vị trí cho wrap runner (anchor = chân = top mới)
+            const posRunner = (xCanvas, yCanvas) => {
+                wrap.style.position = 'absolute';
+                wrap.style.left = (xCanvas / CANVAS_W * 100) + '%';
+                wrap.style.top = (yCanvas / CANVAS_H * 100) + '%';
+            };
+            posRunner(startX, groundY);
+            wrap.style.transition = 'left 1.0s linear, top 0.6s cubic-bezier(.25,.1,.25,1)';
+            await wait(60);
+
+            // Phase 1: chạy ngang đến chân trái hũ
+            wrap.style.left = (climbX / CANVAS_W * 100) + '%';
+            await wait(1020);
+
+            // Phase 2: leo lên dọc thành trái hũ tới miệng
+            const climbTopY = r.y + r.h * SHAPE.neckTopY + 20;
+            wrap.classList.add('climbing');
+            wrap.style.transition = 'top 0.9s cubic-bezier(.4,0,.4,1)';
+            wrap.style.top = (climbTopY / CANVAS_H * 100) + '%';
+            await wait(920);
+
+            // Phase 3: vợt 1 quà từ trong hũ
+            // Ưu tiên 75% target body trong hũ
+            const insideJar = bodies.filter(b => {
+                const p = b.position;
+                return p.x >= r.x && p.x <= r.x + r.w
+                    && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= r.y + r.h * 0.95;
+            });
+            const pool = (insideJar.length && Math.random() < 0.75) ? insideJar : bodies;
+            const target = pool[Math.floor(Math.random() * pool.length)];
+            let lootGm = null;
+            const idx = bodies.indexOf(target);
+            if (idx >= 0) {
+                bodies.splice(idx, 1);
+                Composite.remove(engine.world, target);
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                lootGm = target.gm;
+                if (lootGm?.img) {
+                    const lootEl = wrap.querySelector('.loot');
+                    if (lootEl) {
+                        const im = document.createElement('img');
+                        im.src = lootGm.img.src;
+                        lootEl.appendChild(im);
+                    }
+                }
+                if (config.features.audio) audio.steal();
+            }
+            // Vợt nhanh
+            wrap.style.transition = 'transform 0.18s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scale(1.12)';
+            await wait(180);
+            wrap.style.transform = 'translate(-50%, -100%) scale(1)';
+            await wait(120);
+
+            // Phase 4: kiểm tra cảnh sát có tóm không (giống rope thief)
+            const policeOn = !!config.features?.police;
+            const catchRate = Math.max(0, Math.min(1, config.policeCatchRate ?? 0));
+            const willBeCaught = policeOn && !!lootGm && Math.random() < catchRate;
+
+            if (willBeCaught) {
+                // Cảnh sát xuất hiện trên đỉnh hũ tóm trộm
+                const copIdentity = pickPoliceIdentity(uid);
+                const cop = buildPoliceNode({ direction: 'right', name: copIdentity.name, avatar: copIdentity.avatar });
+                thiefLayer.appendChild(cop.wrap);
+                cop.wrap.style.position = 'absolute';
+                cop.wrap.style.left = ((climbX + 60) / CANVAS_W * 100) + '%';
+                cop.wrap.style.top = (climbTopY / CANVAS_H * 100) + '%';
+                cop.wrap.style.transform = 'translate(-50%, -100%)';
+                cop.wrap.style.transition = 'left 0.5s ease';
+                await wait(60);
+                cop.wrap.style.left = (climbX / CANVAS_W * 100) + '%';
+                await wait(520);
+                flashPoliceCatchToast(name || 'Trộm', copIdentity.name);
+                if (config.features.audio) audio.fanfare();
+
+                // Quà rơi xuống lại hũ (vận tốc xuống nhẹ)
+                if (lootGm) {
+                    const respawnX = r.x + r.w / 2;
+                    const respawnY = r.y + r.h * SHAPE.neckTopY + 60;
+                    const newBody = Bodies.circle(respawnX, respawnY, lootGm.sz / 2, {
+                        restitution: config.physics.bounce,
+                        friction: config.physics.friction,
+                        density: 0.002
+                    });
+                    newBody.gm = lootGm;
+                    Body.setVelocity(newBody, { x: 0, y: 4 });
+                    Composite.add(engine.world, newBody);
+                    bodies.push(newBody);
+                    updateCountDisplay();
+                    onCountChange(bodies.length);
+                }
+                const lootEl = wrap.querySelector('.loot');
+                if (lootEl) lootEl.innerHTML = '';
+
+                await wait(300);
+                // Cả 2 rời màn hình về trái
+                wrap.style.transition = 'left 1.0s linear, top 0.8s ease-in';
+                wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+                wrap.style.left = (startX / CANVAS_W * 100) + '%';
+                cop.wrap.style.transition = 'left 1.0s linear, top 0.8s ease-in';
+                cop.wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+                cop.wrap.style.left = (startX / CANVAS_W * 100) + '%';
+                await wait(1020);
+                cop.wrap.remove();
+                wrap.remove();
+
+                // Thêm vào BỊ TÓM
+                const sec = config.policeBanSec ?? 30;
+                stats.caughtList = stats.caughtList.filter(c => c.uid !== uid);
+                stats.caughtList.push({
+                    uid: uid || ('anon-' + Date.now()),
+                    name: name || 'Trộm',
+                    avatar: avatar || '',
+                    copName: copIdentity.name,
+                    copAvatar: copIdentity.avatar,
+                    releaseAt: Date.now() + sec * 1000
+                });
+                updateCaughtList();
+                if (uid) banThief(uid, sec);
+                else startBanCountdown();
+                return;
+            }
+
+            // Phase 5: thoát — leo xuống và chạy về bên trái
+            wrap.classList.remove('climbing');
+            wrap.style.transition = 'top 0.7s cubic-bezier(.4,0,.4,1)';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            await wait(720);
+
+            wrap.style.transition = 'left 1.0s linear';
+            wrap.style.left = (startX / CANVAS_W * 100) + '%';
+            await wait(1020);
+
+            wrap.remove();
+        }
+
         let thiefAutoTimer = null;
         function startThiefAuto() {
             stopThiefAuto();
@@ -1577,6 +1789,236 @@
             }, Math.max(15, config.thiefEverySec) * 1000);
         }
         function stopThiefAuto() { if (thiefAutoTimer) { clearInterval(thiefAutoTimer); thiefAutoTimer = null; } }
+
+        // ===== OSIN: nhặt quà văng ra ngoài hũ, đưa về lại =====
+        // Phát hiện body nằm NGOÀI vùng hũ (rơi ra do shatter/stealJar/tilt) → OSIN xuất hiện
+        // bò ngang, đến từng quà, ôm về và "ném" lại vào hũ. Cuối cùng toast cảm ơn user.
+        let osinBusy = false;
+        function findEscapedBodies() {
+            const r = jarRect();
+            const jarBottomY = r.y + r.h * 0.95;
+            return bodies.filter(b => {
+                const p = b.position;
+                // Ngoài vùng hũ X HOẶC dưới đáy hũ (đã rơi xuống nền canvas)
+                const outsideX = p.x < r.x - 30 || p.x > r.x + r.w + 30;
+                const belowJar = p.y > jarBottomY + 40;
+                return outsideX || belowJar;
+            });
+        }
+        // SVG nhân vật OSIN — hình người đơn giản: đầu, thân áo, tay, chân, basket cầm tay
+        // Tay phải sẽ giữ quà nhặt được (slot .osin-hand)
+        function osinPersonSvg() {
+            return `
+<svg viewBox="0 0 80 140" xmlns="http://www.w3.org/2000/svg" class="osin-person">
+  <!-- mũ -->
+  <ellipse cx="40" cy="14" rx="14" ry="6" fill="#10b981"/>
+  <rect x="29" y="6" width="22" height="10" rx="2" fill="#14b8a6"/>
+  <!-- đầu -->
+  <circle cx="40" cy="26" r="11" fill="#fde68a" stroke="#a16207" stroke-width="1"/>
+  <!-- mắt -->
+  <circle cx="36" cy="25" r="1.4" fill="#1f2937"/>
+  <circle cx="44" cy="25" r="1.4" fill="#1f2937"/>
+  <!-- miệng -->
+  <path d="M36 31 Q40 33 44 31" stroke="#7c2d12" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  <!-- thân áo -->
+  <rect x="26" y="38" width="28" height="38" rx="5" fill="#14b8a6"/>
+  <rect x="26" y="38" width="28" height="8" rx="3" fill="#10b981"/>
+  <!-- nút áo -->
+  <circle cx="40" cy="52" r="1.5" fill="#fff"/>
+  <circle cx="40" cy="60" r="1.5" fill="#fff"/>
+  <circle cx="40" cy="68" r="1.5" fill="#fff"/>
+  <!-- tay trái (cầm chổi) -->
+  <g class="osin-arm-left">
+    <line x1="28" y1="44" x2="16" y2="72" stroke="#fde68a" stroke-width="6" stroke-linecap="round"/>
+    <!-- chổi -->
+    <line x1="14" y1="66" x2="12" y2="84" stroke="#7c2d12" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M8 84 Q12 92 16 84 Z" fill="#fbbf24"/>
+  </g>
+  <!-- tay phải (giữ quà — slot foreignObject .osin-hand) -->
+  <g class="osin-arm-right">
+    <line x1="52" y1="44" x2="64" y2="62" stroke="#fde68a" stroke-width="6" stroke-linecap="round"/>
+    <foreignObject x="56" y="52" width="22" height="22" class="osin-hand"></foreignObject>
+  </g>
+  <!-- chân trái (animation đi bộ) -->
+  <g class="osin-leg-left">
+    <line x1="34" y1="76" x2="32" y2="110" stroke="#1e3a8a" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="32" cy="116" rx="9" ry="4" fill="#0f172a"/>
+  </g>
+  <!-- chân phải -->
+  <g class="osin-leg-right">
+    <line x1="46" y1="76" x2="48" y2="110" stroke="#1e3a8a" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="48" cy="116" rx="9" ry="4" fill="#0f172a"/>
+  </g>
+</svg>`;
+        }
+        function buildOsinNode({ name } = {}) {
+            const wrap = document.createElement('div');
+            wrap.className = 'tt-osin';
+            wrap.innerHTML = `
+                <div class="osin-label">🧹 OSIN${name ? ' · ' + escHtml(name) : ''}</div>
+                <div class="osin-body">${osinPersonSvg()}</div>`;
+            return wrap;
+        }
+        async function triggerOsin(opts = {}) {
+            if (!thiefLayer || osinBusy) return;
+            const r = jarRect();
+
+            // ===== SYNC PHASE (chạy đồng bộ trước khi await) =====
+            // Pre-decide target để App + OBS dùng cùng vị trí. App mutate opts.targetX/Y →
+            // sendCmd payload có sẵn → OBS triggerOsin nhận → render cùng đường đi.
+            if (opts.targetX == null || opts.targetY == null) {
+                // 1) Ưu tiên 1 quà văng ra ngoài hũ
+                const escaped = findEscapedBodies();
+                let target = null;
+                if (escaped.length) {
+                    target = escaped[Math.floor(Math.random() * escaped.length)];
+                } else if (bodies.length) {
+                    // 2) Không có escaped → chọn 1 body bất kỳ trong hũ (để OSIN có việc làm)
+                    target = bodies[Math.floor(Math.random() * bodies.length)];
+                }
+                if (!target) {
+                    // Hũ trống → OSIN vô việc, thông báo nhẹ
+                    showComboToast(
+                        `🧹 OSIN tới giúp nhưng không có quà nào để nhặt`,
+                        'linear-gradient(135deg, #6b7280, #4b5563)'
+                    );
+                    return;
+                }
+                opts.targetX = target.position.x;
+                opts.targetY = target.position.y;
+            }
+            const targetX = opts.targetX;
+            const targetY = opts.targetY;
+
+            // Tìm body LOCAL gần nhất với target (App đã chọn target chính xác,
+            // OBS có thể không match 100% nhưng chọn cái gần nhất trong bán kính 200px)
+            let pickupBody = null;
+            let bestDist = Infinity;
+            for (const b of bodies) {
+                const d = Math.hypot(b.position.x - targetX, b.position.y - targetY);
+                if (d < bestDist) { bestDist = d; pickupBody = b; }
+            }
+            if (bestDist > 200) pickupBody = null;   // không có body khớp → animation visual only
+
+            osinBusy = true;
+            const { name } = opts;
+            const wrap = buildOsinNode({ name });
+            thiefLayer.appendChild(wrap);
+
+            // OSIN xuất hiện từ mép trái/phải gần target (chọn mép gần hơn để đi ít)
+            const fromLeft = targetX < CANVAS_W / 2;
+            const enterX = fromLeft ? -CANVAS_W * 0.13 : CANVAS_W * 1.13;
+            const exitX = enterX;   // exit về lại nơi đến
+            const groundY = CANVAS_H * 0.91;
+            const personW = 12, personH = 16;
+            wrap.style.position = 'absolute';
+            wrap.style.width = personW + '%';
+            wrap.style.height = personH + '%';
+            wrap.style.left = (enterX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)' + (fromLeft ? '' : ' scaleX(-1)');
+            wrap.style.transition = 'left 0.6s linear, top 0.5s cubic-bezier(.25,.1,.25,1)';
+            wrap.classList.add('osin-walking');
+            await wait(80);
+
+            const jarCenterX = r.x + r.w / 2;
+            const jarMouthY = r.y + r.h * SHAPE.neckTopY + 30;
+            const jumpApexY = jarMouthY - 40;
+            const handSlot = wrap.querySelector('.osin-hand');
+
+            // ===== Phase 1: đi TỚI ÔM SÁT quà (target X chính xác) =====
+            // OSIN đứng cạnh quà — visual "ôm sát" như tên trộm. Personal width ~6.5% nên
+            // body center cách quà ~3% canvas (rất gần, gần như chạm).
+            const approachX = targetX + (fromLeft ? -CANVAS_W * 0.03 : CANVAS_W * 0.03);
+            wrap.style.transition = 'left 0.9s linear, top 0.5s cubic-bezier(.25,.1,.25,1)';
+            wrap.style.left = (approachX / CANVAS_W * 100) + '%';
+            wrap.style.top = (Math.max(targetY, groundY * 0.85) / CANVAS_H * 100) + '%';   // có thể cúi xuống nếu quà thấp
+            await wait(920);
+
+            // ===== Phase 2: cúi xuống NHẶT quà =====
+            wrap.classList.remove('osin-walking');
+            wrap.classList.add('osin-carrying');
+            const gm = pickupBody?.gm;
+            if (handSlot && gm?.img) {
+                handSlot.innerHTML = `<img src="${escAttr(gm.img.src)}" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))"/>`;
+            }
+            // Remove body physics (chỉ App authoritative thực sự remove — OBS có thể bỏ qua nếu không match)
+            if (pickupBody) {
+                const idx = bodies.indexOf(pickupBody);
+                if (idx >= 0) {
+                    bodies.splice(idx, 1);
+                    Composite.remove(engine.world, pickupBody);
+                    updateCountDisplay();
+                    onCountChange(bodies.length);
+                    if (config.features.audio) audio.plop();
+                }
+            }
+            // Vợt nhanh (scale up nhỏ để có cảm giác "chộp")
+            wrap.style.transition = 'transform 0.18s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scale(1.08)' + (fromLeft ? '' : ' scaleX(-1)');
+            await wait(180);
+            wrap.style.transform = 'translate(-50%, -100%)' + (fromLeft ? '' : ' scaleX(-1)');
+            await wait(120);
+
+            // ===== Phase 3: đi tới chân hũ =====
+            wrap.classList.add('osin-walking');
+            wrap.style.transition = 'left 0.6s linear, top 0.5s ease-out';
+            wrap.style.left = (jarCenterX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            // Hướng mặt theo hướng đi tới hũ
+            const facingRightToJar = jarCenterX > approachX;
+            wrap.style.transform = 'translate(-50%, -100%)' + (facingRightToJar ? '' : ' scaleX(-1)');
+            await wait(620);
+
+            // ===== Phase 4: NHẢY lên miệng hũ =====
+            wrap.classList.remove('osin-walking');
+            wrap.classList.add('osin-jumping');
+            wrap.style.transition = 'top 0.45s cubic-bezier(.2,1.3,.4,1)';
+            wrap.style.top = (jumpApexY / CANVAS_H * 100) + '%';
+            await wait(460);
+
+            // ===== Phase 5: THẢ quà vào miệng hũ =====
+            if (pickupBody && gm) {
+                const respawnX = jarCenterX + (Math.random() - 0.5) * r.w * 0.3;
+                const respawnY = r.y + r.h * SHAPE.neckTopY + 50;
+                const newBody = Bodies.circle(respawnX, respawnY, gm.sz / 2, {
+                    restitution: config.physics.bounce,
+                    friction: config.physics.friction,
+                    density: 0.002
+                });
+                newBody.gm = gm;
+                Body.setVelocity(newBody, { x: 0, y: 4 });
+                Composite.add(engine.world, newBody);
+                bodies.push(newBody);
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                if (config.features.audio) audio.plop();
+            }
+            if (handSlot) handSlot.innerHTML = '';
+            await wait(140);
+
+            // ===== Phase 6: nhảy XUỐNG sàn =====
+            wrap.classList.remove('osin-jumping');
+            wrap.classList.add('osin-walking');
+            wrap.style.transition = 'top 0.42s cubic-bezier(.4,0,.6,1.1)';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            await wait(420);
+
+            // ===== Phase 7: đi ra khỏi màn hình về phía vào =====
+            wrap.style.transition = 'left 0.9s ease-in';
+            wrap.style.left = (exitX / CANVAS_W * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)' + (fromLeft ? ' scaleX(-1)' : '');
+            await wait(920);
+            wrap.remove();
+            osinBusy = false;
+
+            // Toast cảm ơn
+            const thankName = (name || '').trim() || 'Khách';
+            showComboToast(
+                `🧹 <b>Cảm ơn OSIN ${escHtml(thankName)}</b> đã giúp tôi nhặt quà về hũ!`,
+                'linear-gradient(135deg, #10b981, #14b8a6)'
+            );
+        }
 
         // ===== Crown SVG =====
         function crownIconSvg() {
@@ -1692,7 +2134,9 @@
             }
             engine.gravity.y = config.physics.gravity;
             positionJar();
+            // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
+            updateCaughtList(); updatePoliceForcePanel();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -1712,6 +2156,9 @@
             stats.caughtList = [];
             bannedUntilByUid.clear();
             policeForce.clear();
+            // Clear cả bodies trong hũ — phiên mới = bắt đầu lại 100%
+            // (Tránh tình trạng app preview clear nhưng OBS giữ bodies cũ)
+            clearAll();
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
         }
@@ -1761,10 +2208,16 @@
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
             getJarRect, setJarPosition,
-            triggerThief, setThiefAppearance, setPoliceAppearance,
+            triggerThief, triggerOsin, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow,
+            fxCrackJar, fxStealJar, fxCombo,
+            togglePoliceMembership,
+            // Trả về snapshot lực lượng CS (cho Police popup ngoài app)
+            getPoliceForce: () => Array.from(policeForce.values()),
+            // Trả về snapshot danh sách trộm bị tóm (cho Bị Tóm popup ngoài app)
+            getCaughtList: () => JSON.parse(JSON.stringify(stats.caughtList)),
             getCount: () => bodies.length,
             engine, CANVAS_W, CANVAS_H
         };

@@ -56,30 +56,13 @@
                 </div>
             </section>
 
-            <!-- License/Bản quyền — badge hiển thị trạng thái kích hoạt -->
-            <section class="side-card lic-card">
-                <div class="side-card-title">🔑 Bản quyền</div>
-                <div class="lic-badge" id="lic-badge">
-                    <div class="lic-status" id="lic-status-text">Đang kiểm tra…</div>
-                    <div class="lic-meta" id="lic-meta"></div>
-                </div>
-                <button id="btn-license-logout" class="ghost block small" hidden>🔓 Đăng xuất key</button>
-            </section>
-
-            <!-- Thư viện game -->
+            <!-- Thư viện game (đặt trên — nội dung chính) -->
             <section class="side-card side-library">
                 <div class="side-card-title">🎮 Thư viện Game</div>
                 <div id="game-list" class="game-list"></div>
             </section>
 
-            <!-- Cài đặt nhanh -->
-            <section class="side-card">
-                <div class="side-card-title">⚙ Cài đặt</div>
-                <button id="btn-reload-gifts" class="ghost block small">↻ Đồng bộ danh sách quà</button>
-                <div class="hint" id="gift-count-hint">— quà</div>
-            </section>
-
-            <div class="side-footer">© HP Media · v1.0</div>
+            <div class="side-footer">© HP Media · <span id="footer-version">v1.0.3</span></div>
         </aside>
 
         <!-- ============ MAIN ============ -->
@@ -101,13 +84,10 @@
                         <div class="game-sub" id="g-sub">Quà rơi vào hũ thủy tinh với vật lý realtime — nền trong suốt sẵn sàng cho OBS.</div>
                     </div>
                     <div class="overlay-bar">
-                        <label class="overlay-label">Overlay OBS</label>
-                        <div class="overlay-link-row">
-                            <input id="overlay-url" type="text" readonly hidden />
-                            <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay vào clipboard">📋 Copy link</button>
-                            <button id="btn-open-overlay" class="secondary small" title="Mở overlay trong tab mới">↗ Mở</button>
-                            <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
-                        </div>
+                        <input id="overlay-url" type="text" readonly hidden />
+                        <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Copy link</button>
+                        <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
+                        <button id="btn-open-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -140,7 +120,7 @@
                                     <span class="cfg-val" id="cfg-friction-v">0.05</span>
                                 </div>
                                 <div class="cfg-row">
-                                    <label>Cao hũ</label>
+                                    <label>Size Hũ</label>
                                     <input type="range" id="cfg-jar-h" min="400" max="1700" step="20" />
                                     <span class="cfg-val" id="cfg-jar-h-v">1200</span>
                                 </div>
@@ -157,6 +137,7 @@
                                 <div class="cfg-row inline">
                                     <label><input type="checkbox" id="cfg-show-count"/> Số đếm</label>
                                     <label><input type="checkbox" id="cfg-jar-visible"/> Hiện hũ</label>
+                                    <label><input type="checkbox" id="cfg-jar-locked"/> 🔒 Khoá hũ</label>
                                 </div>
                             </div>
 
@@ -253,6 +234,7 @@
                                 </div>
                                 <div class="cfg-actions">
                                     <button id="btn-thief" class="ghost small">🥷 Thả trộm</button>
+                                    <button id="btn-osin" class="ghost small">🧹 Gọi OSIN</button>
                                     <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
                                     <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
                                 </div>
@@ -347,6 +329,110 @@
         <div class="cm-list" id="cm-list"></div>
         <hr/>
         <button class="cm-clear" id="cm-clear">❌ Xoá gán</button>
+    </div>
+
+    <!-- ⚙ Settings popup — chứa Bản quyền, Phiên bản, Đồng bộ quà -->
+    <div id="settings-popup" class="settings-popup" hidden>
+        <div class="settings-card">
+            <div class="settings-head">
+                <span>⚙ Cài đặt</span>
+                <button id="settings-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+            <div class="settings-body">
+
+                <!-- 🔑 Bản quyền -->
+                <div class="settings-block">
+                    <div class="settings-block-title">🔑 Bản quyền</div>
+                    <div class="lic-badge" id="lic-badge">
+                        <div class="lic-status" id="lic-status-text">Đang kiểm tra…</div>
+                        <div class="lic-meta" id="lic-meta"></div>
+                    </div>
+                </div>
+
+                <!-- 📦 Phiên bản -->
+                <div class="settings-block">
+                    <div class="settings-block-title">📦 Phiên bản</div>
+                    <div class="version-block">
+                        <div class="vb-row">
+                            <span class="vb-label">Hiện tại</span>
+                            <span class="vb-value" id="vb-current">…</span>
+                        </div>
+                        <div class="vb-row" id="vb-row-latest" hidden>
+                            <span class="vb-label">Mới nhất</span>
+                            <span class="vb-value new" id="vb-latest">—</span>
+                        </div>
+                        <div class="vb-actions">
+                            <button class="vb-btn" id="btn-check-update" title="Kiểm tra GitHub Releases">🔄 Kiểm tra phiên bản</button>
+                            <button class="vb-btn primary" id="btn-show-update" hidden>📥 Cập nhật ngay</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ↻ Đồng bộ quà -->
+                <div class="settings-block">
+                    <div class="settings-block-title">🎁 Danh sách quà</div>
+                    <button id="btn-reload-gifts" class="ghost block small">↻ Đồng bộ danh sách quà</button>
+                    <div class="hint" id="gift-count-hint">— quà</div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 🎉 Update confirm modal — Đồng ý / Không đồng ý -->
+    <div class="update-modal" id="update-modal" role="dialog" aria-modal="true">
+        <div class="um-card">
+            <div class="um-head">
+                <div class="um-ico">🎉</div>
+                <div>
+                    <div class="um-title">Có bản cập nhật mới</div>
+                    <div class="um-sub">Phiên bản hiện tại <b id="um-current">v?</b> → bản mới <b id="um-new">v?</b></div>
+                </div>
+            </div>
+            <div class="um-body">
+                <div class="um-section-label">Nội dung cập nhật</div>
+                <div class="um-notes" id="um-notes"></div>
+            </div>
+            <div class="um-foot">
+                <button class="um-btn um-btn-link" id="um-btn-details">Xem trang chi tiết ↗</button>
+                <button class="um-btn um-btn-skip" id="um-btn-skip">Không đồng ý</button>
+                <button class="um-btn um-btn-confirm" id="um-btn-confirm">✓ Đồng ý — Cập nhật</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🚓 Police Force popup — như Bình luận, mở từ FAB -->
+    <button id="police-fab" class="police-fab" title="Lực lượng cảnh sát">
+        🚓<span class="badge" id="police-badge" hidden>0</span>
+    </button>
+    <div id="police-popup" class="police-popup" hidden>
+        <div class="police-popup-head">
+            <span>🚓 Lực lượng Cảnh sát</span>
+            <div class="head-actions">
+                <button id="police-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div id="police-list" class="police-list">
+            <div class="police-empty">Chưa có ai gia nhập lực lượng cảnh sát.</div>
+        </div>
+        <div class="police-popup-foot">User tặng quà gán "Gia nhập CS" sẽ vào danh sách này.</div>
+    </div>
+
+    <!-- 🥷 Bị Tóm popup — quản lý danh sách trộm bị tóm + nút BẢO LÃNH -->
+    <button id="caught-fab" class="caught-fab" title="Danh sách trộm bị tóm">
+        🥷<span class="badge" id="caught-badge" hidden>0</span>
+    </button>
+    <div id="caught-popup" class="caught-popup" hidden>
+        <div class="caught-popup-head">
+            <span>🥷 Bị Tóm</span>
+            <div class="head-actions">
+                <button id="caught-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div id="caught-popup-list" class="caught-popup-list">
+            <div class="caught-empty">Chưa có ai bị tóm.</div>
+        </div>
+        <div class="caught-popup-foot">Idol bấm <b>BẢO LÃNH</b> để thả tự do sớm.</div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>

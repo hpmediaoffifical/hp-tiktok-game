@@ -320,12 +320,17 @@ app.post('/api/games/:id/config', (req, res) => {
     res.json({ ok: true, config: appConfig.games[g.id] });
 });
 
-// Cache trạng thái game từng game — đẩy lên overlay khi (re)connect
+// Cache trạng thái game từng game — đẩy lên overlay khi (re)connect VÀ push realtime mỗi POST.
+// QUAN TRỌNG: app preview là authoritative source. Khi caughtList/policeForce/totalDiamonds đổi,
+// app POST state → server cache + broadcast tới room 'overlay' → OBS gọi loadState → render lại.
+// → OBS LUÔN khớp app, không bị stale, không cần Reset Browser trong OBS.
 const gameStateCache = {};
 app.post('/api/games/:id/state', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     gameStateCache[g.id] = req.body || {};
+    // Live broadcast tới room 'overlay' (KHÔNG echo về 'preview' để tránh ghi đè edits đang gõ)
+    io.to('overlay').emit('gameStateSnapshot', { gameId: g.id, state: gameStateCache[g.id] });
     res.json({ ok: true });
 });
 app.get('/api/games/:id/state', (req, res) => {
@@ -521,3 +526,6 @@ httpServer.listen(PORT, async () => {
     try { await loadGiftSheet(); }
     catch (e) { console.warn('[server] Không tải được Google Sheet:', e.message); }
 });
+
+// Export cho electron-main.js gọi httpServer.close() khi quit
+module.exports = { httpServer, app, io };

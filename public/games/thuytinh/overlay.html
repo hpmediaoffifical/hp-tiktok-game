@@ -15,6 +15,8 @@
         transform-origin: center center;
         width: 1080px; height: 1920px;
         background: transparent;
+        /* container-type cho phép cqw units → khớp app preview ↔ OBS overlay */
+        container-type: inline-size;
     }
     #content img.jar-bottom, #content img.jar-glass { position: absolute; pointer-events: none; }
     #content img.jar-bottom { z-index: 2; }
@@ -39,6 +41,14 @@
         z-index: 9999; opacity: 0.5;
     }
     .debug-pill.hidden { display: none; }
+
+    /* === Offline state: HOÀN TOÀN TRONG SUỐT khi App đóng ===
+       Yêu cầu UX: không có UI, không có khung, không có thông báo gì.
+       Toàn bộ #content (hũ + canvas + panels) bị ẩn → OBS browser source thấy nền trong.
+       Như vậy không ảnh hưởng livestream của user. */
+    body.offline #content { display: none; }
+    body.offline #stage { background: transparent; }
+    body.offline .debug-pill { display: none !important; }
 </style>
 </head>
 <body>
@@ -83,24 +93,86 @@
         let game = null;
         function ensureGame(cfg) {
             if (game) return;
+            // mirrorMode: true → OBS chỉ render, không tự chạy trigger logic.
+            // Mọi animation đặc biệt (trộm, OSIN, hiệu ứng) chạy qua gameCmd từ App.
+            // → Đảm bảo OBS đồng bộ 100% với App preview.
             game = HpGame.thuytinh.create({
                 canvas, fxCanvas, overlayLayer,
                 jarBottomEl: bottomEl, jarGlassEl: glassEl,
                 countDisplay: countEl,
+                mirrorMode: true,
                 config: cfg || HpGame.thuytinh.defaultConfig()
             });
         }
 
-        const socket = io();
+        // ===== Connection lifecycle =====
+        // Khi App đóng (server tắt) → socket disconnect → sau 3s grace, ẨN HOÀN TOÀN content.
+        // OBS browser source sẽ chỉ thấy nền trong suốt → không ảnh hưởng livestream.
+        // Khi App mở lại, socket reconnect → hiện lại + fetch state mới.
+        let offlineTimer = null;
+        const OFFLINE_GRACE_MS = 3000;
+        function showOffline() {
+            // Đặt body.offline → CSS ẩn #content (hũ + canvas + panels)
+            document.body.classList.add('offline');
+            // Clear local state — tránh stale frame khi reconnect
+            try {
+                if (game) {
+                    game.clearAll();
+                    game.resetSession();
+                }
+            } catch (e) { /* ignore */ }
+        }
+        function hideOffline() {
+            document.body.classList.remove('offline');
+        }
+        function scheduleOffline() {
+            clearTimeout(offlineTimer);
+            offlineTimer = setTimeout(showOffline, OFFLINE_GRACE_MS);
+        }
+        function cancelOffline() {
+            clearTimeout(offlineTimer); offlineTimer = null;
+            hideOffline();
+        }
+
+        const socket = io({
+            // Auto-reconnect với backoff (mặc định Socket.IO), giữ kết nối lại
+            reconnection: true,
+            reconnectionDelay: 600,
+            reconnectionDelayMax: 5000
+        });
+
         socket.on('connect', () => {
             debugEl.textContent = 'connected';
+            debugEl.classList.remove('hidden');
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+            cancelOffline();
             socket.emit('subscribe', 'overlay');
+            // Refetch config + state sau reconnect — đảm bảo overlay khớp App ngay lập tức
+            fetch('/api/games/thuytinh/config').then(r => r.json()).then(cfg => {
+                ensureGame(cfg);
+                if (game) game.setConfig(cfg);
+            }).catch(() => ensureGame());
         });
-        socket.on('disconnect', () => debugEl.textContent = 'disconnected');
 
+        socket.on('disconnect', (reason) => {
+            debugEl.textContent = 'disconnected: ' + reason;
+            debugEl.classList.remove('hidden');
+            // Lên lịch hiện offline overlay nếu mất kết nối kéo dài > 3s
+            scheduleOffline();
+        });
+
+        socket.on('reconnect_attempt', () => {
+            debugEl.textContent = 'reconnecting...';
+        });
+
+        // Initial config fetch + game init (trước khi connect xong)
         fetch('/api/games/thuytinh/config').then(r => r.json()).then(cfg => {
             ensureGame(cfg);
-        }).catch(() => ensureGame());
+        }).catch(() => {
+            // Fetch config thất bại nghĩa là server không phản hồi → hiện offline ngay
+            ensureGame();
+            showOffline();
+        });
 
         socket.on('gameConfig', ({ gameId, config }) => {
             if (gameId !== 'thuytinh' || !game) return;
@@ -133,13 +205,23 @@
         // Chỉ listen 1 event để tránh duplicate (server emit cả 'gift' broadcast + 'gameGift' vào room overlay)
         socket.on('gift', handleGift);
 
-        // Lệnh điều khiển từ app chính (vd thả tên trộm trên overlay)
+        // Lệnh điều khiển từ App (authoritative) — OBS replay 1:1 mọi action.
+        // App đẩy đủ payload (user info, mode...) để OBS hiển thị cùng nội dung.
         socket.on('gameCmd', ({ gameId, cmd, payload }) => {
             if (gameId !== 'thuytinh' || !game) return;
             if (cmd === 'thief') {
+                // payload có thể là 1 object userInfo, hoặc {thieves:[...]}.
                 const thieves = (payload && payload.thieves && payload.thieves.length)
-                    ? payload.thieves : [{}];
+                    ? payload.thieves
+                    : [payload || {}];
                 thieves.forEach((t, i) => setTimeout(() => game.triggerThief(t), i * 400));
+            }
+            else if (cmd === 'osin') game.triggerOsin(payload || {});
+            else if (cmd === 'joinPolice') {
+                // User gia nhập / rời lực lượng CS — payload là userInfo
+                if (typeof game.togglePoliceMembership === 'function') {
+                    game.togglePoliceMembership(payload || {});
+                }
             }
             else if (cmd === 'fireworks') game.fxFireworks();
             else if (cmd === 'tornado') game.fxTornado();
@@ -147,6 +229,10 @@
             else if (cmd === 'tilt') game.fxTilt();
             else if (cmd === 'gravflip') game.fxGravFlip();
             else if (cmd === 'shake') game.shake();
+            else if (cmd === 'slow') { if (game.fxSlow) game.fxSlow(); }
+            else if (cmd === 'crackJar') { if (game.fxCrackJar) game.fxCrackJar(); }
+            else if (cmd === 'stealJar') { if (game.fxStealJar) game.fxStealJar(); }
+            else if (cmd === 'combo') { if (game.fxCombo) game.fxCombo(payload || {}); }
             else if (cmd === 'clear') game.clearAll();
             else if (cmd === 'resetSession') game.resetSession();
             else if (cmd === 'bail') {
