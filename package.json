@@ -8,8 +8,7 @@
     "start": "electron .",
     "server": "node server.js",
     "build": "electron-builder",
-    "build:win": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
+    "build:win": "electron-builder --win"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -48,8 +47,7 @@
       "verifyUpdateCodeSignature": false,
       "requestedExecutionLevel": "asInvoker",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] }
       ],
       "artifactName": "HP-Action-LIVE-Setup-${version}.exe"
     },
@@ -75,10 +73,6 @@
       "warningsAsErrors": false,
       "differentialPackage": false,
       "artifactName": "HP-Action-LIVE-Setup-${version}.exe"
-    },
-    "portable": {
-      "artifactName": "HP-Action-LIVE-Portable-${version}.exe",
-      "requestExecutionLevel": "user"
     }
   }
 }

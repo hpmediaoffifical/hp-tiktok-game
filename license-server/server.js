@@ -187,6 +187,96 @@ app.get('/', (req, res) => {
     });
 });
 
+// ============================================================
+// AUTO-UPDATE ENDPOINTS
+// ============================================================
+// HP Media upload .exe mới + version.json vào folder releases/
+// App electron query /api/version → so version → tải /api/download/installer
+// → cài silent → app tự reopen.
+//
+// KHÔNG expose GitHub URL — toàn bộ flow đi qua license-server (URL bạn kiểm
+// soát). Attacker không thấy thông tin dev/repo qua app's network traffic.
+// ============================================================
+
+const RELEASES_DIR = process.env.RELEASES_DIR || path.join(__dirname, 'releases');
+const VERSION_JSON = path.join(RELEASES_DIR, 'version.json');
+
+function readVersionInfo() {
+    try {
+        if (fs.existsSync(VERSION_JSON)) {
+            return JSON.parse(fs.readFileSync(VERSION_JSON, 'utf8'));
+        }
+    } catch (e) { console.warn('[update] Đọc version.json lỗi:', e.message); }
+    return null;
+}
+
+// GET /api/version — trả về phiên bản mới nhất + release notes + checksum
+app.get('/api/version', (req, res) => {
+    const v = readVersionInfo();
+    if (!v) {
+        return res.status(503).json({ ok: false, error: 'Chưa có phiên bản nào được publish' });
+    }
+    // Trả về metadata KHÔNG bao gồm absolute path file
+    res.json({
+        ok: true,
+        version: v.version,
+        notes: v.notes || '',
+        size: v.size || 0,
+        sha256: v.sha256 || '',
+        published_at: v.published_at || null
+        // Lưu ý: download URL được implicit là /api/download/installer
+    });
+});
+
+// GET /api/download/installer — stream installer .exe (binary)
+app.get('/api/download/installer', (req, res) => {
+    const v = readVersionInfo();
+    if (!v || !v.filename) {
+        return res.status(503).json({ ok: false, error: 'Chưa có phiên bản nào được publish' });
+    }
+    const filePath = path.join(RELEASES_DIR, v.filename);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ ok: false, error: 'File installer không tồn tại trên server' });
+    }
+    const stat = fs.statSync(filePath);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `attachment; filename="HP-Action-LIVE-Setup-${v.version}.exe"`);
+    res.setHeader('X-Checksum-SHA256', v.sha256 || '');
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    fs.createReadStream(filePath).pipe(res);
+    logLine(`UPDATE_DOWNLOAD ip=${req.ip} version=${v.version} ua="${(req.headers['user-agent'] || '').slice(0, 60)}"`);
+});
+
+// Admin endpoint: upload new release (dùng để publish phiên bản)
+// curl POST /admin/api/publish-version với body JSON: {version, notes, filename, sha256, size}
+app.post('/admin/api/publish-version', requireAdminAuth, (req, res) => {
+    const { version, notes, filename, sha256, size } = req.body || {};
+    if (!version || !filename || !sha256) {
+        return res.json({ ok: false, error: 'Thiếu trường bắt buộc: version, filename, sha256' });
+    }
+    const filePath = path.join(RELEASES_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+        return res.json({ ok: false, error: `File ${filename} không có trong releases/. Upload trước rồi mới publish metadata.` });
+    }
+    const info = {
+        version: String(version).replace(/^v/i, ''),
+        notes: String(notes || ''),
+        filename,
+        sha256: String(sha256).toLowerCase(),
+        size: size || fs.statSync(filePath).size,
+        published_at: Date.now()
+    };
+    try {
+        if (!fs.existsSync(RELEASES_DIR)) fs.mkdirSync(RELEASES_DIR, { recursive: true });
+        fs.writeFileSync(VERSION_JSON, JSON.stringify(info, null, 2));
+        logLine(`ADMIN_PUBLISH version=${info.version} file=${filename} sha256=${info.sha256.slice(0, 16)}...`);
+        res.json({ ok: true, info });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // === POST /activate ===
 app.post('/activate', activateLimiter, async (req, res) => {
     const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';

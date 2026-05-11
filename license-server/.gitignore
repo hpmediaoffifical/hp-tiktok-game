@@ -7,6 +7,10 @@ data/activations.log
 data/*.db
 data/*.db-journal
 
+# Release binaries (lưu trên server, KHÔNG commit lên git)
+releases/*.exe
+releases/version.json
+
 # Node
 node_modules/
 npm-debug.log

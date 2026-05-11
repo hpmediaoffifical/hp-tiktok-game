@@ -1647,6 +1647,104 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     margin-right: auto;
 }
 
+/* === Auto-update progress overlay (full-screen khi đang cài) === */
+.update-overlay {
+    position: fixed; inset: 0;
+    background: linear-gradient(180deg, rgba(11,13,18,0.96), rgba(19,23,34,0.96));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 10005;
+    padding: 24px;
+    animation: uoFadeIn 0.3s ease-out;
+}
+.update-overlay.show { display: flex; }
+@keyframes uoFadeIn { from { opacity: 0 } to { opacity: 1 } }
+.update-overlay .uo-card {
+    width: min(480px, 100%);
+    background: linear-gradient(180deg, #1a1f2c, #131722);
+    border: 1px solid #2c3243;
+    border-radius: 18px;
+    padding: 32px 28px;
+    color: #e6e8ee;
+    text-align: center;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+    animation: uoSlideUp 0.35s cubic-bezier(.2,1.2,.4,1);
+}
+@keyframes uoSlideUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+.update-overlay .uo-logo {
+    width: 68px; height: 68px;
+    margin: 0 auto 14px;
+    background: linear-gradient(135deg, #7c3aed, #3b82f6);
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px rgba(124,58,237,0.45);
+    overflow: hidden;
+}
+.update-overlay .uo-logo img {
+    width: 100%; height: 100%; object-fit: contain;
+    padding: 8px;
+}
+.update-overlay .uo-title {
+    font-size: 19px; font-weight: 800;
+    letter-spacing: 0.3px;
+    color: #ffd166;
+    margin-bottom: 4px;
+}
+.update-overlay .uo-phase {
+    font-size: 13px; color: #cdd3e0;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+.update-overlay .uo-bar {
+    width: 100%; height: 10px;
+    background: #0e1118;
+    border-radius: 999px; overflow: hidden;
+    border: 1px solid #2c3243;
+}
+.update-overlay .uo-bar-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #7c3aed, #3b82f6, #22c55e);
+    background-size: 200% 100%;
+    animation: uoShimmer 2s linear infinite;
+    transition: width 0.3s ease;
+    border-radius: 999px;
+}
+@keyframes uoShimmer {
+    0% { background-position: 0 0; }
+    100% { background-position: 200% 0; }
+}
+.update-overlay .uo-percent {
+    font-size: 14px; font-weight: 800; color: #fff;
+    margin-top: 8px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.update-overlay .uo-message {
+    font-size: 12px; color: #8b93a8;
+    margin-top: 4px;
+    min-height: 1.4em;
+}
+.update-overlay .uo-warning {
+    font-size: 11px; color: #f59e0b;
+    margin-top: 18px;
+    padding: 8px 12px;
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 8px;
+}
+.update-overlay.error .uo-bar-fill { background: #ef4444; animation: none; }
+.update-overlay.error .uo-phase { color: #fca5a5; }
+.update-overlay.error .uo-warning { display: none; }
+.update-overlay .uo-close {
+    margin-top: 14px;
+    background: #2a3041; color: #cdd3e0;
+    border: none; padding: 9px 24px;
+    border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 600;
+}
+.update-overlay .uo-close:hover { filter: brightness(1.15); }
+
 /* === 8. Police force popup (như Comments popup nhưng góc khác) === */
 .police-fab {
     position: fixed;

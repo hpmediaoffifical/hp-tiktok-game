@@ -15,16 +15,20 @@ const SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
 const SHEET_NAME = 'DANH SACH QUA';
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
-// === LICENSE VALIDATION qua server riêng ===
-// App KHÔNG fetch Google Sheet KEY_HP_GAME trực tiếp (tránh lộ Sheet ID + bulk-scrape).
-// License server (license-server/ hoặc cloudflare-worker/) đứng giữa: nhận key → đọc Sheet
-// (server-side, Sheet ID ẩn) → trả về kết quả validate.
-// Bảo mật đường truyền: HTTPS (BẮT BUỘC trong production).
-//
-// Deploy server (xem license-server/README.md hoặc cloudflare-worker/README.md),
-// sau đó update URL bên dưới + rebuild app.
+// === LICENSE VALIDATION ===
+// PRODUCTION: trỏ tới license-server riêng (license-server/ hoặc cloudflare-worker/).
+//             Sheet ID ẩn ở server, app chỉ POST key → nhận result.
+// TEST/DEV:   nếu LICENSE_WORKER_URL chưa được cấu hình (placeholder),
+//             app sẽ FALLBACK đọc Google Sheet trực tiếp (như v1.0.4 cũ).
+//             Tiện cho test local trước khi deploy license-server.
 const LICENSE_WORKER_URL = process.env.HP_LICENSE_WORKER_URL
     || 'https://hp-license.YOUR-DOMAIN.workers.dev';   // ← UPDATE sau khi deploy server
+
+const KEY_SHEET_NAME = 'KEY_HP_GAME';
+const KEY_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(KEY_SHEET_NAME)}`;
+function isWorkerConfigured() {
+    return !LICENSE_WORKER_URL.includes('YOUR-DOMAIN') && !LICENSE_WORKER_URL.includes('YOUR-CF-USERNAME');
+}
 // HP_DATA_DIR được set bởi electron-main.js trong môi trường đóng gói (vì __dirname nằm trong asar read-only).
 // Khi chạy dev / node trực tiếp: fallback về data/ cạnh server.js
 const DATA_DIR = process.env.HP_DATA_DIR || path.join(__dirname, 'data');
@@ -169,16 +173,85 @@ function getDeviceFingerprint() {
     return _cachedDeviceId;
 }
 
+// ===== FALLBACK: đọc Sheet trực tiếp (dùng cho test/dev khi chưa deploy license-server) =====
+let _keySheetCache = null;
+let _keySheetCachedAt = 0;
+const KEY_SHEET_TTL_MS = 5 * 60 * 1000;
+
+function _normalizeRole(raw) {
+    const up = String(raw || '').toUpperCase();
+    if (up === 'ADMIN' || up === 'CREATOR') return up;
+    return 'ADMIN';   // backward compat: VIP/Thường/blank → full access
+}
+
+function _parseDmy(s) {
+    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 23, 59, 59);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+async function _validateLicenseKeyDirect(key) {
+    let list = _keySheetCache;
+    if (!list || Date.now() - _keySheetCachedAt > KEY_SHEET_TTL_MS) {
+        try {
+            const r = await fetch(KEY_SHEET_CSV_URL);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const csv = await r.text();
+            const rows = parseCsv(csv);
+            list = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || !row[0]) continue;
+                const k = String(row[0]).trim();
+                if (!k) continue;
+                list.push({
+                    key: k,
+                    expiry: String(row[1] || '').trim(),
+                    role: _normalizeRole(row[2] || ''),
+                    roleRaw: String(row[2] || '').trim(),
+                    status: String(row[3] || '').trim(),
+                    note: String(row[4] || '').trim()
+                });
+            }
+            _keySheetCache = list;
+            _keySheetCachedAt = Date.now();
+        } catch (e) {
+            return { ok: false, error: 'Không kết nối được Google Sheet — kiểm tra mạng', _offline: true };
+        }
+    }
+    const row = list.find(r => r.key.toLowerCase() === key.toLowerCase());
+    if (!row) return { ok: false, error: 'Key không tồn tại trong hệ thống' };
+    if (/hết hạn|tạm khóa|tam khoa|het han|khoa|locked/i.test(row.status)) {
+        return { ok: false, error: 'Key đã bị khoá hoặc hết hạn' };
+    }
+    const expiryDate = _parseDmy(row.expiry);
+    if (expiryDate && expiryDate.getTime() < Date.now()) {
+        return { ok: false, error: `Key đã hết hạn từ ${row.expiry}` };
+    }
+    return {
+        ok: true,
+        key: row.key,
+        role: row.role,
+        vip: row.roleRaw,
+        expiry: row.expiry,
+        expiryISO: expiryDate ? expiryDate.toISOString() : null,
+        status: 'Đang sử dụng',
+        note: row.note
+    };
+}
+
 async function validateLicenseKey(rawKey) {
     const key = String(rawKey || '').trim();
     if (!key) return { ok: false, error: 'Vui lòng nhập key bản quyền' };
 
-    // Cảnh báo nếu chưa cấu hình URL server
-    if (LICENSE_WORKER_URL.includes('YOUR-DOMAIN') || LICENSE_WORKER_URL.includes('YOUR-CF-USERNAME')) {
-        console.warn('[license] Server URL chưa được cấu hình. Update LICENSE_WORKER_URL trong server.js.');
-        return { ok: false, error: 'Hệ thống bản quyền chưa được cấu hình. Vui lòng liên hệ HP Media.' };
+    // === Test/dev mode: chưa cấu hình LICENSE_WORKER_URL → đọc Sheet trực tiếp ===
+    if (!isWorkerConfigured()) {
+        console.log('[license] [TEST MODE] LICENSE_WORKER_URL chưa cấu hình — fallback đọc Sheet trực tiếp');
+        return _validateLicenseKeyDirect(key);
     }
 
+    // === Production mode: gọi license-server ===
     let body;
     try {
         const res = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/activate', {
@@ -192,12 +265,10 @@ async function validateLicenseKey(rawKey) {
         return { ok: false, error: 'Không kết nối được hệ thống bản quyền — kiểm tra mạng và thử lại', _offline: true };
     }
 
-    // Server từ chối
     if (!body || body.ok === false) {
         return { ok: false, error: body?.error || 'Key không hợp lệ' };
     }
 
-    // Sanity check expiry trên app (defense in depth)
     if (body.expiryISO && new Date(body.expiryISO).getTime() < Date.now()) {
         return { ok: false, error: `Key đã hết hạn từ ${body.expiry || body.expiryISO}` };
     }
@@ -205,8 +276,8 @@ async function validateLicenseKey(rawKey) {
     return {
         ok: true,
         key: body.key,
-        role: body.role || 'ADMIN',            // ADMIN | CREATOR
-        vip: body.vip || body.role || '',      // text display: VIP / Thường / ADMIN / CREATOR
+        role: body.role || 'ADMIN',
+        vip: body.vip || body.role || '',
         expiry: body.expiry,
         expiryISO: body.expiryISO,
         status: 'Đang sử dụng',
@@ -362,17 +433,171 @@ app.get('/api/games/:id/state', (req, res) => {
     res.json(gameStateCache[req.params.id] || null);
 });
 
-// Trả về version app hiện tại + tên GitHub repo để client check update
+// Trả về version app hiện tại (KHÔNG còn expose GitHub repo)
 app.get('/api/version', (req, res) => {
     try {
         const pkg = require('./package.json');
-        res.json({
-            version: pkg.version,
-            name: pkg.name,
-            repo: 'hpmediaoffifical/hp-tiktok-game'
-        });
-    } catch (e) { res.json({ version: '0.0.0', repo: '' }); }
+        res.json({ version: pkg.version, name: pkg.name });
+    } catch (e) { res.json({ version: '0.0.0' }); }
 });
+
+// ============================================================
+// AUTO-UPDATE: check + download + install
+// ============================================================
+// Flow:
+//   1. App load → GET /api/update/check → so version với license-server
+//   2. Có update → modal hỏi user
+//   3. User OK → POST /api/update/download → server tải .exe + emit progress
+//      qua socket → verify SHA256 → spawn installer silent → app.quit
+// KHÔNG show URL ra UI, KHÔNG link GitHub.
+
+app.get('/api/update/check', async (req, res) => {
+    try {
+        const pkg = require('./package.json');
+        const localVer = pkg.version || '0.0.0';
+        // Gọi license-server /api/version để biết phiên bản mới
+        if (!isWorkerConfigured()) {
+            // Test mode: không có license-server, skip update check
+            return res.json({ ok: true, localVersion: localVer, hasUpdate: false, testMode: true });
+        }
+        const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const remote = await r.json();
+        if (!remote.ok || !remote.version) return res.json({ ok: true, localVersion: localVer, hasUpdate: false });
+        const isNewer = cmpVersion(remote.version, localVer) > 0;
+        res.json({
+            ok: true,
+            localVersion: localVer,
+            hasUpdate: isNewer,
+            latestVersion: remote.version,
+            notes: remote.notes || '',
+            size: remote.size || 0,
+            sha256: remote.sha256 || ''
+        });
+    } catch (e) {
+        res.json({ ok: false, error: e.message });
+    }
+});
+
+function cmpVersion(a, b) {
+    const aP = String(a).split('.').map(n => parseInt(n, 10) || 0);
+    const bP = String(b).split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(aP.length, bP.length); i++) {
+        const da = aP[i] || 0, db = bP[i] || 0;
+        if (da > db) return 1;
+        if (da < db) return -1;
+    }
+    return 0;
+}
+
+// Lazy require electron app (chỉ có khi chạy trong electron, không có khi node thuần)
+let _electronApp = null;
+try { _electronApp = require('electron').app; } catch {}
+
+let updateInProgress = false;
+
+app.post('/api/update/download', async (req, res) => {
+    if (updateInProgress) return res.json({ ok: false, error: 'Đang cập nhật, vui lòng đợi' });
+    if (!isWorkerConfigured()) return res.json({ ok: false, error: 'Server cập nhật chưa cấu hình' });
+
+    updateInProgress = true;
+    res.json({ ok: true, started: true });   // Trả response ngay, download chạy background
+
+    // Background process — emit progress qua socket
+    (async () => {
+        const sendProgress = (data) => io.emit('updateProgress', data);
+        try {
+            // Step 1: get metadata (size + sha256)
+            sendProgress({ phase: 'connecting', percent: 0, message: 'Đang kết nối tới máy chủ cập nhật...' });
+            const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
+            const meta = await metaRes.json();
+            if (!meta.ok || !meta.version) throw new Error('Không lấy được thông tin phiên bản');
+            const expectedSize = meta.size || 0;
+            const expectedSha = (meta.sha256 || '').toLowerCase();
+
+            // Step 2: download installer to temp folder
+            const os = require('os');
+            const tempPath = path.join(os.tmpdir(), `hp-action-live-update-${meta.version}.exe`);
+            sendProgress({ phase: 'downloading', percent: 0, message: 'Đang tải bản cập nhật...', total: expectedSize });
+
+            const dlRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer', { timeout: 0 });
+            if (!dlRes.ok) throw new Error('Tải về thất bại: HTTP ' + dlRes.status);
+
+            const writer = fs.createWriteStream(tempPath);
+            let received = 0;
+            let lastEmit = 0;
+            await new Promise((resolve, reject) => {
+                dlRes.body.on('data', chunk => {
+                    received += chunk.length;
+                    const now = Date.now();
+                    if (now - lastEmit > 200) {   // throttle progress to 5/sec
+                        lastEmit = now;
+                        const percent = expectedSize ? Math.min(99, Math.floor(received / expectedSize * 100)) : 0;
+                        sendProgress({
+                            phase: 'downloading',
+                            percent,
+                            received,
+                            total: expectedSize,
+                            message: `Đang tải... ${formatBytes(received)} / ${formatBytes(expectedSize)}`
+                        });
+                    }
+                });
+                dlRes.body.pipe(writer);
+                dlRes.body.on('error', reject);
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+
+            sendProgress({ phase: 'verifying', percent: 99, message: 'Đang kiểm tra chữ ký số...' });
+
+            // Step 3: verify SHA-256
+            if (expectedSha) {
+                const hash = crypto.createHash('sha256');
+                await new Promise((resolve, reject) => {
+                    const s = fs.createReadStream(tempPath);
+                    s.on('data', d => hash.update(d));
+                    s.on('end', resolve);
+                    s.on('error', reject);
+                });
+                const actualSha = hash.digest('hex').toLowerCase();
+                if (actualSha !== expectedSha) {
+                    try { fs.unlinkSync(tempPath); } catch {}
+                    throw new Error(`Checksum không khớp — file có thể bị lỗi hoặc giả mạo. (${actualSha.slice(0, 16)} ≠ ${expectedSha.slice(0, 16)})`);
+                }
+            }
+
+            sendProgress({ phase: 'installing', percent: 100, message: 'Tải xong! Sẽ tự cài và khởi động lại...' });
+
+            // Step 4: spawn installer with delay + silent flag, then quit app
+            // NSIS /S = silent install. ping -n 3 = delay ~2s để app hiện tại kịp exit
+            // trước khi installer cố ghi đè .exe (Windows không cho overwrite running .exe).
+            const { spawn } = require('child_process');
+            const cmd = `ping -n 3 127.0.0.1 > nul && "${tempPath}" /S`;
+            spawn('cmd.exe', ['/c', cmd], {
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: true
+            }).unref();
+
+            // Cho UI 1.5s để render message xong rồi mới quit
+            setTimeout(() => {
+                if (_electronApp) {
+                    try { _electronApp.exit(0); } catch (e) { process.exit(0); }
+                } else process.exit(0);
+            }, 1500);
+        } catch (e) {
+            io.emit('updateProgress', { phase: 'error', percent: 0, message: 'Lỗi: ' + e.message });
+            updateInProgress = false;
+        }
+    })();
+});
+
+function formatBytes(b) {
+    if (!b) return '—';
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
 
 app.get('/api/last-user', (req, res) => {
     res.json({ username: appConfig.lastUsername || '' });

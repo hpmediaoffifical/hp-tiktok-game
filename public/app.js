@@ -1252,37 +1252,39 @@
         } catch { return null; }
     }
 
+    // === Auto-update — gọi license-server qua app's /api/update/check ===
+    // KHÔNG còn link GitHub. App's internal server proxy tới license-server.
     async function checkForUpdate(opts = {}) {
         const manual = !!opts.manual;
         try {
-            const local = await fetchVersionInfo();
-            const localVer = currentLocalVersion;
-            const repo = local?.repo;
-            if (!repo) { if (manual) toastInfo('Chưa cấu hình GitHub repo'); return; }
-            const remote = await (await fetch(`https://api.github.com/repos/${repo}/releases/latest`)).json();
-            if (!remote?.tag_name) { if (manual) toastInfo('Không tìm thấy bản phát hành'); return; }
-            const remoteVer = String(remote.tag_name).replace(/^v/i, '');
-            const isNewer = cmpVersion(remoteVer, localVer) > 0;
-            if (!isNewer) {
+            await fetchVersionInfo();
+            const r = await (await fetch('/api/update/check')).json();
+            if (!r.ok) {
+                if (manual) toastInfo(r.error || 'Không kiểm tra được phiên bản');
+                return;
+            }
+            if (r.testMode) {
+                if (manual) toastInfo('Đang ở chế độ test (chưa cấu hình server cập nhật)');
+                return;
+            }
+            if (!r.hasUpdate) {
                 pendingUpdateInfo = null;
                 renderVersionRow(null);
                 if (manual) toastInfo('Bạn đang dùng bản mới nhất ✓');
                 return;
             }
-            const exeAsset = (remote.assets || []).find(a => /\.exe$/i.test(a.name));
             pendingUpdateInfo = {
-                version: remoteVer,
-                releaseUrl: remote.html_url,
-                downloadUrl: exeAsset?.browser_download_url || remote.html_url,
-                title: remote.name || `v${remoteVer}`,
-                body: remote.body || ''
+                version: r.latestVersion,
+                notes: r.notes || '',
+                size: r.size || 0,
+                sha256: r.sha256 || ''
             };
             renderVersionRow(pendingUpdateInfo);
             if (manual || pendingUpdateInfo.version !== dismissedUpdateVer) {
                 showUpdateModal(pendingUpdateInfo);
             }
         } catch (e) {
-            if (manual) toastInfo('Không kết nối được GitHub. Kiểm tra mạng.');
+            if (manual) toastInfo('Không kết nối được máy chủ cập nhật');
         }
     }
 
@@ -1305,19 +1307,92 @@
         if (!modal) return;
         document.getElementById('um-current').textContent = 'v' + currentLocalVersion;
         document.getElementById('um-new').textContent = 'v' + info.version;
-        document.getElementById('um-notes').textContent = (info.body || '').trim();
+        document.getElementById('um-notes').textContent = (info.notes || '').trim();
+        // Ẩn nút "Xem trang chi tiết" — không show GitHub URL nữa
+        const btnDetails = document.getElementById('um-btn-details');
+        if (btnDetails) btnDetails.style.display = 'none';
         modal.classList.add('show');
 
         const btnConfirm = document.getElementById('um-btn-confirm');
         const btnSkip = document.getElementById('um-btn-skip');
-        const btnDetails = document.getElementById('um-btn-details');
         const close = () => modal.classList.remove('show');
-        btnConfirm.onclick = () => { window.open(info.downloadUrl, '_blank'); close(); };
-        btnDetails.onclick = () => window.open(info.releaseUrl, '_blank');
+
+        btnConfirm.onclick = async () => {
+            close();
+            startAutoUpdate(info);
+        };
         btnSkip.onclick = () => {
-            dismissedUpdateVer = info.version;  // session-dismiss, không tự bật lại
+            dismissedUpdateVer = info.version;
             close();
         };
+    }
+
+    // === Auto-update download flow ===
+    // 1. Tạo overlay full-screen có progress bar
+    // 2. POST /api/update/download → server tải + emit socket events
+    // 3. Update overlay theo events (downloading → verifying → installing)
+    // 4. Server tự spawn installer + quit electron app
+    async function startAutoUpdate(info) {
+        showUpdateOverlay();
+        socket.on('updateProgress', onUpdateProgress);
+        try {
+            const r = await (await fetch('/api/update/download', { method: 'POST' })).json();
+            if (!r.ok) {
+                onUpdateProgress({ phase: 'error', percent: 0, message: 'Lỗi: ' + (r.error || 'Không khởi tạo được tải về') });
+            }
+        } catch (e) {
+            onUpdateProgress({ phase: 'error', percent: 0, message: 'Lỗi: ' + e.message });
+        }
+    }
+
+    function onUpdateProgress(data) {
+        const ov = document.getElementById('update-overlay');
+        if (!ov) return;
+        const bar = ov.querySelector('.uo-bar-fill');
+        const pct = ov.querySelector('.uo-percent');
+        const msg = ov.querySelector('.uo-message');
+        const phase = ov.querySelector('.uo-phase');
+        const phaseLabel = {
+            connecting: '🔌 Đang kết nối',
+            downloading: '⬇️ Đang tải về',
+            verifying: '🔐 Đang xác minh',
+            installing: '⚙️ Đang cài đặt',
+            error: '⚠️ Lỗi'
+        }[data.phase] || '⏳ Đang xử lý';
+        if (phase) phase.textContent = phaseLabel;
+        if (bar) bar.style.width = (data.percent || 0) + '%';
+        if (pct) pct.textContent = (data.percent || 0) + '%';
+        if (msg) msg.textContent = data.message || '';
+        if (data.phase === 'error') {
+            ov.classList.add('error');
+            // Cho user nút đóng overlay nếu lỗi
+            const closeBtn = ov.querySelector('.uo-close');
+            if (closeBtn) closeBtn.style.display = 'block';
+        }
+    }
+
+    function showUpdateOverlay() {
+        let ov = document.getElementById('update-overlay');
+        if (!ov) {
+            ov = document.createElement('div');
+            ov.id = 'update-overlay';
+            ov.className = 'update-overlay';
+            ov.innerHTML = `
+                <div class="uo-card">
+                    <div class="uo-logo">
+                        <img src="/hp-logo.png" alt="HP" onerror="this.style.display='none'"/>
+                    </div>
+                    <div class="uo-title">Đang cập nhật HP Action LIVE</div>
+                    <div class="uo-phase">⏳ Đang xử lý</div>
+                    <div class="uo-bar"><div class="uo-bar-fill"></div></div>
+                    <div class="uo-percent">0%</div>
+                    <div class="uo-message">Vui lòng đợi...</div>
+                    <div class="uo-warning">⚠️ KHÔNG đóng cửa sổ này khi đang cập nhật</div>
+                    <button class="uo-close" style="display:none" onclick="document.getElementById('update-overlay').remove()">Đóng</button>
+                </div>`;
+            document.body.appendChild(ov);
+        }
+        ov.classList.add('show');
     }
 
     function toastInfo(msg) {
