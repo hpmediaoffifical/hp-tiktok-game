@@ -48,6 +48,8 @@
                 police: true
             },
             goal: { target: 4100 },
+            // Khoảng cách goal bar so với đáy hũ (% canvas H). Âm = sát lên / chồng lên đáy hũ
+            goalBarGap: -1.2,
             autoShakeAt: 200,
             randomEventEverySec: 90,
             thiefEverySec: 60,
@@ -925,15 +927,16 @@
                 crownEl.style.top = top + '%';
                 crownEl.style.display = config.features.crown && stats.tippers.size > 0 ? 'flex' : 'none';
             }
-            // Goal bar dưới hũ — đẩy xuống dưới đáy hũ để không che số đếm
-            // Chiều rộng tự khớp với chiều rộng hũ
+            // Goal bar SÁT đáy hũ — gap nhỏ (cấu hình qua config.goalBarGap, default -1.2%)
+            // Âm = nằm chồng lên đáy hũ. Dương = cách xa đáy.
             if (goalEl) {
                 const left = (r.cx / CANVAS_W * 100);
-                const topPctRaw = ((r.y + r.h) / CANVAS_H * 100) + 2.5;
-                const top = Math.min(96, topPctRaw);
+                const gap = typeof config.goalBarGap === 'number' ? config.goalBarGap : -1.2;
+                const topPctRaw = ((r.y + r.h) / CANVAS_H * 100) + gap;
+                const top = Math.max(0, Math.min(98, topPctRaw));
                 goalEl.style.left = left + '%';
                 goalEl.style.top = top + '%';
-                // Ngắn hơn đáy hũ (70%) để gọn gàng
+                // Ngắn hơn đáy hũ (70%) cho gọn
                 goalEl.style.width = (r.w * 0.7 / CANVAS_W * 100) + '%';
                 goalEl.style.maxWidth = 'none';
                 goalEl.style.display = config.features.goalBar ? 'flex' : 'none';
@@ -2192,6 +2195,11 @@
             stats.goalReached = !!state.goalReached;
             updateCrown(); updateLeaderboard(); updateSessionTotals(); updateGoalBar();
             updateCaughtList(); updatePoliceForcePanel();
+            // QUAN TRỌNG: re-position toàn bộ overlay sau loadState — đảm bảo display flags
+            // (block/none) khớp với config.features hiện tại. Nếu thiếu bước này, panels có
+            // thể bị hidden dù feature đang on (race condition khi loadState chạy trước khi
+            // setConfig hoàn tất trên OBS reconnect).
+            positionUiOverlays();
             if (bannedUntilByUid.size > 0) startBanCountdown();
         }
 

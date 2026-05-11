@@ -511,10 +511,17 @@ io.on('connection', (socket) => {
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {
             socket.join(roomName);
-            // Khi overlay/preview kết nối lại → gửi snapshot state hiện tại
+            // Khi overlay/preview subscribe → gửi BOTH config + state snapshot.
+            // Trước đây chỉ gửi state → OBS có thể render với default config (race).
+            // Giờ gửi config trước, state sau → OBS apply config → loadState → khớp App.
             if (roomName === 'overlay' || roomName === 'preview') {
-                for (const gid of Object.keys(gameStateCache)) {
-                    socket.emit('gameStateSnapshot', { gameId: gid, state: gameStateCache[gid] });
+                for (const gid of Object.keys(GAMES)) {
+                    // Config trước — overlay setConfig để pick up đúng features/jar position
+                    socket.emit('gameConfig', { gameId: gid, config: appConfig.games[gid] });
+                    // State sau — loadState để khôi phục caughtList/policeForce/totals
+                    if (gameStateCache[gid]) {
+                        socket.emit('gameStateSnapshot', { gameId: gid, state: gameStateCache[gid] });
+                    }
                 }
             }
         }

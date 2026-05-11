@@ -97,6 +97,8 @@
         cfgGoalV: $('#cfg-goal-v'),
         cfgShakeAt: $('#cfg-shake-at'),
         cfgShakeAtV: $('#cfg-shake-at-v'),
+        cfgGoalGap: $('#cfg-goal-gap'),
+        cfgGoalGapV: $('#cfg-goal-gap-v'),
         cfgThiefMiss: $('#cfg-thief-miss'),
         cfgThiefMissV: $('#cfg-thief-miss-v'),
         cfgPoliceRate: $('#cfg-police-rate'),
@@ -394,6 +396,7 @@
         bindRange(dom.cfgGmax, cfg.gift.maxSize, dom.cfgGmaxV);
         bindRange(dom.cfgGoal, cfg.goal?.target ?? 1000, dom.cfgGoalV);
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
+        bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
         bindRange(dom.cfgThiefMiss, missPct, dom.cfgThiefMissV);
         const polPct = Math.round((cfg.policeCatchRate ?? 0.25) * 100);
@@ -447,6 +450,7 @@
             jarLocked: !!(dom.cfgJarLocked && dom.cfgJarLocked.checked),
             features,
             goal: { target: parseInt(dom.cfgGoal.value, 10) || 1000 },
+            goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,
             policeCatchRate: (parseInt(dom.cfgPoliceRate.value, 10) || 0) / 100,
@@ -1054,7 +1058,7 @@
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);

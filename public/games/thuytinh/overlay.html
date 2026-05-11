@@ -135,29 +135,40 @@
         }
 
         const socket = io({
-            // Auto-reconnect với backoff (mặc định Socket.IO), giữ kết nối lại
             reconnection: true,
             reconnectionDelay: 600,
             reconnectionDelayMax: 5000
         });
+
+        // === Sequential init / reconnect flow ===
+        // BUG cũ: subscribe + fetch chạy song song → race condition. Nếu gameStateSnapshot
+        // (từ subscribe) tới TRƯỚC config fetch, ensureGame chạy với default config →
+        // panels render sai (features khác nhau). Sau đó setConfig overwrite → flicker.
+        //
+        // FIX: chạy tuần tự: (1) await fetch config → (2) ensureGame với đúng config →
+        // (3) emit subscribe → server gửi snapshot → loadState vào game đã ready.
+        async function syncFromServer() {
+            let cfg = null;
+            try {
+                cfg = await fetch('/api/games/thuytinh/config').then(r => r.json());
+            } catch (e) { /* server có thể đang sập, vẫn cho phép ensureGame default */ }
+            if (!game) ensureGame(cfg);
+            else if (cfg) game.setConfig(cfg);
+            // SAU khi game ready với config đúng → subscribe để nhận state snapshot
+            socket.emit('subscribe', 'overlay');
+        }
 
         socket.on('connect', () => {
             debugEl.textContent = 'connected';
             debugEl.classList.remove('hidden');
             setTimeout(() => debugEl.classList.add('hidden'), 2500);
             cancelOffline();
-            socket.emit('subscribe', 'overlay');
-            // Refetch config + state sau reconnect — đảm bảo overlay khớp App ngay lập tức
-            fetch('/api/games/thuytinh/config').then(r => r.json()).then(cfg => {
-                ensureGame(cfg);
-                if (game) game.setConfig(cfg);
-            }).catch(() => ensureGame());
+            syncFromServer();
         });
 
         socket.on('disconnect', (reason) => {
             debugEl.textContent = 'disconnected: ' + reason;
             debugEl.classList.remove('hidden');
-            // Lên lịch hiện offline overlay nếu mất kết nối kéo dài > 3s
             scheduleOffline();
         });
 
@@ -165,25 +176,31 @@
             debugEl.textContent = 'reconnecting...';
         });
 
-        // Initial config fetch + game init (trước khi connect xong)
+        // Initial load (page load lần đầu, trước khi socket connect xong)
+        // socket.on('connect') sẽ chạy syncFromServer() sau khi kết nối. Nhưng để game
+        // hiển thị càng sớm càng tốt nếu socket chậm, fetch config ngay:
         fetch('/api/games/thuytinh/config').then(r => r.json()).then(cfg => {
             ensureGame(cfg);
         }).catch(() => {
-            // Fetch config thất bại nghĩa là server không phản hồi → hiện offline ngay
             ensureGame();
             showOffline();
         });
 
         socket.on('gameConfig', ({ gameId, config }) => {
-            if (gameId !== 'thuytinh' || !game) return;
-            game.setConfig(config);
+            if (gameId !== 'thuytinh') return;
+            // Đảm bảo game tồn tại với config được gửi — tránh race với fetch initial
+            if (!game) {
+                ensureGame(config);
+            } else {
+                game.setConfig(config);
+            }
         });
 
-        // Khi overlay reset/reload — server gửi snapshot để khôi phục state
+        // Khi overlay reset/reload hoặc subscribe → server gửi snapshot để khôi phục state
         socket.on('gameStateSnapshot', ({ gameId, state }) => {
             if (gameId !== 'thuytinh') return;
             ensureGame();
-            if (state) game.loadState(state);
+            if (state && game) game.loadState(state);
         });
 
         function handleGift(g) {
