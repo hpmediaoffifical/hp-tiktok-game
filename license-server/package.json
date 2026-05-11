@@ -1,0 +1,22 @@
+{
+  "name": "hp-license-server",
+  "version": "1.0.0",
+  "description": "HP Action LIVE — License validation server (standalone)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "keygen": "node keygen.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "express-rate-limit": "^7.4.1",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "HP Media",
+  "license": "UNLICENSED"
+}

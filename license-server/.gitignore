@@ -1,0 +1,20 @@
+# Secrets
+.env
+private-key.pem
+public-key.pem
+public-key.txt
+
+# Data + logs
+data/activations.json
+data/activations.log
+data/*.db
+data/*.db-journal
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db

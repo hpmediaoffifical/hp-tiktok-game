@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>HP License Server — Admin</title>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(180deg, #0b0d12, #131722);
+        color: #e6e8ee; min-height: 100vh;
+        padding: 24px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding-bottom: 16px; border-bottom: 1px solid #232936; margin-bottom: 20px;
+    }
+    h1 { margin: 0; font-size: 22px; font-weight: 800; }
+    h1 .subtle { color: #8b93a8; font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .pill {
+        background: #1f2533; color: #cdd3e0;
+        padding: 4px 10px; border-radius: 999px;
+        font-size: 12px; font-weight: 700;
+    }
+    .pill.ok { background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; }
+    .pill.warn { background: linear-gradient(135deg, #ef4444, #f59e0b); color: #fff; }
+
+    .toolbar {
+        display: flex; gap: 12px; flex-wrap: wrap;
+        background: #131722; padding: 14px; border-radius: 12px;
+        border: 1px solid #232936; margin-bottom: 16px;
+    }
+    .toolbar input {
+        flex: 1; min-width: 200px;
+        background: #0e1118; border: 1px solid #2c3243;
+        color: #e6e8ee; padding: 9px 12px; border-radius: 8px;
+        font-size: 13px; outline: none;
+    }
+    .toolbar input:focus { border-color: #7c3aed; }
+    button {
+        background: #2a3041; color: #cdd3e0; border: 1px solid #3a4255;
+        padding: 9px 14px; border-radius: 8px; cursor: pointer;
+        font-size: 13px; font-weight: 600; transition: filter .15s ease;
+    }
+    button:hover { filter: brightness(1.15); }
+    button.primary { background: linear-gradient(135deg, #7c3aed, #3b82f6); color: #fff; border-color: transparent; }
+    button.danger { background: #b91c1c; color: #fff; border-color: transparent; }
+    button.success { background: #16a34a; color: #fff; border-color: transparent; }
+
+    .stats {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px; margin-bottom: 20px;
+    }
+    .stat-card {
+        background: #131722; border: 1px solid #232936;
+        border-radius: 12px; padding: 14px 16px;
+    }
+    .stat-label { color: #8b93a8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .stat-value { font-size: 24px; font-weight: 800; margin-top: 4px; color: #ffd166; }
+
+    table {
+        width: 100%; border-collapse: collapse;
+        background: #131722; border: 1px solid #232936;
+        border-radius: 12px; overflow: hidden;
+    }
+    th, td { padding: 10px 14px; text-align: left; font-size: 13px; border-bottom: 1px solid #1f2533; }
+    th { background: #1a1f2c; color: #8b93a8; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.4px; }
+    tr:last-child td { border-bottom: none; }
+    tr.revoked { opacity: 0.5; }
+    td .key-mask { font-family: ui-monospace, monospace; color: #fbbf24; }
+    td .timestamp { color: #6b7385; font-size: 11px; font-family: ui-monospace, monospace; }
+    td .device-count { color: #60a5fa; font-weight: 700; }
+    td .actions { display: flex; gap: 6px; justify-content: flex-end; }
+    td .actions button { padding: 4px 10px; font-size: 11px; }
+
+    .empty { text-align: center; padding: 40px; color: #6b7385; font-style: italic; }
+    .auth-error { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); padding: 16px; border-radius: 12px; color: #fca5a5; }
+
+    .toast {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: #1a1f2c; border: 1px solid #2c3243; color: #e6e8ee;
+        padding: 10px 16px; border-radius: 10px; font-size: 13px;
+        opacity: 0; transition: opacity .25s ease; z-index: 100;
+    }
+    .toast.show { opacity: 1; }
+    .toast.error { border-color: #ef4444; color: #fca5a5; }
+    .toast.success { border-color: #22c55e; color: #86efac; }
+
+    .footer { text-align: center; color: #4b5263; font-size: 11px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🔐 HP License Server <span class="subtle">Admin Dashboard</span></h1>
+        <div id="status-pill" class="pill">đang kết nối...</div>
+    </div>
+
+    <div id="auth-section" style="display:none">
+        <div class="auth-error">
+            <div style="font-weight:800;margin-bottom:6px">⛔ Yêu cầu admin token</div>
+            <div style="font-size:13px;margin-bottom:10px">Truy cập với URL: <code>/admin/?token=YOUR_ADMIN_TOKEN</code>, hoặc paste token bên dưới:</div>
+            <div style="display:flex;gap:8px">
+                <input id="token-input" type="password" placeholder="Admin token..." style="flex:1;background:#0e1118;border:1px solid #2c3243;color:#fff;padding:8px;border-radius:6px"/>
+                <button class="primary" onclick="setToken()">Đăng nhập</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-section" style="display:none">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Total activated keys</div>
+                <div class="stat-value" id="stat-total">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active keys</div>
+                <div class="stat-value" id="stat-active">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Revoked keys</div>
+                <div class="stat-value" id="stat-revoked">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total devices</div>
+                <div class="stat-value" id="stat-devices">0</div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <input id="search" placeholder="🔍 Tìm theo key (4 ký tự đầu/cuối)..." oninput="renderList()" />
+            <button onclick="refreshList()">🔄 Refresh</button>
+            <button onclick="refreshSheet()">📋 Reload Sheet cache</button>
+            <button onclick="logout()" style="background:#3a4255">🚪 Logout</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Key (masked)</th>
+                    <th>Devices</th>
+                    <th>First activated</th>
+                    <th>Last activated</th>
+                    <th>Status</th>
+                    <th style="text-align:right">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tbody">
+                <tr><td colspan="6" class="empty">Đang tải...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        HP License Server v1.0 · © HP Media — Nguyễn Hoàng Phụng
+    </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let TOKEN = '';
+let DATA = [];
+
+// === Init ===
+(function init() {
+    const url = new URL(location.href);
+    const t = url.searchParams.get('token') || localStorage.getItem('hp-admin-token') || '';
+    if (t) {
+        TOKEN = t;
+        localStorage.setItem('hp-admin-token', t);
+        refreshList();
+    } else {
+        document.getElementById('auth-section').style.display = 'block';
+        document.getElementById('status-pill').textContent = 'Chưa đăng nhập';
+        document.getElementById('status-pill').className = 'pill warn';
+    }
+})();
+
+function setToken() {
+    const t = document.getElementById('token-input').value.trim();
+    if (!t) return;
+    TOKEN = t;
+    localStorage.setItem('hp-admin-token', t);
+    document.getElementById('auth-section').style.display = 'none';
+    refreshList();
+}
+
+function logout() {
+    localStorage.removeItem('hp-admin-token');
+    location.href = '/admin/';
+}
+
+function toast(msg, type = '') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + type;
+    setTimeout(() => t.classList.add('show'), 10);
+    setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+async function api(path, opts = {}) {
+    const res = await fetch(path, {
+        ...opts,
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + TOKEN,
+            ...(opts.headers || {})
+        }
+    });
+    if (res.status === 401) {
+        toast('Token sai — vui lòng đăng nhập lại', 'error');
+        logout();
+        return null;
+    }
+    return res.json();
+}
+
+async function refreshList() {
+    const r = await api('/admin/api/list');
+    if (!r) return;
+    if (!r.ok) {
+        toast(r.error || 'Lỗi tải danh sách', 'error');
+        return;
+    }
+    DATA = r.list || [];
+    document.getElementById('main-section').style.display = 'block';
+    document.getElementById('status-pill').textContent = `${DATA.length} keys`;
+    document.getElementById('status-pill').className = 'pill ok';
+    updateStats();
+    renderList();
+}
+
+function updateStats() {
+    const total = DATA.length;
+    const revoked = DATA.filter(d => d.revoked).length;
+    const active = total - revoked;
+    const devices = DATA.reduce((sum, d) => sum + d.devices, 0);
+    document.getElementById('stat-total').textContent = total;
+    document.getElementById('stat-active').textContent = active;
+    document.getElementById('stat-revoked').textContent = revoked;
+    document.getElementById('stat-devices').textContent = devices;
+}
+
+function renderList() {
+    const q = document.getElementById('search').value.toLowerCase().trim();
+    const filtered = q
+        ? DATA.filter(d => d.key.toLowerCase().includes(q) || d.keyFull.toLowerCase().includes(q))
+        : DATA;
+    const tbody = document.getElementById('tbody');
+    if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Không có key nào.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = filtered.map(d => `
+        <tr class="${d.revoked ? 'revoked' : ''}">
+            <td><span class="key-mask">${escapeHtml(d.key)}</span></td>
+            <td><span class="device-count">${d.devices}</span> máy</td>
+            <td><span class="timestamp">${formatTs(d.firstActivatedAt)}</span></td>
+            <td><span class="timestamp">${formatTs(d.lastActivatedAt)}</span></td>
+            <td>${d.revoked ? '<span class="pill warn">REVOKED</span>' : '<span class="pill ok">active</span>'}</td>
+            <td>
+                <div class="actions">
+                    ${d.revoked
+                        ? `<button class="success" onclick="unrevoke('${escapeAttr(d.keyFull)}')">↩ Unrevoke</button>`
+                        : `<button class="danger" onclick="revoke('${escapeAttr(d.keyFull)}')">⛔ Revoke</button>`
+                    }
+                    <button onclick="resetDevices('${escapeAttr(d.keyFull)}')">🔄 Reset máy</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function revoke(key) {
+    if (!confirm('Thu hồi key này? User sẽ không activate được nữa.')) return;
+    const r = await api('/admin/api/revoke', { method: 'POST', body: JSON.stringify({ key }) });
+    if (r?.ok) { toast('Đã thu hồi key', 'success'); refreshList(); }
+    else toast(r?.error || 'Lỗi revoke', 'error');
+}
+
+async function unrevoke(key) {
+    const r = await api('/admin/api/unrevoke', { method: 'POST', body: JSON.stringify({ key }) });
+    if (r?.ok) { toast('Đã khôi phục key', 'success'); refreshList(); }
+    else toast(r?.error || 'Lỗi unrevoke', 'error');
+}
+
+async function resetDevices(key) {
+    if (!confirm('Reset danh sách máy của key này? User sẽ phải activate lại từ đầu.')) return;
+    const r = await api('/admin/api/reset-devices', { method: 'POST', body: JSON.stringify({ key }) });
+    if (r?.ok) { toast('Đã reset máy', 'success'); refreshList(); }
+    else toast(r?.error || 'Lỗi reset', 'error');
+}
+
+async function refreshSheet() {
+    toast('Đang reload sheet...', '');
+    const r = await api('/admin/api/refresh-sheet', { method: 'POST' });
+    if (r?.ok) toast(`Đã reload ${r.count} key từ sheet`, 'success');
+    else toast(r?.error || 'Lỗi reload', 'error');
+}
+
+function formatTs(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleString('vi-VN', { hour12: false });
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function escapeAttr(s) { return escapeHtml(s).replace(/'/g, '&#39;'); }
+</script>
+</body>
+</html>
