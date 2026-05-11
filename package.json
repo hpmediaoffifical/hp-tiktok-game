@@ -1,0 +1,62 @@
+{
+  "name": "hp-action-live",
+  "version": "1.0.0",
+  "description": "HP Action LIVE — TikTok Game Library cho streamer",
+  "author": "HP Media",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "server": "node server.js",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "socket.io": "^4.7.5",
+    "tiktok-live-connector": "^2.0.6"
+  },
+  "devDependencies": {
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.hpmedia.actionlive",
+    "productName": "HP Action LIVE",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.js",
+      "server.js",
+      "public/**/*",
+      "hp-logo.png",
+      "hp-logo.ico",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      { "from": "data", "to": "data" }
+    ],
+    "win": {
+      "icon": "hp-logo.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HP Action LIVE"
+    },
+    "portable": {
+      "artifactName": "HP-Action-LIVE-Portable-${version}.exe"
+    }
+  }
+}

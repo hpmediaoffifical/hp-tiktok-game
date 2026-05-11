@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HP Action LIVE — Thư viện Game TikTok</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+    <div class="app">
+        <!-- ============ SIDEBAR ============ -->
+        <aside class="sidebar">
+            <div class="brand">
+                <img class="brand-logo" src="/hp-logo.png" alt="HP" />
+                <div>
+                    <div class="brand-name">Action LIVE</div>
+                    <div class="brand-sub">TikTok Game Library</div>
+                </div>
+            </div>
+
+            <!-- Tài khoản TikTok kết nối -->
+            <section class="side-card">
+                <div class="side-card-title">🔗 Kết nối TikTok</div>
+                <div class="conn-row" id="conn-row">
+                    <span class="at">@</span>
+                    <input id="username" type="text" placeholder="username đang LIVE" autocomplete="off" />
+                </div>
+                <div class="conn-actions">
+                    <button id="btn-connect" class="primary block">Kết nối LIVE</button>
+                </div>
+                <div class="status-row">
+                    <span class="dot" id="dot"></span>
+                    <span id="status-text">Chưa kết nối</span>
+                </div>
+                <div class="stats-row">
+                    <span id="stat-room"></span>
+                    <span id="stat-viewer"></span>
+                </div>
+            </section>
+
+            <!-- License/Bản quyền -->
+            <section class="side-card">
+                <div class="side-card-title">🔑 Key bản quyền</div>
+                <input id="lic-key" class="text-input" type="text" placeholder="Nhập key bản quyền..." />
+                <input id="lic-email" class="text-input" type="email" placeholder="Email đăng ký" />
+                <button id="btn-license-save" class="ghost block small">Lưu key</button>
+                <div class="hint" id="lic-status">Chưa kích hoạt</div>
+            </section>
+
+            <!-- Thư viện game -->
+            <section class="side-card side-library">
+                <div class="side-card-title">🎮 Thư viện Game</div>
+                <div id="game-list" class="game-list"></div>
+            </section>
+
+            <!-- Cài đặt nhanh -->
+            <section class="side-card">
+                <div class="side-card-title">⚙ Cài đặt</div>
+                <button id="btn-reload-gifts" class="ghost block small">↻ Đồng bộ danh sách quà</button>
+                <div class="hint" id="gift-count-hint">— quà</div>
+            </section>
+
+            <div class="side-footer">© HP Media · v1.0</div>
+        </aside>
+
+        <!-- ============ MAIN ============ -->
+        <main class="main">
+            <!-- HERO khi chưa chọn game -->
+            <section id="view-home" class="view active">
+                <div class="hero">
+                    <h1>Thư viện Game TikTok LIVE</h1>
+                    <p class="hero-sub">Chọn game ở khung bên trái để bắt đầu. Mỗi game có link overlay riêng để gắn vào OBS với nền trong suốt.</p>
+                    <div id="home-grid" class="home-grid"></div>
+                </div>
+            </section>
+
+            <!-- GAME VIEW: Hủ Thủy Tinh -->
+            <section id="view-thuytinh" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="g-title">🫙 Hũ Thủy Tinh</h2>
+                        <div class="game-sub" id="g-sub">Quà rơi vào hũ thủy tinh với vật lý realtime — nền trong suốt sẵn sàng cho OBS.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <label class="overlay-label">Overlay OBS</label>
+                        <div class="overlay-link-row">
+                            <input id="overlay-url" type="text" readonly hidden />
+                            <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay vào clipboard">📋 Copy link</button>
+                            <button id="btn-open-overlay" class="secondary small" title="Mở overlay trong tab mới">↗ Mở</button>
+                            <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="game-body">
+                    <!-- Cột trái: cài đặt + bình luận -->
+                    <div class="col col-left">
+                        <div class="card tabbed-card">
+                            <div class="card-tabs">
+                                <button class="tab active" data-tab="phys">⚙ Vật lý</button>
+                                <button class="tab" data-tab="feat">✨ Tính năng</button>
+                                <button class="tab" data-tab="trig">🎯 Quà</button>
+                                <button class="tab" data-tab="act">🎬 Thử</button>
+                            </div>
+
+                            <!-- ⚙ Vật lý -->
+                            <div class="tab-pane active" data-pane="phys">
+                                <div class="cfg-row">
+                                    <label>Trọng lực</label>
+                                    <input type="range" id="cfg-gravity" min="0.2" max="3" step="0.1" />
+                                    <span class="cfg-val" id="cfg-gravity-v">1.4</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Độ nảy</label>
+                                    <input type="range" id="cfg-bounce" min="0" max="1" step="0.05" />
+                                    <span class="cfg-val" id="cfg-bounce-v">0.42</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Ma sát</label>
+                                    <input type="range" id="cfg-friction" min="0" max="1" step="0.05" />
+                                    <span class="cfg-val" id="cfg-friction-v">0.05</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Cao hũ</label>
+                                    <input type="range" id="cfg-jar-h" min="400" max="1700" step="20" />
+                                    <span class="cfg-val" id="cfg-jar-h-v">1200</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Quà min</label>
+                                    <input type="range" id="cfg-gmin" min="20" max="80" step="2" />
+                                    <span class="cfg-val" id="cfg-gmin-v">40</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Quà max</label>
+                                    <input type="range" id="cfg-gmax" min="100" max="320" step="5" />
+                                    <span class="cfg-val" id="cfg-gmax-v">220</span>
+                                </div>
+                                <div class="cfg-row inline">
+                                    <label><input type="checkbox" id="cfg-show-count"/> Số đếm</label>
+                                    <label><input type="checkbox" id="cfg-jar-visible"/> Hiện hũ</label>
+                                </div>
+                            </div>
+
+                            <!-- ✨ Tính năng -->
+                            <div class="tab-pane" data-pane="feat">
+                                <div class="feat-section">
+                                    <div class="feat-section-title">Hiển thị</div>
+                                    <div class="feat-grid">
+                                        <label class="feat"><input type="checkbox" id="ft-audio"/> 🔊 Âm thanh</label>
+                                        <label class="feat"><input type="checkbox" id="ft-welcome"/> 👋 Welcome</label>
+                                        <label class="feat"><input type="checkbox" id="ft-crown"/> 👑 Vương miện</label>
+                                        <label class="feat"><input type="checkbox" id="ft-leaderboard"/> 🏆 Top tặng</label>
+                                        <label class="feat"><input type="checkbox" id="ft-totals"/> 📊 Tổng quà</label>
+                                        <label class="feat"><input type="checkbox" id="ft-goalbar"/> 🎯 Goal Bar</label>
+                                    </div>
+                                </div>
+                                <div class="feat-section">
+                                    <div class="feat-section-title">Hiệu ứng</div>
+                                    <div class="feat-grid">
+                                        <label class="feat"><input type="checkbox" id="ft-combo"/> 🔥 Combo</label>
+                                        <label class="feat"><input type="checkbox" id="ft-tier"/> ⭐ Viền tier</label>
+                                        <label class="feat"><input type="checkbox" id="ft-bigfx"/> 💥 Quà to</label>
+                                        <label class="feat"><input type="checkbox" id="ft-autoshake"/> ⚡ Tự lắc</label>
+                                        <label class="feat"><input type="checkbox" id="ft-random"/> 🎲 Ngẫu nhiên</label>
+                                    </div>
+                                </div>
+                                <div class="feat-section">
+                                    <div class="feat-section-title">🥷 Trộm & 🚔 Cảnh sát</div>
+                                    <div class="feat-grid">
+                                        <label class="feat"><input type="checkbox" id="ft-thiefauto"/> Trộm tự động</label>
+                                        <label class="feat"><input type="checkbox" id="ft-police"/> Bật cảnh sát</label>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label>Trộm rớt</label>
+                                        <input type="range" id="cfg-thief-miss" min="0" max="100" step="5"/>
+                                        <span class="cfg-val" id="cfg-thief-miss-v">10</span>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label>CS tóm</label>
+                                        <input type="range" id="cfg-police-rate" min="0" max="100" step="5"/>
+                                        <span class="cfg-val" id="cfg-police-rate-v">25</span>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label>Giam (s)</label>
+                                        <input type="range" id="cfg-police-ban" min="5" max="300" step="5"/>
+                                        <span class="cfg-val" id="cfg-police-ban-v">30</span>
+                                    </div>
+                                    <div class="cfg-row cfg-row-text">
+                                        <label>Tên CS</label>
+                                        <input type="text" id="cfg-police-name" placeholder="Để trống = chọn ngẫu nhiên" class="text-input"/>
+                                    </div>
+                                </div>
+                                <div class="feat-section">
+                                    <div class="feat-section-title">Mục tiêu</div>
+                                    <div class="cfg-row">
+                                        <label>Mục tiêu</label>
+                                        <input type="range" id="cfg-goal" min="100" max="100000" step="500"/>
+                                        <span class="cfg-val" id="cfg-goal-v">1000</span>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label>Lắc khi</label>
+                                        <input type="range" id="cfg-shake-at" min="0" max="500" step="10"/>
+                                        <span class="cfg-val" id="cfg-shake-at-v">200</span>
+                                    </div>
+                                </div>
+                                <div class="feat-section">
+                                    <div class="feat-section-title">Kích thước panel</div>
+                                    <div class="cfg-row">
+                                        <label>TOP TẶNG</label>
+                                        <input type="range" id="cfg-scale-lb" min="0.6" max="1.6" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-lb-v">1.0</span>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label>BỊ TÓM</label>
+                                        <input type="range" id="cfg-scale-caught" min="0.6" max="1.6" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-caught-v">1.0</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 🎯 Quà kích hoạt -->
+                            <div class="tab-pane" data-pane="trig">
+                                <div class="hint" style="padding:6px 12px 0">Quà chỉ định KHÔNG rơi vào hũ. Bấm ⚙ để cài thông số.</div>
+                                <div class="trigger-list" id="trigger-list"></div>
+                                <datalist id="gift-options"></datalist>
+                            </div>
+
+                            <!-- 🎬 Thao tác thử -->
+                            <div class="tab-pane" data-pane="act">
+                                <div class="cfg-actions">
+                                    <button id="btn-clear-jar" class="ghost small">🗑 Xoá hết</button>
+                                    <button id="btn-shake" class="ghost small">💥 Lắc</button>
+                                    <button id="btn-reset-session" class="ghost small">↺ Phiên mới</button>
+                                </div>
+                                <div class="cfg-actions">
+                                    <button id="btn-thief" class="ghost small">🥷 Thả trộm</button>
+                                    <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
+                                    <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
+                                </div>
+                            </div>
+
+                            <div class="save-status" id="save-status">Cài đặt tự động lưu</div>
+                        </div>
+
+                    </div>
+
+                    <!-- Cột giữa: preview game -->
+                    <div class="col col-mid">
+                        <div class="stage-wrap">
+                            <div class="stage-frame" id="stage-frame">
+                                <div class="stage-checker"></div>
+                                <canvas id="game-canvas" width="1080" height="1920"></canvas>
+                                <canvas id="fx-canvas" width="1080" height="1920"></canvas>
+                                <div class="stage-overlays" id="stage-overlays"></div>
+                                <div class="stage-info" id="stage-info">Sẵn sàng — chờ quà</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cột phải: quà -->
+                    <div class="col col-right">
+                        <div class="card">
+                            <div class="card-title">🎁 Quà nhận từ LIVE
+                                <button id="btn-clear-gifts" class="ghost mini">Xoá</button>
+                            </div>
+                            <div id="gift-stream" class="gift-stream"></div>
+                        </div>
+
+                        <div class="card stretch">
+                            <div class="card-title">📦 Danh sách quà
+                                <input id="gift-search" type="text" placeholder="Tìm..." class="search-mini"/>
+                            </div>
+                            <div id="gift-catalog" class="gift-catalog"></div>
+                            <div class="hint catalog-hint">Bấm 1 quà để rơi thử vào hũ →</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Floating Bình luận LIVE — popup -->
+    <button id="comments-fab" class="comments-fab" title="Bình luận LIVE">
+        💬<span class="badge" id="comments-badge" hidden>0</span>
+    </button>
+    <div id="comments-popup" class="comments-popup" hidden>
+        <div class="comments-popup-head">
+            <span>💬 Bình luận LIVE</span>
+            <div class="head-actions">
+                <button id="btn-clear-comments" class="ghost mini">Xoá</button>
+                <button id="comments-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div id="comments" class="comments-list"></div>
+        <div class="comments-popup-foot">Idol thường xem bình luận trên TikTok Studio — đây chỉ là backup.</div>
+    </div>
+
+    <!-- Modal cài đặt riêng cho từng hiệu ứng -->
+    <div id="effect-modal" class="modal" hidden>
+        <div class="modal-card">
+            <div class="modal-head">
+                <div class="modal-title"><span id="ef-modal-ico"></span> <span id="ef-modal-name"></span></div>
+                <button class="modal-close" id="ef-modal-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <div class="modal-sec-title">🎁 Quà chỉ định</div>
+                    <div class="modal-gift-row">
+                        <div class="ef-current" id="ef-current-gift">— Chưa gán —</div>
+                        <button class="ghost small" id="ef-pick-gift">Chọn quà</button>
+                        <button class="ghost small" id="ef-clear-gift" style="color:#ef4444">Xoá</button>
+                    </div>
+                    <div class="ef-gift-picker" id="ef-gift-picker" hidden></div>
+                </div>
+                <div class="modal-section" id="ef-params"></div>
+            </div>
+            <div class="modal-foot">
+                <button class="ghost" id="ef-modal-cancel">Đóng</button>
+                <button class="primary" id="ef-modal-save">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context menu cho gán quà → hiệu ứng (chuột phải vào card quà) -->
+    <div id="gift-context-menu" class="context-menu" hidden>
+        <div class="cm-header">🎯 Gán quà này cho hiệu ứng</div>
+        <div class="cm-current" id="cm-current"></div>
+        <div class="cm-list" id="cm-list"></div>
+        <hr/>
+        <button class="cm-clear" id="cm-clear">❌ Xoá gán</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="/games/thuytinh/game.js"></script>
+    <script src="/app.js"></script>
+</body>
+</html>

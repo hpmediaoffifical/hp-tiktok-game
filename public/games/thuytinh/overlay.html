@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Hủ Thủy Tinh — OBS Overlay</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<link rel="stylesheet" href="/style.css" />
+<style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; }
+    #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; }
+    #content {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%) scale(var(--scale, 1));
+        transform-origin: center center;
+        width: 1080px; height: 1920px;
+        background: transparent;
+    }
+    #content img.jar-bottom, #content img.jar-glass { position: absolute; pointer-events: none; }
+    #content img.jar-bottom { z-index: 2; }
+    #content #game-canvas { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; }
+    #content img.jar-glass { z-index: 4; }
+    #content #fx-canvas { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; pointer-events: none; }
+    #content .stage-overlays { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+    .jar-count {
+        position: absolute; z-index: 7;
+        color: #fff; font-family: Arial, sans-serif;
+        font-weight: 800; font-size: 56px;
+        text-shadow: 0 4px 10px rgba(0,0,0,0.75);
+        pointer-events: none;
+        transform: translate(-50%, 0);
+        display: none;
+    }
+    .debug-pill {
+        position: fixed; bottom: 8px; left: 8px;
+        background: rgba(0,0,0,0.5);
+        color: #fff; font: 11px/1.2 monospace;
+        padding: 4px 8px; border-radius: 6px;
+        z-index: 9999; opacity: 0.5;
+    }
+    .debug-pill.hidden { display: none; }
+</style>
+</head>
+<body>
+    <div id="stage">
+        <div id="content">
+            <img class="jar-bottom" src="/assets/thuytinh/jar-bottom.png" />
+            <canvas id="game-canvas" width="1080" height="1920"></canvas>
+            <img class="jar-glass" src="/assets/thuytinh/jar-glass.png" />
+            <canvas id="fx-canvas" width="1080" height="1920"></canvas>
+            <div class="stage-overlays" id="stage-overlays"></div>
+            <div class="jar-count" id="jar-count">0</div>
+        </div>
+    </div>
+    <div class="debug-pill" id="debug">connecting…</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="/games/thuytinh/game.js"></script>
+    <script>
+    (function () {
+        const debugEl = document.getElementById('debug');
+        const content = document.getElementById('content');
+        const canvas = document.getElementById('game-canvas');
+        const fxCanvas = document.getElementById('fx-canvas');
+        const overlayLayer = document.getElementById('stage-overlays');
+        const bottomEl = document.querySelector('.jar-bottom');
+        const glassEl = document.querySelector('.jar-glass');
+        const countEl = document.getElementById('jar-count');
+
+        bottomEl.style.width = '100%'; bottomEl.style.height = '100%';
+        glassEl.style.width = '100%'; glassEl.style.height = '100%';
+
+        function fitScale() {
+            const w = window.innerWidth, h = window.innerHeight;
+            const s = Math.min(w / 1080, h / 1920);
+            content.style.setProperty('--scale', String(s));
+        }
+        window.addEventListener('resize', fitScale);
+        fitScale();
+        setTimeout(() => debugEl.classList.add('hidden'), 5000);
+
+        let game = null;
+        function ensureGame(cfg) {
+            if (game) return;
+            game = HpGame.thuytinh.create({
+                canvas, fxCanvas, overlayLayer,
+                jarBottomEl: bottomEl, jarGlassEl: glassEl,
+                countDisplay: countEl,
+                config: cfg || HpGame.thuytinh.defaultConfig()
+            });
+        }
+
+        const socket = io();
+        socket.on('connect', () => {
+            debugEl.textContent = 'connected';
+            socket.emit('subscribe', 'overlay');
+        });
+        socket.on('disconnect', () => debugEl.textContent = 'disconnected');
+
+        fetch('/api/games/thuytinh/config').then(r => r.json()).then(cfg => {
+            ensureGame(cfg);
+        }).catch(() => ensureGame());
+
+        socket.on('gameConfig', ({ gameId, config }) => {
+            if (gameId !== 'thuytinh' || !game) return;
+            game.setConfig(config);
+        });
+
+        // Khi overlay reset/reload — server gửi snapshot để khôi phục state
+        socket.on('gameStateSnapshot', ({ gameId, state }) => {
+            if (gameId !== 'thuytinh') return;
+            ensureGame();
+            if (state) game.loadState(state);
+        });
+
+        function handleGift(g) {
+            ensureGame();
+            game.drop({
+                giftId: String(g.giftId || ''),
+                giftName: g.sheetItem?.name || g.giftName,
+                image: g.sheetItem?.image || g.image || g.giftPicture,
+                coinValue: g.coinValue || g.sheetItem?.diamond || 1,
+                userId: g.userId,
+                uniqueId: g.uniqueId,
+                nickname: g.nickname,
+                profilePicture: g.profilePicture
+            }, g.repeatCount || 1);
+            debugEl.classList.remove('hidden');
+            debugEl.textContent = `+ ${g.giftName} x${g.repeatCount || 1}`;
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+        }
+        // Chỉ listen 1 event để tránh duplicate (server emit cả 'gift' broadcast + 'gameGift' vào room overlay)
+        socket.on('gift', handleGift);
+
+        // Lệnh điều khiển từ app chính (vd thả tên trộm trên overlay)
+        socket.on('gameCmd', ({ gameId, cmd, payload }) => {
+            if (gameId !== 'thuytinh' || !game) return;
+            if (cmd === 'thief') {
+                const thieves = (payload && payload.thieves && payload.thieves.length)
+                    ? payload.thieves : [{}];
+                thieves.forEach((t, i) => setTimeout(() => game.triggerThief(t), i * 400));
+            }
+            else if (cmd === 'fireworks') game.fxFireworks();
+            else if (cmd === 'tornado') game.fxTornado();
+            else if (cmd === 'megaboom') game.fxMegaboom();
+            else if (cmd === 'tilt') game.fxTilt();
+            else if (cmd === 'gravflip') game.fxGravFlip();
+            else if (cmd === 'shake') game.shake();
+            else if (cmd === 'clear') game.clearAll();
+            else if (cmd === 'resetSession') game.resetSession();
+            else if (cmd === 'bail') {
+                const uid = payload?.uid;
+                if (uid) game.bailUser(uid);
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
