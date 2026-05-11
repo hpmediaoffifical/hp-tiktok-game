@@ -451,28 +451,52 @@ app.get('/api/version', (req, res) => {
 //      qua socket → verify SHA256 → spawn installer silent → app.quit
 // KHÔNG show URL ra UI, KHÔNG link GitHub.
 
+// GitHub repo dùng làm fallback khi LICENSE_WORKER_URL chưa cấu hình
+const GITHUB_REPO_FALLBACK = 'hpmediaoffifical/hp-tiktok-game';
+
 app.get('/api/update/check', async (req, res) => {
     try {
         const pkg = require('./package.json');
         const localVer = pkg.version || '0.0.0';
-        // Gọi license-server /api/version để biết phiên bản mới
-        if (!isWorkerConfigured()) {
-            // Test mode: không có license-server, skip update check
-            return res.json({ ok: true, localVersion: localVer, hasUpdate: false, testMode: true });
+
+        // === Ưu tiên 1: license-server (nếu đã cấu hình) ===
+        if (isWorkerConfigured()) {
+            try {
+                const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
+                if (r.ok) {
+                    const remote = await r.json();
+                    if (remote.ok && remote.version) {
+                        const isNewer = cmpVersion(remote.version, localVer) > 0;
+                        return res.json({
+                            ok: true, localVersion: localVer, hasUpdate: isNewer,
+                            latestVersion: remote.version, notes: remote.notes || '',
+                            size: remote.size || 0, sha256: remote.sha256 || '',
+                            source: 'license-server'
+                        });
+                    }
+                }
+            } catch (e) { /* fall through to GitHub */ }
         }
-        const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const remote = await r.json();
-        if (!remote.ok || !remote.version) return res.json({ ok: true, localVersion: localVer, hasUpdate: false });
-        const isNewer = cmpVersion(remote.version, localVer) > 0;
-        res.json({
+
+        // === Fallback: GitHub Releases API ===
+        const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_FALLBACK}/releases/latest`, { timeout: 8000 });
+        if (!ghRes.ok) throw new Error('GitHub API ' + ghRes.status);
+        const remote = await ghRes.json();
+        if (!remote.tag_name) return res.json({ ok: true, localVersion: localVer, hasUpdate: false });
+        const remoteVer = String(remote.tag_name).replace(/^v/i, '');
+        const isNewer = cmpVersion(remoteVer, localVer) > 0;
+        // Ưu tiên file Setup (NSIS installer), fallback bất kỳ .exe
+        const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                        || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
+        return res.json({
             ok: true,
             localVersion: localVer,
             hasUpdate: isNewer,
-            latestVersion: remote.version,
-            notes: remote.notes || '',
-            size: remote.size || 0,
-            sha256: remote.sha256 || ''
+            latestVersion: remoteVer,
+            notes: remote.body || '',
+            size: setupAsset?.size || 0,
+            sha256: '',   // GitHub API không trả SHA — chấp nhận skip verify
+            source: 'github'
         });
     } catch (e) {
         res.json({ ok: false, error: e.message });
@@ -498,8 +522,6 @@ let updateInProgress = false;
 
 app.post('/api/update/download', async (req, res) => {
     if (updateInProgress) return res.json({ ok: false, error: 'Đang cập nhật, vui lòng đợi' });
-    if (!isWorkerConfigured()) return res.json({ ok: false, error: 'Server cập nhật chưa cấu hình' });
-
     updateInProgress = true;
     res.json({ ok: true, started: true });   // Trả response ngay, download chạy background
 
@@ -507,20 +529,45 @@ app.post('/api/update/download', async (req, res) => {
     (async () => {
         const sendProgress = (data) => io.emit('updateProgress', data);
         try {
-            // Step 1: get metadata (size + sha256)
             sendProgress({ phase: 'connecting', percent: 0, message: 'Đang kết nối tới máy chủ cập nhật...' });
-            const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-            const meta = await metaRes.json();
-            if (!meta.ok || !meta.version) throw new Error('Không lấy được thông tin phiên bản');
-            const expectedSize = meta.size || 0;
-            const expectedSha = (meta.sha256 || '').toLowerCase();
+
+            // === Xác định nguồn tải: license-server hoặc GitHub fallback ===
+            let downloadUrl, expectedSize = 0, expectedSha = '', version = 'latest';
+
+            if (isWorkerConfigured()) {
+                // Ưu tiên 1: license-server
+                try {
+                    const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
+                    const meta = await metaRes.json();
+                    if (meta.ok && meta.version) {
+                        downloadUrl = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer';
+                        expectedSize = meta.size || 0;
+                        expectedSha = (meta.sha256 || '').toLowerCase();
+                        version = meta.version;
+                    }
+                } catch (e) { /* fall through to GitHub */ }
+            }
+
+            if (!downloadUrl) {
+                // Fallback: GitHub Releases
+                const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_FALLBACK}/releases/latest`, { timeout: 8000 });
+                if (!ghRes.ok) throw new Error('GitHub API ' + ghRes.status);
+                const remote = await ghRes.json();
+                const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                                || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
+                if (!setupAsset) throw new Error('Không tìm thấy file Setup.exe trong release');
+                downloadUrl = setupAsset.browser_download_url;
+                expectedSize = setupAsset.size || 0;
+                expectedSha = '';   // GitHub không có SHA — skip verify
+                version = String(remote.tag_name).replace(/^v/i, '');
+            }
 
             // Step 2: download installer to temp folder
             const os = require('os');
-            const tempPath = path.join(os.tmpdir(), `hp-action-live-update-${meta.version}.exe`);
+            const tempPath = path.join(os.tmpdir(), `hp-action-live-update-${version}.exe`);
             sendProgress({ phase: 'downloading', percent: 0, message: 'Đang tải bản cập nhật...', total: expectedSize });
 
-            const dlRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer', { timeout: 0 });
+            const dlRes = await fetch(downloadUrl, { timeout: 0 });
             if (!dlRes.ok) throw new Error('Tải về thất bại: HTTP ' + dlRes.status);
 
             const writer = fs.createWriteStream(tempPath);

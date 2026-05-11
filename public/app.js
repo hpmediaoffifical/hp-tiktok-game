@@ -1263,10 +1263,6 @@
                 if (manual) toastInfo(r.error || 'Không kiểm tra được phiên bản');
                 return;
             }
-            if (r.testMode) {
-                if (manual) toastInfo('Đang ở chế độ test (chưa cấu hình server cập nhật)');
-                return;
-            }
             if (!r.hasUpdate) {
                 pendingUpdateInfo = null;
                 renderVersionRow(null);
