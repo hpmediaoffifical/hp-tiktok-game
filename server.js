@@ -573,6 +573,10 @@ app.post('/api/update/download', async (req, res) => {
             const writer = fs.createWriteStream(tempPath);
             let received = 0;
             let lastEmit = 0;
+            const startedAt = Date.now();
+            let lastSampleAt = startedAt;
+            let lastSampleBytes = 0;
+            let smoothedSpeed = 0;   // EMA cho tốc độ — tránh nhảy số khi network jitter
             await new Promise((resolve, reject) => {
                 dlRes.body.on('data', chunk => {
                     received += chunk.length;
@@ -580,12 +584,24 @@ app.post('/api/update/download', async (req, res) => {
                     if (now - lastEmit > 200) {   // throttle progress to 5/sec
                         lastEmit = now;
                         const percent = expectedSize ? Math.min(99, Math.floor(received / expectedSize * 100)) : 0;
+                        // Tính tốc độ tức thời từ sample 1s gần nhất
+                        const sampleDt = (now - lastSampleAt) / 1000;
+                        const sampleBytes = received - lastSampleBytes;
+                        const instantSpeed = sampleDt > 0 ? sampleBytes / sampleDt : 0;
+                        smoothedSpeed = smoothedSpeed > 0 ? smoothedSpeed * 0.7 + instantSpeed * 0.3 : instantSpeed;
+                        lastSampleAt = now;
+                        lastSampleBytes = received;
+                        // ETA
+                        const remaining = expectedSize - received;
+                        const etaSec = smoothedSpeed > 1024 ? Math.ceil(remaining / smoothedSpeed) : null;
                         sendProgress({
                             phase: 'downloading',
                             percent,
                             received,
                             total: expectedSize,
-                            message: `Đang tải... ${formatBytes(received)} / ${formatBytes(expectedSize)}`
+                            speed: smoothedSpeed,
+                            eta: etaSec,
+                            message: `${formatBytes(received)} / ${formatBytes(expectedSize)}  •  ${formatBytes(smoothedSpeed)}/s${etaSec != null ? '  •  còn ~' + formatEta(etaSec) : ''}`
                         });
                     }
                 });
@@ -644,6 +660,14 @@ function formatBytes(b) {
     if (b < 1024) return b + ' B';
     if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
     return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function formatEta(sec) {
+    if (!sec || sec < 0) return '—';
+    if (sec < 60) return sec + 's';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}m${s ? ' ' + s + 's' : ''}`;
 }
 
 app.get('/api/last-user', (req, res) => {
