@@ -1417,6 +1417,24 @@
     document.getElementById('settings-close')?.addEventListener('click', () => {
         if (settingsPopup) settingsPopup.hidden = true;
     });
+
+    // ===== Xóa KEY đang dùng (logout) =====
+    // Gọi /api/license/deactivate → reset config.license → reload → license gate hiện lại
+    document.getElementById('btn-lic-logout')?.addEventListener('click', async () => {
+        const ok = window.confirm(
+            '⚠️ Xác nhận xóa KEY đang dùng?\n\n' +
+            'App sẽ thoát chế độ đã kích hoạt, yêu cầu nhập KEY mới lần sau mở.\n' +
+            'Cài đặt khác (vị trí hũ, triggers quà, v.v.) sẽ được giữ lại.'
+        );
+        if (!ok) return;
+        try {
+            await fetch('/api/license/deactivate', { method: 'POST' });
+            // Reload trang để license gate hiện ra
+            location.reload();
+        } catch (e) {
+            alert('Lỗi xóa KEY: ' + e.message);
+        }
+    });
     // Universal ESC — đóng bất kỳ popup/modal nào đang mở
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;

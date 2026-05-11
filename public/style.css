@@ -1515,6 +1515,23 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .settings-popup .lic-status.normal { color: #cdd3e0; }
 .settings-popup .lic-status.offline { color: #f59e0b; }
 .settings-popup .lic-meta { font-size: 11px; color: #8b93a8; margin-top: 3px; line-height: 1.4; }
+.settings-popup .lic-logout-btn {
+    margin-top: 10px;
+    width: 100%;
+    background: transparent;
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+.settings-popup .lic-logout-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+}
+.settings-popup .lic-logout-btn:active { transform: translateY(1px); }
 /* Hiển thị TikTok ID đã bind cho key CREATOR */
 .settings-popup .lic-creator-bind {
     margin-top: 5px; font-size: 11px;
