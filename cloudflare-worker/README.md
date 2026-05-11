@@ -1,20 +1,29 @@
-# HP Action LIVE — License Validation Worker
+# HP Action LIVE — License Validation Worker (Cloudflare)
 
-Cloudflare Worker xác thực key bản quyền cho HP Action LIVE.
+Cloudflare Worker xác thực key bản quyền cho HP Action LIVE — option đơn giản nhất.
+
+## So sánh với license-server (Node.js standalone)
+
+| | Cloudflare Worker | License Server (Node.js) |
+|---|---|---|
+| **Chi phí** | $0 (100K req/ngày) | $5/tháng VPS, hoặc $0 Render/Railway free |
+| **Setup** | 5 phút | 15-30 phút |
+| **Latency** | ~30ms (edge global) | ~100ms (1 region) |
+| **Persistent state** | Không (cần KV add-on $5) | ✅ JSON file |
+| **Admin dashboard** | Không có sẵn | ✅ Web UI included |
+| **Device binding** | Phải code thêm | ✅ Built-in |
+| **Audit log** | Cloudflare dashboard | ✅ File local |
+| **Revoke instant** | Cần KV | ✅ Native |
+
+→ Chọn Worker nếu chỉ cần validate đơn giản. Chọn license-server nếu cần dashboard + device binding + audit log.
 
 ## Tại sao cần Worker?
 
-**Trước (v1.0.4):** App fetch trực tiếp Google Sheet KEY_HP_GAME → Sheet ID + URL nằm
-trong source code → attacker `asar extract` thấy được → curl Sheet → tải toàn bộ key list.
+**Trước:** App fetch Google Sheet KEY_HP_GAME trực tiếp. Sheet ID hardcoded trong server.js → attacker `asar extract` thấy → curl sheet → tải toàn bộ key.
 
-**Sau (Tier 1):** App POST tới Worker URL → Worker đọc Sheet (server-side, Sheet ID ẩn) →
-ký response bằng Ed25519 → app verify với public key. Attacker:
-- Không thấy Sheet ID trong app (chỉ thấy Worker URL)
-- Không thể curl Sheet (đặt private)
-- Không thể forge response (không có private key)
-- Vẫn có thể patch app để skip verify, NHƯNG cần kiến thức cao + mất tính chính danh
+**Sau:** Sheet ID nằm trong Cloudflare Worker (secret env). App POST /activate {key} → Worker đọc sheet (server-side) → trả result. Attacker không thấy Sheet ID trong app.
 
-→ Raise the bar đáng kể. Casual cracker fail.
+→ Casual cracker không thể tải bulk key. Vẫn có thể patch app để bypass check (Tier 4 fix qua bytenode), nhưng đó là vấn đề chung của Electron.
 
 ## Yêu cầu
 
@@ -22,100 +31,60 @@ ký response bằng Ed25519 → app verify với public key. Attacker:
 - Node.js 18+ trên máy local
 - `wrangler` CLI: `npm install -g wrangler`
 
-## Deploy lần đầu
+## Deploy
 
-### Bước 1: Sinh Ed25519 keypair
-
-```powershell
-cd cloudflare-worker
-node keygen.js
-```
-
-Output:
-- `private-key.pem` — BÍ MẬT, upload vào Cloudflare
-- `public-key.pem` — public, embed vào server.js
-- `public-key.txt` — base64 1 dòng dễ paste
-
-→ KHÔNG commit `private-key.pem` lên git (đã có .gitignore).
-
-### Bước 2: Đăng nhập Cloudflare
+### Bước 1: Đăng nhập Cloudflare
 
 ```powershell
 wrangler login
 ```
 
-Browser sẽ mở → đăng nhập Cloudflare account → cho phép Wrangler.
+Browser sẽ mở → đăng nhập → cho phép Wrangler.
 
-### Bước 3: Set secrets
+### Bước 2: Set Sheet ID secret
 
 ```powershell
+cd cloudflare-worker
 wrangler secret put SHEET_ID
 ```
 
-Wrangler hỏi value → paste Google Sheet ID (vd: `1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M`).
+Paste Google Sheet ID khi được hỏi (vd: `1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M`).
 
-```powershell
-wrangler secret put SIGN_PRIVATE_KEY
-```
-
-Wrangler hỏi value → paste **toàn bộ nội dung** của `private-key.pem` (bao gồm `-----BEGIN PRIVATE KEY-----` và `-----END PRIVATE KEY-----`).
-
-### Bước 4: Deploy Worker
+### Bước 3: Deploy
 
 ```powershell
 wrangler deploy
 ```
 
-Wrangler sẽ trả về URL Worker, vd:
+Output:
 ```
 Published hp-license (1.2 sec)
   https://hp-license.your-username.workers.dev
 ```
 
-Copy URL này.
+Copy URL.
 
-### Bước 5: Update server.js
+### Bước 4: Update server.js của app electron
 
-Mở `<project root>/server.js`, tìm 2 hằng số sau và update:
+Mở `<project root>/server.js`:
 
 ```js
 const LICENSE_WORKER_URL = process.env.HP_LICENSE_WORKER_URL
-    || 'https://hp-license.your-username.workers.dev';   // ← URL từ bước 4
-const LICENSE_PUBLIC_KEY_B64 = process.env.HP_LICENSE_PUBLIC_KEY
-    || 'AbCdEfGhIjKlMnOpQrSt...';                          // ← Nội dung public-key.txt (dòng base64)
+    || 'https://hp-license.your-username.workers.dev';   // ← URL từ bước 3
 ```
 
-### Bước 6: Lock down Google Sheet
+### Bước 5: Đặt Google Sheet private (optional)
 
-Trên Google Sheet KEY_HP_GAME:
-1. Bấm Share (góc phải trên)
-2. Đổi từ "Anyone with the link can view" → **"Restricted"**
-3. Chỉ giữ owner email của bạn
+Để tăng bảo mật, đặt sheet PRIVATE (chỉ owner đọc). Nhưng vì Worker dùng public CSV export URL, sheet phải shared "Anyone with the link" để Worker đọc được.
 
-Worker vẫn đọc được Sheet vì dùng public CSV export URL, **không cần auth**. Test:
+**Khuyến nghị:** Tạo Sheet ID MỚI (vì ID cũ đã lộ trong git history). Đổi `SHEET_ID` secret sang sheet mới.
 
-```powershell
-# Curl trực tiếp Sheet → phải trả 401/302 (Sheet đã private)
-curl "https://docs.google.com/spreadsheets/d/<SHEET_ID>/gviz/tq?tqx=out:csv&sheet=KEY_HP_GAME"
-
-# Curl Worker → vẫn hoạt động
-curl -X POST "https://hp-license.your-username.workers.dev/activate" \
-     -H "Content-Type: application/json" \
-     -d '{"key": "TEST_KEY"}'
-```
-
-> ⚠️ **Quan trọng:** Google Sheet đặt private thì CSV export URL `gviz/tq?tqx=out:csv` SẼ NGỪNG hoạt động (kể cả từ Worker). Phải chuyển sang dùng **Google Sheets API** với API key/Service Account. Xem **TIER 1+** bên dưới.
->
-> **Phương án nhanh trong Tier 1:** Giữ Sheet public nhưng đổi Sheet ID → Sheet ID cũ thành rác → tạo Sheet mới với danh sách key mới (re-issue all keys cho user). Sheet ID mới chỉ Worker biết.
-
-### Bước 7: Rebuild app
+### Bước 6: Rebuild app
 
 ```powershell
 cd ..
 npm run build:win
 ```
-
-→ `dist/HP-Action-LIVE-Setup-X.X.X.exe` đã có Worker URL + public key được bake vào.
 
 ## Test Worker
 
@@ -125,31 +94,26 @@ curl https://hp-license.your-username.workers.dev/
 
 # → {"service":"hp-license","status":"ok"}
 
-# Test activate với key valid
+# Test activate
 curl -X POST https://hp-license.your-username.workers.dev/activate `
      -H "Content-Type: application/json" `
      -d '{"key":"HDUSN67HUN8666HOEKSN6HPMEDIA"}'
 
-# → {"data":{"ok":true,"key":"HDUSN67HUN8666HOEKSN6HPMEDIA","vip":"VIP","expiry":"27/11/2029",...},"signature":"abc123..."}
+# → {"ok":true,"key":"HDUSN67HUN8666HOEKSN6HPMEDIA","vip":"VIP","expiry":"27/11/2029",...}
 
-# Test activate với key sai
+# Test key sai
 curl -X POST https://hp-license.your-username.workers.dev/activate `
      -H "Content-Type: application/json" `
-     -d '{"key":"FAKE_KEY"}'
+     -d '{"key":"FAKE"}'
 
 # → {"ok":false,"error":"Key không tồn tại trong hệ thống"}
 ```
 
-## Update Worker sau này
+## Update Worker
 
 Sửa `worker.js`, sau đó:
 ```powershell
 wrangler deploy
-```
-
-Sửa SHEET_ID:
-```powershell
-wrangler secret put SHEET_ID
 ```
 
 ## Xem log Worker (debug)
@@ -158,45 +122,7 @@ wrangler secret put SHEET_ID
 wrangler tail
 ```
 
-→ Live log mọi request vào Worker. Hữu ích để debug hoặc audit hoạt động bất thường.
-
-## Rotate key (nếu nghi ngờ private key bị lộ)
-
-```powershell
-# 1. Sinh keypair mới
-node keygen.js
-
-# 2. Update Worker secret
-wrangler secret put SIGN_PRIVATE_KEY
-
-# 3. Update server.js với public key MỚI
-# 4. Build + release version mới
-# 5. User update lên version mới
-```
-
-> Lưu ý: User dùng version cũ (public key cũ) sẽ không activate được key mới. Phải lên version mới.
-
-## TIER 1+ (nâng cấp sau): Service Account cho Sheet private
-
-Nếu muốn Sheet thực sự private (không CSV export public):
-
-1. Tạo Google Cloud project: https://console.cloud.google.com/
-2. Enable Google Sheets API
-3. Tạo Service Account → download JSON key
-4. Share Sheet với email của Service Account (Editor hoặc Viewer)
-5. Trong worker.js, thay `fetch(sheetUrl)` bằng OAuth2 + Sheets API call:
-   ```js
-   // Pseudo-code
-   const token = await getAccessToken(env.SERVICE_ACCOUNT_JSON);  // JWT exchange
-   const sheetData = await fetch(
-       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/KEY_HP_GAME`,
-       { headers: { Authorization: `Bearer ${token}` } }
-   ).then(r => r.json());
-   ```
-6. `wrangler secret put SERVICE_ACCOUNT_JSON` → paste JSON nội dung
-7. Sheet giờ HOÀN TOÀN private. Curl không lấy được nữa.
-
-Đây là Tier 1+ — nâng cấp khi cần. Hiện tại Tier 1 đã đủ chống casual cracker.
+→ Live log mọi request vào Worker.
 
 ## Chi phí
 
@@ -204,37 +130,35 @@ Cloudflare Workers free tier:
 - 100,000 request/ngày
 - 10ms CPU/request
 
-Worker hp-license dùng ~5ms CPU/request. 100K request/ngày = ~3000 user active mỗi giờ. Quá dư cho HP Action LIVE.
+Worker này dùng ~5ms CPU/request. 100K req/day = ~3000 user/giờ.
 
-→ **$0/tháng** cho đến khi vượt scale rất lớn.
+→ **$0/tháng** cho HP Action LIVE.
 
-## Cấu trúc files
+## Bảo mật
 
-```
-cloudflare-worker/
-├── worker.js          # Main Worker code (deploy lên Cloudflare)
-├── wrangler.toml      # Cloudflare config
-├── keygen.js          # Sinh Ed25519 keypair (chạy local)
-├── README.md          # Tài liệu này
-├── .gitignore         # Bỏ qua private-key.pem
-├── private-key.pem    # ⚠️ BÍ MẬT — không commit
-├── public-key.pem     # Public, có thể commit
-└── public-key.txt     # Public key dạng base64
-```
+- **HTTPS tự động** — Cloudflare handle SSL.
+- **Sheet ID ẩn** trong env var → attacker không thấy trong app.
+- **Rate limit tự động** ở Cloudflare edge → khó brute force.
+- **Cache 60s** giảm tải Google Sheets.
+
+Không có Ed25519 sign → đơn giản hơn, vẫn an toàn vì:
+- Attacker không thể fake Worker URL (đã hardcode trong app build)
+- HTTPS chống MITM trên đường truyền
+- Attack chính của Electron là patch client, không phải MITM
 
 ## Câu hỏi thường gặp
 
-**Q: Cài trên máy mới có cần Worker không?**
-A: Có. Mọi máy đều cần Internet kết nối Worker để activate key lần đầu. Sau khi activate, app có 24h offline grace.
-
-**Q: Worker bị down thì sao?**
-A: User đang activated → offline grace 24h, vẫn dùng được. User chưa activate → không hoạt động được. Cloudflare Workers uptime ~99.99% → hiếm khi down.
+**Q: Worker bị down thì user bị sao?**
+A: User đã activate có 24h offline grace (app-config.json `lastValidated`). User chưa activate không hoạt động được. Cloudflare uptime ~99.99% → hiếm khi down.
 
 **Q: Có cần custom domain không?**
-A: Không bắt buộc. `<worker-name>.<your-username>.workers.dev` đã hoạt động ngay. Nếu muốn URL đẹp như `license.hpvn.media`:
-1. Add domain vào Cloudflare (cần proxied DNS)
-2. wrangler.toml thêm `routes = [{ pattern = "license.hpvn.media/*", custom_domain = true }]`
+A: Không bắt buộc. `<worker-name>.<your-username>.workers.dev` đã hoạt động + có HTTPS. Nếu muốn URL đẹp `license.hpvn.media`:
+1. Add domain vào Cloudflare (proxied DNS)
+2. wrangler.toml thêm:
+   ```toml
+   routes = [{ pattern = "license.hpvn.media/*", custom_domain = true }]
+   ```
 3. `wrangler deploy`
 
-**Q: Public key trong app có an toàn không nếu lộ?**
-A: Có. Public key chỉ dùng để VERIFY. Không thể dùng để forge. Chỉ private key (trên Cloudflare) mới forge được. Đó là điểm mạnh của asymmetric crypto.
+**Q: Worker thấy được key user nhập không?**
+A: Có — Worker chạy server-side, đọc key từ POST body. Đây là design intent. Worker chỉ log 6 ký tự đầu vào dashboard Cloudflare, không lưu full key. Nếu muốn audit chi tiết → dùng license-server (Node.js) với log file.

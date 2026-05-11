@@ -5,17 +5,14 @@ name = "hp-license"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
-# Worker URL sau khi deploy sẽ là:
+# Worker URL sau khi deploy:
 #   https://hp-license.<your-cf-username>.workers.dev
-# Hoặc nếu bạn add custom domain:
+# Hoặc nếu add custom domain:
 #   https://license.hpvn.media
 
 [vars]
-# Public vars — KHÔNG để secret ở đây. Dùng `wrangler secret put` cho key nhạy cảm.
+# Public vars. Dùng `wrangler secret put` cho SHEET_ID (nhạy cảm).
 KEY_SHEET_NAME = "KEY_HP_GAME"
 
 # === SECRETS (set bằng lệnh sau khi deploy) ===
-# wrangler secret put SHEET_ID
-#   → nhập Google Sheet ID
-# wrangler secret put SIGN_PRIVATE_KEY
-#   → paste private key PEM (từ keygen.js output)
+# wrangler secret put SHEET_ID    → nhập Google Sheet ID

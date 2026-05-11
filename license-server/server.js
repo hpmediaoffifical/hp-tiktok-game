@@ -1,31 +1,23 @@
 /**
  * HP Action LIVE — Standalone License Validation Server
  * =====================================================
- * Server Node.js độc lập xác thực key bản quyền HP Action LIVE.
+ * Server Node.js độc lập xác thực key bản quyền.
  *
- * KIẾN TRÚC:
- *   App electron → POST /activate {key, deviceId?} → Server này
- *                                                          ↓
- *                                                  Đọc Google Sheet
- *                                                          ↓
- *                                                  Validate + log
- *                                                          ↓
- *                                                  Sign Ed25519
- *                                                          ↓
- *                                  ← {data, signature} ← App verify
+ * App → POST /activate {key, deviceId?} → Server → đọc Google Sheet → validate
+ *                                                        ↓
+ *                                  ← {ok, key, vip, expiry, ...} ← App
  *
- * THAY THẾ Cloudflare Worker — full control, có database activation,
- * có admin dashboard, có device binding.
+ * Bảo mật trên đường truyền: HTTPS (nginx + Let's Encrypt / Cloudflare proxy).
+ * Bảo mật khỏi MITM: HTTPS đã đủ với server trust được (chứng chỉ hợp lệ).
+ * Bảo mật khỏi patch app: KHÔNG fixable ở client side (Electron là JS interpret).
  *
  * Deploy: VPS / Render / Railway / Fly.io / Self-host. Xem README.md.
  */
 
-// Load .env (chỉ khi chạy local — production dùng env vars từ Render/Railway/VPS systemd)
 try { require('dotenv').config(); } catch {}
 
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const express = require('express');
 const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
@@ -42,23 +34,6 @@ const DEVICE_BIND_MAX = parseInt(process.env.DEVICE_BIND_MAX || '2', 10);
 const LOG_FILE = process.env.LOG_FILE || path.join(__dirname, 'data', 'activations.log');
 const ACTIVATIONS_FILE = path.join(__dirname, 'data', 'activations.json');
 
-// === Load private key ===
-let privateKeyPem = process.env.SIGN_PRIVATE_KEY || '';
-if (process.env.SIGN_PRIVATE_KEY_FILE) {
-    try {
-        privateKeyPem = fs.readFileSync(process.env.SIGN_PRIVATE_KEY_FILE, 'utf8');
-    } catch (e) {
-        console.error('[fatal] Không đọc được SIGN_PRIVATE_KEY_FILE:', e.message);
-        process.exit(1);
-    }
-}
-// Cho phép env multi-line escape \n
-privateKeyPem = privateKeyPem.replace(/\\n/g, '\n');
-
-if (!privateKeyPem.includes('BEGIN PRIVATE KEY')) {
-    console.error('[fatal] SIGN_PRIVATE_KEY chưa được set (hoặc sai format PEM). Chạy `node keygen.js` để sinh.');
-    process.exit(1);
-}
 if (!SHEET_ID) {
     console.error('[fatal] SHEET_ID chưa được set trong .env');
     process.exit(1);
@@ -67,14 +42,12 @@ if (!ADMIN_TOKEN || ADMIN_TOKEN.length < 32) {
     console.warn('[warn] ADMIN_TOKEN ngắn hoặc trống — /admin endpoint sẽ KHÔNG hoạt động cho đến khi set token đủ mạnh (≥32 chars).');
 }
 
-const signKey = crypto.createPrivateKey(privateKeyPem);
-
 // === Ensure data dir ===
 const dataDir = path.dirname(ACTIVATIONS_FILE);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-// === Activations store (file-based JSON, đủ cho < 100K user) ===
-let activations = {};  // { keyLower: { key, devices: [{id, firstSeen, lastSeen, ip}], firstActivatedAt, lastActivatedAt, revoked? } }
+// === Activations store (file-based JSON) ===
+let activations = {};
 try {
     if (fs.existsSync(ACTIVATIONS_FILE)) {
         activations = JSON.parse(fs.readFileSync(ACTIVATIONS_FILE, 'utf8'));
@@ -165,23 +138,10 @@ function parseDmy(s) {
     return isNaN(d.getTime()) ? null : d;
 }
 
-// === Crypto sign (Ed25519) ===
-function canonicalJSON(obj) {
-    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return JSON.stringify(obj);
-    const keys = Object.keys(obj).sort();
-    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJSON(obj[k])).join(',') + '}';
-}
-
-function signPayload(data) {
-    const msg = Buffer.from(canonicalJSON(data), 'utf8');
-    const sig = crypto.sign(null, msg, signKey);
-    return sig.toString('base64');
-}
-
 // === Express app ===
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', 1);   // Render/Railway/Fly đứng sau reverse proxy
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '32kb' }));
 
 // CORS
@@ -221,7 +181,6 @@ app.post('/activate', activateLimiter, async (req, res) => {
     if (!cleanKey) return res.json({ ok: false, error: 'Vui lòng nhập key' });
     if (cleanKey.length > 128) return res.json({ ok: false, error: 'Key quá dài' });
 
-    // Fetch sheet
     let list;
     try { list = await fetchSheet(); }
     catch (e) {
@@ -283,7 +242,6 @@ app.post('/activate', activateLimiter, async (req, res) => {
         }
         saveActivations();
     } else if (!localRecord) {
-        // No device binding — vẫn log lần activate đầu
         activations[keyLower] = {
             key: row.key,
             devices: [],
@@ -293,28 +251,19 @@ app.post('/activate', activateLimiter, async (req, res) => {
         saveActivations();
     }
 
-    // Build signed payload
-    const now = Date.now();
-    const data = {
+    // === Flat response — KHÔNG ký, KHÔNG signature ===
+    // Bảo mật trên đường truyền: dựa vào HTTPS.
+    // App tin response của server (URL được hardcode trong app build).
+    logLine(`ACTIVATE_OK ip=${ip} key=${row.key.slice(0, 6)}*** vip=${row.vip} device=${deviceId ? String(deviceId).slice(0, 8) + '***' : 'none'}`);
+    res.json({
         ok: true,
         key: row.key,
         vip: row.vip,
         expiry: row.expiry,
         expiryISO: expiryDate ? expiryDate.toISOString() : null,
         note: row.note,
-        issued_at: now,
-        valid_until: now + 24 * 60 * 60 * 1000
-    };
-
-    let signature;
-    try { signature = signPayload(data); }
-    catch (e) {
-        logLine(`ACTIVATE_FAIL ip=${ip} key=${row.key.slice(0, 6)}*** error=sign ${e.message}`);
-        return res.status(500).json({ ok: false, error: 'Lỗi ký response' });
-    }
-
-    logLine(`ACTIVATE_OK ip=${ip} key=${row.key.slice(0, 6)}*** vip=${row.vip} device=${deviceId ? String(deviceId).slice(0, 8) + '***' : 'none'}`);
-    res.json({ data, signature });
+        issued_at: Date.now()
+    });
 });
 
 // === Admin auth middleware ===

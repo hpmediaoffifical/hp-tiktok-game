@@ -1,6 +1,4 @@
-# Ed25519 keypair — GIỮ private key BÍ MẬT
-private-key.pem
-public-key.pem
-public-key.txt
-node_modules/
+# Wrangler
 .wrangler/
+node_modules/
+.dev.vars

@@ -1,8 +1,5 @@
 # Secrets
 .env
-private-key.pem
-public-key.pem
-public-key.txt
 
 # Data + logs
 data/activations.json
