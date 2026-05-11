@@ -1510,9 +1510,23 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     padding: 1px 6px; border-radius: 4px;
 }
 .settings-popup .lic-status.vip { background: linear-gradient(135deg,#ffd166,#ff8a65); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.settings-popup .lic-status.admin { background: linear-gradient(135deg,#a855f7,#7c3aed); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.settings-popup .lic-status.creator { background: linear-gradient(135deg,#06b6d4,#0ea5e9); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 .settings-popup .lic-status.normal { color: #cdd3e0; }
 .settings-popup .lic-status.offline { color: #f59e0b; }
 .settings-popup .lic-meta { font-size: 11px; color: #8b93a8; margin-top: 3px; line-height: 1.4; }
+/* Hiển thị TikTok ID đã bind cho key CREATOR */
+.settings-popup .lic-creator-bind {
+    margin-top: 5px; font-size: 11px;
+    color: #06b6d4; font-weight: 600;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+    padding: 4px 8px; border-radius: 6px;
+    display: inline-block;
+    -webkit-background-clip: initial;
+    -webkit-text-fill-color: initial;
+}
+.settings-popup .lic-creator-bind b { color: #67e8f9; }
 
 /* === 6. Version block === */
 .version-block {

@@ -992,6 +992,19 @@
                 body: JSON.stringify({ username })
             });
             const data = await res.json();
+            // === CREATOR lock — server reject username không khớp bound TikTok ID ===
+            if (res.status === 403 && data._creatorLocked) {
+                setStatus(null, 'Username không khớp với key');
+                setConnectedUI(false);
+                appendSystem(`⚠️ ${data.error}`);
+                // Show explicit alert vì đây là lỗi quan trọng cần liên hệ HP Media
+                alert(data.error);
+                // Auto-fill username field với bound ID để user dễ thấy đúng tên cần dùng
+                if (data.boundTiktokId) {
+                    dom.usernameInput.value = data.boundTiktokId;
+                }
+                return;
+            }
             if (!data.ok) throw new Error(data.error || 'Lỗi không xác định');
             setStatus('online', `@${data.username}`);
             dom.statRoom.textContent = data.roomId ? `Room ${data.roomId}` : '';
@@ -1497,16 +1510,42 @@
     }
     function updateLicenseBadge(info) {
         if (!licStatusText) return;
-        const isVip = /vip/i.test(info.vip || '');
-        const tag = info.offline
-            ? '🌐 Offline · ' + (info.vip || 'Bản quyền')
-            : (isVip ? '⭐ VIP' : (info.vip || 'Bản quyền'));
+        const role = String(info.role || '').toUpperCase();
+        const vipText = String(info.vip || '').trim();
+        const isAdmin = role === 'ADMIN';
+        const isCreator = role === 'CREATOR';
+        const isVip = /vip/i.test(vipText);
+
+        // Tag: ưu tiên role mới (ADMIN/CREATOR) → fallback VIP/Thường cho key cũ
+        let tagIco, tagText;
+        if (isCreator) { tagIco = '🎥'; tagText = 'CREATOR'; }
+        else if (isAdmin && role === 'ADMIN') { tagIco = '👑'; tagText = 'ADMIN'; }
+        else if (isVip) { tagIco = '⭐'; tagText = 'VIP'; }
+        else { tagIco = ''; tagText = vipText || 'Bản quyền'; }
+
+        const offlinePrefix = info.offline ? '🌐 Offline · ' : '';
+        const tag = offlinePrefix + (tagIco ? tagIco + ' ' : '') + tagText;
         const keyMask = info.key ? info.key.slice(0, 4) + '****' + info.key.slice(-4) : '';
         const expiry = info.expiry || '—';
-        // Gom vào 1 dòng cho gọn: "⭐ VIP · HDUS****EDIA · HSD 27/11/2029"
-        licStatusText.innerHTML = `${escAttrInline(tag)} <span class="lic-sep">·</span> <span class="lic-keymask">${escAttrInline(keyMask)}</span> <span class="lic-sep">·</span> HSD <b>${escAttrInline(expiry)}</b>`;
-        licStatusText.className = 'lic-status compact ' + (info.offline ? 'offline' : (isVip ? 'vip' : 'normal'));
-        if (licMeta) licMeta.innerHTML = '';  // không cần hàng meta phụ nữa
+
+        // Hàng 1: ⭐ ROLE · HDUS****EDIA · HSD 27/11/2029
+        let html = `${escAttrInline(tag)} <span class="lic-sep">·</span> <span class="lic-keymask">${escAttrInline(keyMask)}</span> <span class="lic-sep">·</span> HSD <b>${escAttrInline(expiry)}</b>`;
+
+        // Hàng 2 (chỉ CREATOR): hiện TikTok ID đã bind để user biết cần connect bằng tên gì
+        if (isCreator && info.tiktokId) {
+            html += `<div class="lic-creator-bind">🔗 Liên kết với <b>@${escAttrInline(info.tiktokId)}</b></div>`;
+        }
+
+        licStatusText.innerHTML = html;
+        const cls = info.offline ? 'offline' : (isCreator ? 'creator' : (isAdmin ? 'admin' : (isVip ? 'vip' : 'normal')));
+        licStatusText.className = 'lic-status compact ' + cls;
+        if (licMeta) licMeta.innerHTML = '';
+
+        // === CREATOR auto-fill username ===
+        // Nếu key CREATOR + có bound TikTok ID + field username đang trống → auto-điền
+        if (isCreator && info.tiktokId && dom.usernameInput && !dom.usernameInput.value.trim()) {
+            dom.usernameInput.value = info.tiktokId;
+        }
     }
     async function tryActivate() {
         const key = (gateInput.value || '').trim();

@@ -18,12 +18,43 @@ Server Node.js riêng xác thực key bản quyền HP Action LIVE.
 ## Tính năng
 
 - ✅ POST `/activate` với key validation
+- ✅ **Role-based key**: ADMIN (toàn quyền) / CREATOR (bind TikTok ID)
 - ✅ Device binding: 1 key chỉ chạy trên N máy (configurable)
 - ✅ Admin dashboard web UI: list/search keys, revoke, reset devices
 - ✅ Audit log: ghi mọi lần activate/revoke vào file
 - ✅ Rate limiting: chống brute force key (20 req/phút/IP mặc định)
 - ✅ Cache Google Sheet 5 phút (giảm Google API call)
 - ✅ Health check endpoint
+
+## Cấu trúc Google Sheet KEY_HP_GAME
+
+| Cột | Tên | Ví dụ | Bắt buộc | Ý nghĩa |
+|---|---|---|---|---|
+| **A** | Key | `HDUSN67HUN...` | ✅ | Key bản quyền (case-insensitive) |
+| **B** | Expiry | `27/11/2029` | ✅ | Ngày hết hạn DD/MM/YYYY |
+| **C** | Role | `ADMIN` / `CREATOR` / `VIP` / `Thường` | ✅ | Quyền hạn (xem dưới) |
+| **D** | Status | `Đang sử dụng` / `Hết hạn` | ✅ | Trạng thái — `Hết hạn` / `Tạm khoá` sẽ reject |
+| **E** | Note | text tự do | ❌ | Ghi chú (không hiển thị cho user) |
+| **F** | TikTok ID | `username123` | ⚠️ | **CHỈ điền khi Role = CREATOR**. Không có `@` |
+
+### Role logic
+
+| Role | Hành vi |
+|---|---|
+| `ADMIN` | Toàn quyền — connect bất kỳ TikTok ID nào |
+| `CREATOR` | BIND với TikTok ID ở cột F. Nhập username khác → app reject với thông báo "liên hệ HP Media để đổi ID" |
+| `VIP` | Backward compat — treat same as ADMIN (key cũ vẫn dùng được) |
+| `Thường` | Backward compat — treat same as ADMIN |
+| (trống) | Treat same as ADMIN |
+
+→ Sheet cũ với cột C = `VIP` / `Thường` vẫn hoạt động bình thường, không cần migrate. Khi tạo key mới, dùng `ADMIN` hoặc `CREATOR` để rõ ràng.
+
+### Use case CREATOR
+
+- Bán key cho creator A có TikTok `@creator_a` → cột C = `CREATOR`, cột F = `creator_a`
+- Creator A chỉ kết nối được khi nhập `@creator_a` trong app
+- Nếu creator A đổi tên TikTok thành `@creator_a_new` → kết nối fail → liên hệ HP Media cập nhật cột F → kích hoạt lại
+- App có **auto-fill** username field bằng bound TikTok ID khi key activate
 
 ## Bảo mật đường truyền
 

@@ -72,14 +72,16 @@ async function handleActivate(request, env) {
         return jsonResponse({ ok: false, error: `Key đã hết hạn từ ${row.expiry}` });
     }
 
-    // Flat response — không ký, dựa vào HTTPS của Cloudflare
+    // Flat response — không ký, dựa vào HTTPS
     return jsonResponse({
         ok: true,
         key: row.key,
-        vip: row.vip,
+        role: row.role,
+        vip: row.roleRaw,
         expiry: row.expiry,
         expiryISO: expiryDate ? expiryDate.toISOString() : null,
         note: row.note || '',
+        tiktokId: row.role === 'CREATOR' ? row.tiktokId : '',
         issued_at: Date.now()
     });
 }
@@ -111,6 +113,8 @@ function parseCsv(text) {
     return rows;
 }
 
+// Sheet cột:
+//   A=Key | B=Expiry | C=Role | D=Status | E=Note | F=TikTok ID
 function findKey(csvText, queryKey) {
     const rows = parseCsv(csvText);
     const q = queryKey.toLowerCase();
@@ -118,16 +122,26 @@ function findKey(csvText, queryKey) {
         const r = rows[i];
         if (!r || !r[0]) continue;
         if (String(r[0]).trim().toLowerCase() === q) {
+            const roleRaw = String(r[2] || '').trim();
+            const role = normalizeRole(roleRaw);
             return {
                 key: String(r[0] || '').trim(),
                 expiry: String(r[1] || '').trim(),
-                vip: String(r[2] || '').trim(),
+                role,
+                roleRaw,
                 status: String(r[3] || '').trim(),
-                note: String(r[4] || '').trim()
+                note: String(r[4] || '').trim(),
+                tiktokId: String(r[5] || '').trim().replace(/^@/, '')
             };
         }
     }
     return null;
+}
+
+function normalizeRole(raw) {
+    const up = String(raw).toUpperCase();
+    if (up === 'ADMIN' || up === 'CREATOR') return up;
+    return 'ADMIN';   // backward compat: VIP/Thường/blank → full access
 }
 
 function parseDmy(s) {
