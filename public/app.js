@@ -42,10 +42,7 @@
         connRow: $('#conn-row'),
         btnConnect: $('#btn-connect'),
         btnReloadGifts: $('#btn-reload-gifts'),
-        btnLicSave: $('#btn-license-save'),
-        licKey: $('#lic-key'),
-        licEmail: $('#lic-email'),
-        licStatus: $('#lic-status'),
+        // License: handle qua biến cục bộ licStatusText/licMeta/btnLicLogout phía dưới
         dot: $('#dot'),
         statusText: $('#status-text'),
         statRoom: $('#stat-room'),
@@ -991,18 +988,7 @@
         }
     });
 
-    dom.btnLicSave.addEventListener('click', async () => {
-        const key = dom.licKey.value.trim();
-        const email = dom.licEmail.value.trim();
-        const r = await fetch('/api/license', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key, email })
-        });
-        if (r.ok) {
-            dom.licStatus.textContent = key ? `Đã lưu key ${key.slice(0, 6)}...` : 'Đã xoá key';
-            dom.licStatus.style.color = '#22c55e';
-        }
-    });
+    // Old license save handler đã chuyển sang gate flow (xem phần License Gate ở cuối file)
 
     dom.btnCopyOverlay.addEventListener('click', () => {
         dom.overlayUrl.select();
@@ -1217,23 +1203,115 @@
         };
     }
 
-    // ===== Init =====
-    (async function init() {
-        setStatus(null, 'Chưa kết nối');
+    // ===== License Gate =====
+    const gateEl = document.getElementById('license-gate');
+    const gateInput = document.getElementById('lg-key-input');
+    const gateBtn = document.getElementById('lg-activate-btn');
+    const gateMsg = document.getElementById('lg-message');
+    const licStatusText = document.getElementById('lic-status-text');
+    const licMeta = document.getElementById('lic-meta');
+    const btnLicLogout = document.getElementById('btn-license-logout');
+
+    function showGate(errorMsg) {
+        if (gateEl) {
+            gateEl.hidden = false;
+            if (errorMsg) {
+                gateMsg.textContent = errorMsg;
+                gateMsg.className = 'lg-message';
+            } else {
+                gateMsg.textContent = '';
+                gateMsg.className = 'lg-message';
+            }
+            setTimeout(() => gateInput?.focus(), 50);
+        }
+    }
+    function hideGate() {
+        if (gateEl) gateEl.hidden = true;
+    }
+    function updateLicenseBadge(info) {
+        if (!licStatusText) return;
+        const isVip = /vip/i.test(info.vip || '');
+        licStatusText.textContent = info.offline
+            ? '🌐 Offline · ' + (info.vip || 'Bản quyền')
+            : (isVip ? '⭐ VIP' : (info.vip || 'Bản quyền'));
+        licStatusText.className = 'lic-status ' + (info.offline ? 'offline' : (isVip ? 'vip' : 'normal'));
+        if (licMeta) {
+            const keyMask = info.key ? info.key.slice(0, 4) + '****' + info.key.slice(-4) : '';
+            licMeta.innerHTML = `${escAttrInline(keyMask)}<br/>HSD: <b>${escAttrInline(info.expiry || '—')}</b>`;
+        }
+        if (btnLicLogout) btnLicLogout.hidden = false;
+    }
+    async function tryActivate() {
+        const key = (gateInput.value || '').trim();
+        if (!key) {
+            gateMsg.textContent = 'Vui lòng nhập key';
+            gateMsg.className = 'lg-message';
+            gateInput.focus();
+            return;
+        }
+        gateBtn.disabled = true;
+        gateMsg.textContent = '⏳ Đang kiểm tra với server...';
+        gateMsg.className = 'lg-message info';
         try {
-            const lic = await (await fetch('/api/license')).json();
-            dom.licKey.value = lic.key || '';
-            dom.licEmail.value = lic.email || '';
-            if (lic.key) dom.licStatus.textContent = `Key đã lưu: ${lic.key.slice(0, 6)}...`;
-        } catch (e) {}
+            const res = await fetch('/api/license/activate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key })
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                gateMsg.textContent = '❌ ' + (data.error || 'Key không hợp lệ');
+                gateMsg.className = 'lg-message';
+                gateBtn.disabled = false;
+                return;
+            }
+            gateMsg.textContent = `✓ Kích hoạt thành công · ${data.vip} · HSD ${data.expiry}`;
+            gateMsg.className = 'lg-message ok';
+            await new Promise(r => setTimeout(r, 700));
+            hideGate();
+            updateLicenseBadge(data);
+            startApp();
+        } catch (e) {
+            gateMsg.textContent = '❌ Lỗi kết nối: ' + e.message;
+            gateMsg.className = 'lg-message';
+            gateBtn.disabled = false;
+        }
+    }
+    gateBtn?.addEventListener('click', tryActivate);
+    gateInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryActivate(); });
+    btnLicLogout?.addEventListener('click', async () => {
+        if (!confirm('Đăng xuất key bản quyền? App sẽ yêu cầu nhập lại key.')) return;
+        await fetch('/api/license/deactivate', { method: 'POST' });
+        location.reload();
+    });
+
+    let appStarted = false;
+    async function startApp() {
+        if (appStarted) return;
+        appStarted = true;
+        setStatus(null, 'Chưa kết nối');
         try {
             const u = await (await fetch('/api/last-user')).json();
             if (u?.username) dom.usernameInput.value = u.username;
         } catch (e) {}
         await loadGames();
         if (games.length) openGame(games[0].id);
-        // Check update sau 3s khi app khởi động + mỗi 10 phút
         setTimeout(checkForUpdate, 3000);
         setInterval(checkForUpdate, 10 * 60 * 1000);
+    }
+
+    // ===== Init: license gate trước, app sau =====
+    (async function bootstrap() {
+        try {
+            const lic = await (await fetch('/api/license/status')).json();
+            if (lic.activated) {
+                updateLicenseBadge(lic);
+                startApp();
+            } else {
+                showGate(lic.error);
+            }
+        } catch (e) {
+            showGate('Không kết nối được server: ' + e.message);
+        }
     })();
 })();

@@ -15,6 +15,129 @@ input, button { font-family: inherit; }
     overflow: hidden;
 }
 
+/* ============ LICENSE GATE ============ */
+.license-gate {
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, #1a1d29 0%, #07080c 70%);
+    z-index: 50000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+}
+.license-gate[hidden] { display: none; }
+.lg-card {
+    background: linear-gradient(180deg, #161a23 0%, #0f1218 100%);
+    border: 1px solid #2c3243;
+    border-radius: 18px;
+    padding: 36px 36px 24px;
+    width: 460px; max-width: 100%;
+    text-align: center;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,58,237,0.15) inset;
+    animation: lg-pop .35s cubic-bezier(.2,1.4,.4,1);
+}
+@keyframes lg-pop {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.lg-logo {
+    width: 80px; height: 80px;
+    border-radius: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 12px 32px rgba(102,80,200,0.45);
+}
+.lg-title {
+    font-size: 22px; font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, #ff6b3d, #ff2d55);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.lg-sub {
+    color: #8b93a8;
+    font-size: 13px;
+    margin: 6px 0 24px;
+}
+.lg-input {
+    width: 100%;
+    background: #0a0d14;
+    border: 1px solid #2c3243;
+    border-radius: 10px;
+    color: #ffd166;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    text-align: center;
+    letter-spacing: 0.5px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.lg-input:focus {
+    border-color: #ff6b3d;
+    box-shadow: 0 0 0 3px rgba(255,107,61,0.15);
+}
+.lg-btn {
+    margin-top: 14px;
+    width: 100%;
+    background: linear-gradient(135deg, #ff2d55, #ff6b3d);
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+    transition: filter .12s ease, transform .08s ease;
+    letter-spacing: 0.3px;
+}
+.lg-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.lg-btn:active:not(:disabled) { transform: scale(0.99); }
+.lg-btn:disabled { opacity: 0.55; cursor: wait; }
+.lg-message {
+    min-height: 22px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #ef4444;
+    font-weight: 600;
+}
+.lg-message.ok { color: #22c55e; }
+.lg-message.info { color: #60a5fa; }
+.lg-footer {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #1f2533;
+    font-size: 11px;
+    color: #8b93a8;
+}
+.lg-footer a { color: #ff8a65; text-decoration: none; }
+.lg-footer a:hover { text-decoration: underline; }
+.lg-footer .lg-divider { padding: 0 6px; opacity: 0.5; }
+
+/* ============ License badge sidebar ============ */
+.lic-card .lic-badge {
+    background: linear-gradient(135deg, #0f1218, #161a23);
+    border: 1px solid #2c3243;
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+}
+.lic-card .lic-status {
+    font-size: 13px; font-weight: 800;
+    letter-spacing: 0.4px;
+    color: #ffd166;
+}
+.lic-card .lic-status.vip {
+    background: linear-gradient(135deg, #fbbf24, #ff6b3d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.lic-card .lic-status.normal { color: #c8cee0; }
+.lic-card .lic-status.offline { color: #60a5fa; }
+.lic-card .lic-meta {
+    font-size: 10px;
+    color: #8b93a8;
+    margin-top: 2px;
+}
+
 /* =========== SIDEBAR =========== */
 .sidebar {
     background: linear-gradient(180deg, #12151c 0%, #0f1218 100%);

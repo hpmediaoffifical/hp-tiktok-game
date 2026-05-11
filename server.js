@@ -10,6 +10,8 @@ const PORT = process.env.PORT || 3000;
 const SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
 const SHEET_NAME = 'DANH SACH QUA';
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+const KEY_SHEET_NAME = 'KEY_HP_GAME';
+const KEY_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(KEY_SHEET_NAME)}`;
 // HP_DATA_DIR được set bởi electron-main.js trong môi trường đóng gói (vì __dirname nằm trong asar read-only).
 // Khi chạy dev / node trực tiếp: fallback về data/ cạnh server.js
 const DATA_DIR = process.env.HP_DATA_DIR || path.join(__dirname, 'data');
@@ -116,6 +118,75 @@ async function loadGiftSheet() {
     console.log(`[gift-sheet] Đã tải ${list.length} quà.`);
     io.emit('giftSheet', giftList);
     return giftList;
+}
+
+// ====== License key sheet (KEY_HP_GAME) ======
+let keySheetCache = null;
+let keySheetCachedAt = 0;
+const KEY_SHEET_TTL_MS = 5 * 60 * 1000; // 5 min cache
+
+async function loadKeySheet(force = false) {
+    if (!force && keySheetCache && (Date.now() - keySheetCachedAt) < KEY_SHEET_TTL_MS) {
+        return keySheetCache;
+    }
+    const res = await fetch(KEY_SHEET_CSV_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const rows = parseCsv(text);
+    const list = [];
+    for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0]) continue;
+        const key = String(r[0] || '').trim();
+        if (!key) continue;
+        list.push({
+            key,
+            expiry: String(r[1] || '').trim(),  // DD/MM/YYYY
+            vip: String(r[2] || '').trim(),     // "VIP" hoặc "Thường"
+            status: String(r[3] || '').trim(),  // "Chưa sử dụng" | "Đang sử dụng" | "Hết hạn/Tạm khóa"
+            note: String(r[4] || '').trim()
+        });
+    }
+    keySheetCache = list;
+    keySheetCachedAt = Date.now();
+    return list;
+}
+
+function parseDmy(s) {
+    // "27/11/2029" → Date
+    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 23, 59, 59);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+async function validateLicenseKey(rawKey) {
+    const key = String(rawKey || '').trim();
+    if (!key) return { ok: false, error: 'Vui lòng nhập key bản quyền' };
+    let list;
+    try {
+        list = await loadKeySheet();
+    } catch (e) {
+        return { ok: false, error: 'Không kết nối được Google Sheet — kiểm tra mạng và thử lại', _offline: true };
+    }
+    const row = list.find(r => r.key.toLowerCase() === key.toLowerCase());
+    if (!row) return { ok: false, error: 'Key không tồn tại trong hệ thống' };
+    if (/hết hạn|tạm khóa|tam khoa|het han/i.test(row.status)) {
+        return { ok: false, error: 'Key đã bị khoá hoặc hết hạn' };
+    }
+    const expiryDate = parseDmy(row.expiry);
+    if (expiryDate && expiryDate.getTime() < Date.now()) {
+        return { ok: false, error: `Key đã hết hạn từ ${row.expiry}` };
+    }
+    return {
+        ok: true,
+        key: row.key,
+        expiry: row.expiry,
+        expiryISO: expiryDate ? expiryDate.toISOString() : null,
+        vip: row.vip,
+        status: row.status,
+        note: row.note
+    };
 }
 
 // ====== TikTok connection ======
@@ -277,11 +348,84 @@ app.get('/api/last-user', (req, res) => {
     res.json({ username: appConfig.lastUsername || '' });
 });
 
-app.get('/api/license', (req, res) => res.json(appConfig.license || { key: '', email: '' }));
-app.post('/api/license', (req, res) => {
-    appConfig.license = { key: req.body?.key || '', email: req.body?.email || '' };
+// ===== License gate API =====
+app.get('/api/license/status', async (req, res) => {
+    const stored = appConfig.license || {};
+    if (!stored.activated || !stored.key) {
+        return res.json({ activated: false });
+    }
+    // Re-validate against sheet để bắt admin revoke kịp thời (cache 5 phút)
+    try {
+        const result = await validateLicenseKey(stored.key);
+        if (result.ok) {
+            // Cập nhật info mới nhất từ sheet
+            appConfig.license = {
+                ...stored,
+                vip: result.vip,
+                expiry: result.expiry,
+                lastValidated: Date.now()
+            };
+            saveAppConfig();
+            return res.json({
+                activated: true,
+                key: result.key,
+                vip: result.vip,
+                expiry: result.expiry,
+                note: result.note
+            });
+        }
+        // Sheet nói invalid (admin đã revoke / key đã expire)
+        if (result._offline) {
+            // Cho phép offline tối đa 24h kể từ lần validate cuối
+            const lastValid = stored.lastValidated || 0;
+            if (Date.now() - lastValid < 24 * 3600 * 1000) {
+                return res.json({
+                    activated: true,
+                    key: stored.key,
+                    vip: stored.vip || 'Thường',
+                    expiry: stored.expiry || '',
+                    offline: true,
+                    note: 'Offline grace period'
+                });
+            }
+        }
+        // Revoke
+        appConfig.license = { activated: false, lastError: result.error };
+        saveAppConfig();
+        return res.json({ activated: false, error: result.error });
+    } catch (e) {
+        return res.json({ activated: false, error: e.message });
+    }
+});
+
+app.post('/api/license/activate', async (req, res) => {
+    const key = (req.body && req.body.key) || '';
+    const result = await validateLicenseKey(key);
+    if (!result.ok) return res.json(result);
+    appConfig.license = {
+        activated: true,
+        key: result.key,
+        vip: result.vip,
+        expiry: result.expiry,
+        note: result.note,
+        activatedAt: Date.now(),
+        lastValidated: Date.now()
+    };
+    saveAppConfig();
+    res.json(result);
+});
+
+app.post('/api/license/deactivate', (req, res) => {
+    appConfig.license = { activated: false };
     saveAppConfig();
     res.json({ ok: true });
+});
+
+app.post('/api/license/refresh-sheet', async (req, res) => {
+    try {
+        const list = await loadKeySheet(true);
+        res.json({ ok: true, count: list.length });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/reload-gifts', async (req, res) => {
