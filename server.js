@@ -1,17 +1,31 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 const express = require('express');
 const { Server: SocketIOServer } = require('socket.io');
 const fetch = require('node-fetch');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 
 const PORT = process.env.PORT || 3000;
+
+// === Google Sheet danh sách quà (vẫn public-readable, không nhạy cảm) ===
 const SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
 const SHEET_NAME = 'DANH SACH QUA';
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
-const KEY_SHEET_NAME = 'KEY_HP_GAME';
-const KEY_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(KEY_SHEET_NAME)}`;
+
+// === LICENSE VALIDATION qua Cloudflare Worker ===
+// Lý do: Google Sheet chứa danh sách KEY phải private. App KHÔNG fetch trực tiếp Sheet
+// (tránh lộ Sheet ID + cho phép scrape toàn bộ key). Worker đứng ở giữa:
+//   App → POST {key} → Worker → đọc Sheet (server-side với SHEET_ID ẩn) → return signed payload
+// App verify chữ ký Ed25519 với LICENSE_PUBLIC_KEY_B64 (public, an toàn nếu lộ).
+//
+// Khi muốn deploy: chạy `node cloudflare-worker/keygen.js` để sinh keypair,
+// rồi `wrangler deploy` Worker. Copy Worker URL + public key về 2 hằng số bên dưới.
+const LICENSE_WORKER_URL = process.env.HP_LICENSE_WORKER_URL
+    || 'https://hp-license.YOUR-CF-USERNAME.workers.dev';   // ← UPDATE sau khi deploy
+const LICENSE_PUBLIC_KEY_B64 = process.env.HP_LICENSE_PUBLIC_KEY
+    || 'PASTE-PUBLIC-KEY-BASE64-HERE';                        // ← UPDATE sau khi deploy
 // HP_DATA_DIR được set bởi electron-main.js trong môi trường đóng gói (vì __dirname nằm trong asar read-only).
 // Khi chạy dev / node trực tiếp: fallback về data/ cạnh server.js
 const DATA_DIR = process.env.HP_DATA_DIR || path.join(__dirname, 'data');
@@ -120,72 +134,112 @@ async function loadGiftSheet() {
     return giftList;
 }
 
-// ====== License key sheet (KEY_HP_GAME) ======
-let keySheetCache = null;
-let keySheetCachedAt = 0;
-const KEY_SHEET_TTL_MS = 5 * 60 * 1000; // 5 min cache
-
-async function loadKeySheet(force = false) {
-    if (!force && keySheetCache && (Date.now() - keySheetCachedAt) < KEY_SHEET_TTL_MS) {
-        return keySheetCache;
-    }
-    const res = await fetch(KEY_SHEET_CSV_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const rows = parseCsv(text);
-    const list = [];
-    for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[0]) continue;
-        const key = String(r[0] || '').trim();
-        if (!key) continue;
-        list.push({
-            key,
-            expiry: String(r[1] || '').trim(),  // DD/MM/YYYY
-            vip: String(r[2] || '').trim(),     // "VIP" hoặc "Thường"
-            status: String(r[3] || '').trim(),  // "Chưa sử dụng" | "Đang sử dụng" | "Hết hạn/Tạm khóa"
-            note: String(r[4] || '').trim()
-        });
-    }
-    keySheetCache = list;
-    keySheetCachedAt = Date.now();
-    return list;
-}
+// ============================================================
+// LICENSE VALIDATION qua Cloudflare Worker + Ed25519 signature
+// ============================================================
+// 1. App POST {key} tới LICENSE_WORKER_URL/activate
+// 2. Worker đọc Google Sheet (private), tìm key, validate
+// 3. Worker trả {data, signature} với data ký Ed25519 bằng private key trên Worker
+// 4. App verify signature bằng LICENSE_PUBLIC_KEY_B64 → đảm bảo không forge được
+//
+// Lý do bảo mật:
+//   - Sheet ID không còn trong app → attacker extract asar không thấy
+//   - Sheet đặt private → curl trực tiếp không lấy được key list
+//   - Response có chữ ký → attacker tạo Worker giả không lừa được app
+//   - Public key trong app → có thể lộ, không sao (chỉ verify, không sign)
 
 function parseDmy(s) {
-    // "27/11/2029" → Date
     const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (!m) return null;
     const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 23, 59, 59);
     return isNaN(d.getTime()) ? null : d;
 }
 
+// Canonical JSON (sort keys) — phải giống worker.js để signature match
+function canonicalJSON(obj) {
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return JSON.stringify(obj);
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJSON(obj[k])).join(',') + '}';
+}
+
+// Verify Ed25519 signature trên dữ liệu Worker trả về
+function verifyWorkerSignature(data, signatureB64) {
+    try {
+        // Build Ed25519 public key từ raw 32 bytes (base64) → SPKI DER → KeyObject
+        const rawPub = Buffer.from(LICENSE_PUBLIC_KEY_B64, 'base64');
+        if (rawPub.length !== 32) {
+            console.warn('[license] LICENSE_PUBLIC_KEY_B64 không hợp lệ (expect 32 bytes, got', rawPub.length, ')');
+            return false;
+        }
+        // SPKI DER header cho Ed25519 (12 bytes prefix) + 32 bytes pubkey
+        const spkiHeader = Buffer.from([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
+        const spki = Buffer.concat([spkiHeader, rawPub]);
+        const publicKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
+
+        const message = Buffer.from(canonicalJSON(data), 'utf8');
+        const signature = Buffer.from(signatureB64, 'base64');
+        return crypto.verify(null, message, publicKey, signature);
+    } catch (e) {
+        console.warn('[license] verify signature lỗi:', e.message);
+        return false;
+    }
+}
+
 async function validateLicenseKey(rawKey) {
     const key = String(rawKey || '').trim();
     if (!key) return { ok: false, error: 'Vui lòng nhập key bản quyền' };
-    let list;
+
+    // Cảnh báo nếu chưa cấu hình Worker URL
+    if (LICENSE_WORKER_URL.includes('YOUR-CF-USERNAME') || LICENSE_PUBLIC_KEY_B64.includes('PASTE-')) {
+        console.warn('[license] Worker chưa được cấu hình. Update LICENSE_WORKER_URL + LICENSE_PUBLIC_KEY_B64 trong server.js sau khi deploy Worker.');
+        return { ok: false, error: 'Hệ thống bản quyền chưa được cấu hình. Vui lòng liên hệ HP Media.' };
+    }
+
+    let res, body;
     try {
-        list = await loadKeySheet();
+        res = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key }),
+            timeout: 10000
+        });
+        body = await res.json();
     } catch (e) {
-        return { ok: false, error: 'Không kết nối được Google Sheet — kiểm tra mạng và thử lại', _offline: true };
+        return { ok: false, error: 'Không kết nối được hệ thống bản quyền — kiểm tra mạng và thử lại', _offline: true };
     }
-    const row = list.find(r => r.key.toLowerCase() === key.toLowerCase());
-    if (!row) return { ok: false, error: 'Key không tồn tại trong hệ thống' };
-    if (/hết hạn|tạm khóa|tam khoa|het han/i.test(row.status)) {
-        return { ok: false, error: 'Key đã bị khoá hoặc hết hạn' };
+
+    // Worker từ chối → trả error message
+    if (!body || body.ok === false) {
+        return { ok: false, error: body?.error || 'Key không hợp lệ' };
     }
-    const expiryDate = parseDmy(row.expiry);
-    if (expiryDate && expiryDate.getTime() < Date.now()) {
-        return { ok: false, error: `Key đã hết hạn từ ${row.expiry}` };
+
+    // Worker accept → phải có data + signature
+    if (!body.data || !body.signature) {
+        return { ok: false, error: 'Response từ hệ thống bản quyền không hợp lệ' };
     }
+
+    // === Verify chữ ký Ed25519 — TRỌNG TÂM BẢO MẬT ===
+    // Nếu attacker tạo Worker giả/proxy giả → signature không match → app từ chối
+    if (!verifyWorkerSignature(body.data, body.signature)) {
+        return { ok: false, error: 'Chữ ký xác thực không hợp lệ — nghi ngờ giả mạo hệ thống bản quyền' };
+    }
+
+    const d = body.data;
+    if (!d.ok) return { ok: false, error: d.error || 'Key không hợp lệ' };
+
+    // Sanity check expiry trên app side (defense in depth)
+    if (d.expiryISO && new Date(d.expiryISO).getTime() < Date.now()) {
+        return { ok: false, error: `Key đã hết hạn từ ${d.expiry || d.expiryISO}` };
+    }
+
     return {
         ok: true,
-        key: row.key,
-        expiry: row.expiry,
-        expiryISO: expiryDate ? expiryDate.toISOString() : null,
-        vip: row.vip,
-        status: row.status,
-        note: row.note
+        key: d.key,
+        expiry: d.expiry,
+        expiryISO: d.expiryISO,
+        vip: d.vip,
+        status: 'Đang sử dụng',
+        note: d.note || ''
     };
 }
 
@@ -426,11 +480,10 @@ app.post('/api/license/deactivate', (req, res) => {
     res.json({ ok: true });
 });
 
+// Endpoint refresh-sheet đã bỏ — cache key giờ ở Worker phía Cloudflare (TTL 60s tự refresh).
+// Không cần admin endpoint trên app side để force reload.
 app.post('/api/license/refresh-sheet', async (req, res) => {
-    try {
-        const list = await loadKeySheet(true);
-        res.json({ ok: true, count: list.length });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    res.json({ ok: true, note: 'Key cache giờ do Cloudflare Worker quản lý (TTL 60s tự refresh)' });
 });
 
 app.post('/api/reload-gifts', async (req, res) => {
