@@ -631,18 +631,67 @@ app.post('/api/update/download', async (req, res) => {
 
             sendProgress({ phase: 'installing', percent: 100, message: 'Tải xong! Sẽ tự cài và khởi động lại...' });
 
-            // Step 4: spawn installer with delay + silent flag, then quit app
-            // NSIS /S = silent install. ping -n 3 = delay ~2s để app hiện tại kịp exit
-            // trước khi installer cố ghi đè .exe (Windows không cho overwrite running .exe).
+            // === Step 4: Launch installer via VBS helper (hoàn toàn ẩn) ===
+            // VBS WScript chạy hidden by design — không có console window flash như cmd.exe.
+            // VBS sẽ:
+            //   1. Đợi 3s cho electron app exit + giải phóng file lock
+            //   2. Chạy installer /S (silent NSIS install) VÀ WAIT cho complete
+            //   3. Launch app vừa cài lại (vì NSIS wizard mode không trigger runAfterFinish)
+            //   4. Self-cleanup VBS + temp installer
+            //   5. Log mọi step vào %TEMP%\hp-update-log.txt để debug nếu fail
             const { spawn } = require('child_process');
-            const cmd = `ping -n 3 127.0.0.1 > nul && "${tempPath}" /S`;
-            spawn('cmd.exe', ['/c', cmd], {
+            const exePath = _electronApp ? _electronApp.getPath('exe') : '';
+            const logPath = path.join(os.tmpdir(), 'hp-update-log.txt');
+            const vbsPath = path.join(os.tmpdir(), `hp-update-launch-${version}.vbs`);
+
+            // Escape backslashes + double quotes cho VBS string literal
+            const escVbs = s => String(s).replace(/"/g, '""');
+            const vbsContent = `' HP Action LIVE — Auto-update launcher
+On Error Resume Next
+
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set log = fso.OpenTextFile("${escVbs(logPath)}", 2, True)
+log.WriteLine "[" & Now & "] Bắt đầu update launcher"
+
+' Đợi app cũ exit + Windows release file lock
+log.WriteLine "[" & Now & "] Sleep 3000ms..."
+WScript.Sleep 3000
+
+Set objShell = CreateObject("WScript.Shell")
+
+' Chạy installer silent (mode 0 = hidden window, True = wait for completion)
+log.WriteLine "[" & Now & "] Chạy installer: ${escVbs(tempPath)} /S"
+installerExit = objShell.Run("""${escVbs(tempPath)}"" /S", 0, True)
+log.WriteLine "[" & Now & "] Installer kết thúc, exit code: " & installerExit
+
+' Sleep ngắn để Windows finalize file system
+WScript.Sleep 1500
+
+' Launch app vừa cài (oneClick: false + /S không tự launch — phải làm manual)
+If "${escVbs(exePath)}" <> "" Then
+    log.WriteLine "[" & Now & "] Launch app: ${escVbs(exePath)}"
+    objShell.Run """${escVbs(exePath)}""", 1, False
+End If
+
+' Cleanup temp files (best effort)
+WScript.Sleep 500
+fso.DeleteFile "${escVbs(tempPath)}", True
+fso.DeleteFile WScript.ScriptFullName, True
+
+log.WriteLine "[" & Now & "] Done."
+log.Close
+`;
+
+            fs.writeFileSync(vbsPath, vbsContent, 'utf8');
+
+            // wscript.exe runs VBS — wscript chạy detached + no console by default
+            spawn('wscript.exe', [vbsPath], {
                 detached: true,
                 stdio: 'ignore',
                 windowsHide: true
             }).unref();
 
-            // Cho UI 1.5s để render message xong rồi mới quit
+            // Cho UI 1.5s render message xong rồi mới quit
             setTimeout(() => {
                 if (_electronApp) {
                     try { _electronApp.exit(0); } catch (e) { process.exit(0); }
