@@ -82,8 +82,44 @@ const GAMES = {
                 cellHints: false, cellHintOpacity: 35
             }
         }
+    },
+    pktiktok: {
+        id: 'pktiktok',
+        name: 'PK TikTok — Hiệu ứng trận PK',
+        description: 'Gán video/âm thanh cho từng phase trận PK TikTok (start, x2/x3, items, 10s cuối, thắng/thua).',
+        icon: '🎬',
+        overlayPath: '/overlay/pktiktok',
+        defaultConfig: makeDefaultPkTiktokConfig()
     }
 };
+
+// 13 events default — đồng bộ với HpGame.pktiktok.defaultConfig() trong client engine.
+function makeDefaultPkTiktokConfig() {
+    const defs = [
+        { key: 'start',    label: 'BẮT ĐẦU PK',           emoji: '🚀', desc: 'Đếm ngược khi bắt đầu trận' },
+        { key: 'mission',  label: 'NHIỆM VỤ XUẤT HIỆN',   emoji: '📋', desc: 'Popup nhiệm vụ bonus' },
+        { key: 'x2',       label: 'X2 ĐIỂM (Speed)',      emoji: '⚡', desc: 'Bonus mission unlock nhân 2' },
+        { key: 'x3',       label: 'X3 ĐIỂM (Speed mạnh)', emoji: '🔥', desc: 'Bonus mission unlock nhân 3' },
+        { key: 'glove',    label: 'ITEM Găng Tay',        emoji: '🥊', desc: 'Boosting Glove — 30% chance x5' },
+        { key: 'mist',     label: 'ITEM Sương Mù',        emoji: '🌫️', desc: 'Magic Mist phủ đối thủ' },
+        { key: 'hammer',   label: 'ITEM Búa Choáng',      emoji: '🔨', desc: 'Stun Hammer trong victory lap' },
+        { key: 'time',     label: 'ITEM Thêm Giờ',        emoji: '⏱️', desc: 'Time-Maker' },
+        { key: 'warn10s',  label: '10 GIÂY CUỐI',         emoji: '⚠️', desc: 'Đồng hồ chuyển đỏ' },
+        { key: 'lead',     label: 'ĐANG DẪN ĐIỂM',        emoji: '📈', desc: 'Đội nhà > đội đối thủ' },
+        { key: 'behind',   label: 'ĐANG THUA ĐIỂM',       emoji: '📉', desc: 'Đội nhà < đội đối thủ' },
+        { key: 'win',      label: 'KẾT QUẢ: THẮNG',       emoji: '🏆', desc: 'Vinh quang chiến thắng' },
+        { key: 'lose',     label: 'KẾT QUẢ: THUA',        emoji: '💔', desc: 'Thất bại' },
+    ];
+    return {
+        enabled: true,
+        autoBindPkDuo: true,
+        events: defs.map(d => ({
+            ...d, mediaUrl: '', mediaName: '', mediaType: '',
+            volume: 100, playbackRate: 1.0, interruptCurrent: true, enabled: true,
+        })),
+        display: { scale: 100, xPercent: 50, yPercent: 50, showLabel: false },
+    };
+}
 
 // ====== App config / persistence ======
 function loadAppConfig() {
@@ -1047,6 +1083,85 @@ app.get('/overlay/thuytinh', (req, res) => {
 });
 app.get('/overlay/caro', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'games', 'caro', 'overlay.html'));
+});
+app.get('/overlay/pktiktok', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'pktiktok', 'overlay.html'));
+});
+
+// ============================================================
+// PK TikTok — upload / asset serve / trigger broadcast
+// ============================================================
+// Đường lưu file media: <DATA_DIR>/pktiktok-assets/<id>.<ext>. Tách khỏi appConfig
+// để không phình app-config.json. Path tương đối khi serve qua /api/games/pktiktok/asset/<fn>.
+const PKTIKTOK_ASSETS_DIR = path.join(DATA_DIR, 'pktiktok-assets');
+if (!fs.existsSync(PKTIKTOK_ASSETS_DIR)) fs.mkdirSync(PKTIKTOK_ASSETS_DIR, { recursive: true });
+const PKTIKTOK_ALLOWED_EXTS = ['mp4', 'webm', 'mp3', 'wav', 'ogg', 'm4a'];
+
+// Upload — body là raw bytes (panel gửi qua fetch with Content-Type của file). Express.json sẽ
+// bỏ qua vì không phải application/json. express.raw được attach inline cho route này.
+app.post('/api/games/pktiktok/upload',
+    express.raw({ limit: '30mb', type: () => true }),
+    (req, res) => {
+        const ext = String(req.query.ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        if (!PKTIKTOK_ALLOWED_EXTS.includes(ext)) {
+            return res.status(400).json({ ok: false, error: 'invalid_ext' });
+        }
+        if (!req.body || !req.body.length) {
+            return res.status(400).json({ ok: false, error: 'empty_body' });
+        }
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const filename = `${id}.${ext}`;
+        try {
+            fs.writeFileSync(path.join(PKTIKTOK_ASSETS_DIR, filename), req.body);
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: 'write_failed: ' + e.message });
+        }
+        res.json({ ok: true, filename, url: `/api/games/pktiktok/asset/${filename}` });
+    }
+);
+
+app.get('/api/games/pktiktok/asset/:fn', (req, res) => {
+    const safe = String(req.params.fn).replace(/[^a-z0-9._-]/gi, '');
+    if (!safe || safe.includes('..')) return res.sendStatus(400);
+    const p = path.join(PKTIKTOK_ASSETS_DIR, safe);
+    if (!fs.existsSync(p)) return res.sendStatus(404);
+    res.sendFile(p);
+});
+
+// Trigger 1 event PK TikTok — server đọc config event, build payload, emit cho mọi overlay
+// client (cả OBS browser source). Trả lại payload cho panel để hiển thị log.
+// Path /trigger (KHÔNG /cmd) để tránh đụng generic route /api/games/:id/cmd ở line ~1014.
+app.post('/api/games/pktiktok/trigger', (req, res) => {
+    const cfg = appConfig.games.pktiktok;
+    if (!cfg) return res.status(404).json({ ok: false, error: 'pktiktok config missing' });
+    const { type, key, source } = req.body || {};
+    if (type === 'trigger') {
+        if (cfg.enabled === false) return res.json({ ok: false, error: 'pkfx_disabled' });
+        const ev = (cfg.events || []).find(e => e.key === key);
+        if (!ev) return res.json({ ok: false, error: 'event_not_found' });
+        if (ev.enabled === false) return res.json({ ok: false, error: 'event_disabled' });
+        if (!ev.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+        const payload = {
+            key,
+            label: ev.label,
+            emoji: ev.emoji,
+            mediaUrl: ev.mediaUrl,
+            mediaType: ev.mediaType || '',
+            volume: ev.volume == null ? 100 : ev.volume,
+            playbackRate: ev.playbackRate || 1.0,
+            interruptCurrent: ev.interruptCurrent !== false,
+            showLabel: !!(cfg.display && cfg.display.showLabel),
+            source: source || 'manual',
+            ts: Date.now(),
+        };
+        io.emit('pktiktok:play', payload);
+        return res.json({ ok: true, payload });
+    }
+    if (type === 'stop') {
+        io.emit('pktiktok:stop', { ts: Date.now() });
+        return res.json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown_type' });
 });
 
 // Default index

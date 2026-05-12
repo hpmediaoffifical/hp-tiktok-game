@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP PK TikTok — OBS Overlay</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+    #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; pointer-events: none; }
+    #content {
+        position: absolute;
+        top: var(--y, 50%); left: var(--x, 50%);
+        transform: translate(-50%, -50%) scale(var(--scale, 1));
+        transform-origin: center center;
+        width: 1080px; height: 1920px;
+        background: transparent;
+        display: flex; align-items: center; justify-content: center;
+    }
+    /* Video & audio elements: full content area, contain để giữ tỉ lệ gốc */
+    #player {
+        max-width: 100%; max-height: 100%;
+        object-fit: contain;
+        display: none;
+        filter: drop-shadow(0 0 60px rgba(0,0,0,0.5));
+    }
+    #player.show { display: block; animation: fxIn 220ms ease-out; }
+    @keyframes fxIn {
+        from { opacity: 0; transform: scale(0.85); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    /* Label overlay (showLabel option) — luôn 1 hàng, font vừa phải, gọn */
+    #label {
+        position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+        padding: 9px 20px; border-radius: 999px;
+        background: linear-gradient(135deg, rgba(255,45,85,0.94), rgba(124,58,237,0.94));
+        color: #fff; font-size: 22px; font-weight: 800; letter-spacing: 0.6px;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.45);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.25);
+        white-space: nowrap;          /* không bao giờ xuống dòng */
+        max-width: 92%;               /* fallback nếu chữ rất dài */
+        overflow: hidden; text-overflow: ellipsis;
+        display: none;
+    }
+    #label.show { display: block; animation: labelIn 320ms cubic-bezier(.34,1.56,.64,1); }
+    @keyframes labelIn {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.9); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    }
+    /* Debug pill */
+    .debug-pill {
+        position: fixed; bottom: 8px; left: 8px;
+        background: rgba(0,0,0,0.5);
+        color: #fff; font: 11px/1.2 monospace;
+        padding: 4px 8px; border-radius: 6px;
+        z-index: 9999; opacity: 0.6;
+    }
+    .debug-pill.hidden { display: none; }
+    /* Offline state — ẩn khi server disconnect (tránh OBS thấy stuck frame) */
+    body.offline #content { display: none; }
+    body.offline .debug-pill { display: none !important; }
+</style>
+</head>
+<body>
+    <div id="stage">
+        <div id="content">
+            <video id="player" playsinline></video>
+            <audio id="audioOnly"></audio>
+            <div id="label"></div>
+        </div>
+    </div>
+    <div class="debug-pill" id="debug">connecting…</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    (function () {
+        const debugEl = document.getElementById('debug');
+        const content = document.getElementById('content');
+        const player = document.getElementById('player');
+        const audioOnly = document.getElementById('audioOnly');
+        const labelEl = document.getElementById('label');
+
+        let currentCfg = null;
+        let labelTimer = null;
+        // Queue khi nhiều event xếp lớp + interruptCurrent=false
+        const queue = [];
+        let playing = false;
+
+        function applyDisplay() {
+            if (!currentCfg || !currentCfg.display) return;
+            const w = window.innerWidth, h = window.innerHeight;
+            const base = Math.min(w / 1080, h / 1920);
+            const userScale = (currentCfg.display.scale || 100) / 100;
+            content.style.setProperty('--scale', String(base * userScale));
+            content.style.setProperty('--x', (currentCfg.display.xPercent ?? 50) + '%');
+            content.style.setProperty('--y', (currentCfg.display.yPercent ?? 50) + '%');
+        }
+        function fitNoCfg() {
+            const w = window.innerWidth, h = window.innerHeight;
+            const s = Math.min(w / 1080, h / 1920);
+            content.style.setProperty('--scale', String(s));
+        }
+        window.addEventListener('resize', () => currentCfg ? applyDisplay() : fitNoCfg());
+        fitNoCfg();
+        setTimeout(() => debugEl.classList.add('hidden'), 4000);
+
+        // ===== Player =====
+        function clearPlayer() {
+            try {
+                player.pause();
+                player.removeAttribute('src');
+                player.load();
+            } catch (e) {}
+            player.classList.remove('show');
+        }
+        function clearAudio() {
+            try {
+                audioOnly.pause();
+                audioOnly.removeAttribute('src');
+                audioOnly.load();
+            } catch (e) {}
+        }
+        function hideLabel() {
+            labelEl.classList.remove('show');
+            clearTimeout(labelTimer);
+            labelTimer = null;
+        }
+        function showLabel(text) {
+            labelEl.textContent = text;
+            // Restart animation
+            labelEl.classList.remove('show');
+            void labelEl.offsetWidth; // reflow
+            labelEl.classList.add('show');
+            clearTimeout(labelTimer);
+            labelTimer = setTimeout(hideLabel, 2800);
+        }
+
+        function playMedia(p) {
+            if (!p || !p.mediaUrl) return;
+            const isVideo = (p.mediaType === 'video') || /\.(mp4|webm|mov)(\?|$)/i.test(p.mediaUrl);
+            const vol = Math.max(0, Math.min(1, (p.volume ?? 100) / 100));
+            const rate = Math.max(0.25, Math.min(3, p.playbackRate || 1));
+
+            if (isVideo) {
+                clearAudio();
+                player.src = p.mediaUrl;
+                player.volume = vol;
+                player.playbackRate = rate;
+                player.classList.add('show');
+                player.play().catch(err => {
+                    // Autoplay block? cố gắng muted retry
+                    player.muted = true;
+                    player.play().catch(() => {});
+                });
+                player.muted = false;
+                player.onended = () => { clearPlayer(); playing = false; advanceQueue(); };
+                player.onerror = () => { clearPlayer(); playing = false; advanceQueue(); };
+            } else {
+                clearPlayer();
+                audioOnly.src = p.mediaUrl;
+                audioOnly.volume = vol;
+                audioOnly.playbackRate = rate;
+                audioOnly.play().catch(() => {});
+                audioOnly.onended = () => { playing = false; advanceQueue(); };
+                audioOnly.onerror = () => { playing = false; advanceQueue(); };
+            }
+
+            if (p.showLabel && p.label) showLabel(`${p.emoji || '🎬'} ${p.label}`);
+        }
+
+        function advanceQueue() {
+            if (queue.length === 0) return;
+            const next = queue.shift();
+            playing = true;
+            playMedia(next);
+        }
+        function fire(payload) {
+            if (!payload || !payload.mediaUrl) return;
+            if (payload.interruptCurrent !== false) {
+                // Ngắt hiện tại + clear queue
+                queue.length = 0;
+                clearPlayer();
+                clearAudio();
+                playing = true;
+                playMedia(payload);
+            } else {
+                queue.push(payload);
+                if (!playing) advanceQueue();
+            }
+        }
+
+        // ===== Offline pattern =====
+        let offlineTimer = null;
+        const OFFLINE_GRACE_MS = 3000;
+        function showOffline() {
+            document.body.classList.add('offline');
+            clearPlayer(); clearAudio(); hideLabel();
+            queue.length = 0; playing = false;
+        }
+        function hideOffline() { document.body.classList.remove('offline'); }
+        function scheduleOffline() {
+            clearTimeout(offlineTimer);
+            offlineTimer = setTimeout(showOffline, OFFLINE_GRACE_MS);
+        }
+        function cancelOffline() {
+            clearTimeout(offlineTimer); offlineTimer = null;
+            hideOffline();
+        }
+
+        const socket = io({
+            reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000
+        });
+
+        async function syncFromServer() {
+            try {
+                const r = await fetch('/api/games/pktiktok/config');
+                currentCfg = await r.json();
+                applyDisplay();
+            } catch (e) {}
+            socket.emit('subscribe', 'overlay');
+        }
+
+        socket.on('connect', () => {
+            debugEl.textContent = 'connected';
+            debugEl.classList.remove('hidden');
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+            cancelOffline();
+            syncFromServer();
+        });
+        socket.on('disconnect', (reason) => {
+            debugEl.textContent = 'disconnected: ' + reason;
+            debugEl.classList.remove('hidden');
+            scheduleOffline();
+        });
+
+        // Config update từ panel
+        socket.on('gameConfig', ({ gameId, config }) => {
+            if (gameId !== 'pktiktok') return;
+            currentCfg = config;
+            applyDisplay();
+        });
+
+        // Trigger play từ panel
+        socket.on('pktiktok:play', (payload) => {
+            fire(payload);
+        });
+        // Stop ngay
+        socket.on('pktiktok:stop', () => {
+            queue.length = 0;
+            clearPlayer(); clearAudio(); hideLabel();
+            playing = false;
+        });
+
+        // Initial fetch
+        fetch('/api/games/pktiktok/config').then(r => r.json()).then(cfg => {
+            currentCfg = cfg;
+            applyDisplay();
+        }).catch(() => {
+            showOffline();
+        });
+    })();
+    </script>
+</body>
+</html>

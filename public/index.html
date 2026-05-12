@@ -548,6 +548,47 @@
                     </div>
                 </div>
             </section>
+
+            <!-- ============ GAME VIEW: PK TikTok ============ -->
+            <section id="view-pktiktok" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="pktiktok-title">🎬 PK TikTok — Hiệu ứng trận PK</h2>
+                        <div class="game-sub">Gán video/âm thanh cho từng phase trận PK TikTok (start, x2/x3, items, 10s cuối, thắng/thua). Phát qua overlay OBS riêng.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <input id="pktiktok-overlay-url" type="text" readonly hidden />
+                        <button id="pktiktok-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
+                        <button id="pktiktok-btn-stop" class="danger small" title="Dừng phát ngay">⏹ DỪNG</button>
+                    </div>
+                </header>
+
+                <div class="game-body pktiktok-body">
+                    <div class="col col-left">
+                        <div class="card pktiktok-card">
+                            <div class="pktiktok-toolbar">
+                                <label class="pktiktok-switch"><input id="pktiktok-enabled" type="checkbox" checked /><span>Bật hiệu ứng PK</span></label>
+                                <label class="pktiktok-switch"><input id="pktiktok-autobind" type="checkbox" checked /><span>Tự động theo engine PK (start/10s/win/lose)</span></label>
+                                <label class="pktiktok-switch"><input id="pktiktok-show-label" type="checkbox" /><span>Hiện chữ trên overlay khi fire</span></label>
+                                <span class="pktiktok-toolbar-spacer"></span>
+                                <span id="pktiktok-stats" class="pktiktok-stats">0/13 sự kiện đã gán media</span>
+                                <button id="pktiktok-btn-test-all" class="ghost small" title="Phát thử lần lượt mọi event đã gán file">🧪 TEST TẤT CẢ</button>
+                                <button id="pktiktok-btn-clear-all" class="danger small" title="Xoá file media tất cả event">🗑 Xoá hết</button>
+                            </div>
+                            <div class="pktiktok-hint">
+                                📌 Kéo thả file <b>webm / mp4 / mp3 / wav</b> trực tiếp vào từng ô bên dưới, hoặc bấm <b>📁 Chọn</b>. Sau khi gán xong, bấm <b>▶ TEST</b> để xem trên overlay. Trong lúc LIVE, bấm <b>▶ TEST</b> sẽ fire effect lên OBS theo từng phase trận PK.
+                            </div>
+                            <div id="pktiktok-grid" class="pktiktok-grid"></div>
+                        </div>
+                    </div>
+                    <div class="col col-right">
+                        <div class="card">
+                            <div class="card-title">📜 Lịch sử trigger</div>
+                            <div id="pktiktok-log" class="pktiktok-log"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -734,6 +775,8 @@
     <script src="/games/thuytinh/game.js"></script>
     <script src="/games/caro/game.js"></script>
     <script src="/games/caro/caro-panel.js"></script>
+    <script src="/games/pktiktok/game.js"></script>
+    <script src="/games/pktiktok/pktiktok-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

@@ -226,7 +226,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -235,6 +235,7 @@
         }
         if (gameId === 'thuytinh') openThuytinh(game);
         else if (gameId === 'caro') openCaro(game);
+        else if (gameId === 'pktiktok') openPkTiktok(game);
     }
 
     function openCaro(game) {
@@ -244,6 +245,14 @@
             window.HpCaroPanel.open(socket);
         } else {
             console.error('[caro] HpCaroPanel chưa load');
+        }
+    }
+
+    function openPkTiktok(game) {
+        if (window.HpPkTiktokPanel && typeof window.HpPkTiktokPanel.open === 'function') {
+            window.HpPkTiktokPanel.open(socket);
+        } else {
+            console.error('[pktiktok] HpPkTiktokPanel chưa load');
         }
     }
 
