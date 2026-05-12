@@ -134,6 +134,8 @@
                 if (!r.ok) flashWarn(translateReason(r.reason));
             });
             card.querySelector('[data-pkfx-clear]')?.addEventListener('click', async () => {
+                const name = ev.mediaName || 'file đã chọn';
+                if (!confirm(`Xoá file "${name}" khỏi sự kiện "${ev.label}"?`)) return;
                 ev.mediaUrl = ''; ev.mediaName = ''; ev.mediaType = '';
                 await persistConfig();
                 renderGrid();
