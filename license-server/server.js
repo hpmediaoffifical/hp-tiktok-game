@@ -212,6 +212,65 @@ function readVersionInfo() {
 }
 
 // GET /api/version — trả về phiên bản mới nhất + release notes + checksum
+// ============================================================
+// GIFT SHEET PROXY — App KHÔNG biết SHEET_ID, chỉ gọi qua license-server.
+// SHEET_ID giữ ở server-side env, không leak qua installer.
+// Cache 5 phút để tránh hammer Google Sheet.
+// Auth: ai gọi cũng được — dữ liệu gift list không nhạy cảm (TikTok public anyway).
+//        License key sheet (KEY_HP_GAME) thì KHÔNG expose qua endpoint này.
+// ============================================================
+let giftSheetCache = null;
+let giftSheetCachedAt = 0;
+const GIFT_SHEET_TTL_MS = 5 * 60 * 1000;
+const GIFT_SHEET_NAME = process.env.GIFT_SHEET_NAME || 'gifts';
+
+async function fetchGiftSheet(force = false) {
+    if (!force && giftSheetCache && (Date.now() - giftSheetCachedAt) < GIFT_SHEET_TTL_MS) return giftSheetCache;
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(GIFT_SHEET_NAME)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Gift sheet HTTP ' + res.status);
+    const csv = await res.text();
+    const rows = parseCsv(csv);
+    const list = [];
+    // Schema: A=id | B=name | C=image link | D=diamond (E+ = formulas, bỏ qua)
+    for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length < 3) continue;
+        const id = (r[0] || '').toString().trim();
+        const name = (r[1] || '').toString().trim();
+        const link = (r[2] || '').toString().trim();
+        const dRaw = (r[3] || '').toString().replace(/[^\d]/g, '');
+        let diamond = parseInt(dRaw, 10);
+        if (!diamond || isNaN(diamond)) {
+            diamond = parseInt((r[4] || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+        }
+        if (!id) continue;
+        list.push({ id, name, image: link, diamond });
+    }
+    giftSheetCache = list;
+    giftSheetCachedAt = Date.now();
+    return giftSheetCache;
+}
+
+app.get('/api/gift-sheet', async (req, res) => {
+    try {
+        const list = await fetchGiftSheet();
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.json({ ok: true, gifts: list, total: list.length });
+    } catch (e) {
+        res.status(503).json({ ok: false, error: 'Không tải được danh sách quà — thử lại sau' });
+    }
+});
+// Admin force-refresh gift sheet (bỏ qua cache)
+app.post('/admin/api/refresh-gift-sheet', requireAdminAuth, async (req, res) => {
+    try {
+        const list = await fetchGiftSheet(true);
+        res.json({ ok: true, total: list.length });
+    } catch (e) {
+        res.status(503).json({ ok: false, error: e.message });
+    }
+});
+
 app.get('/api/version', (req, res) => {
     const v = readVersionInfo();
     if (!v) {

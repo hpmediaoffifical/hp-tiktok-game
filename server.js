@@ -10,22 +10,11 @@ const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-liv
 
 const PORT = process.env.PORT || 3000;
 
-// === Google Sheet danh sách quà (public-readable, không nhạy cảm) ===
-const SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
-const SHEET_NAME = 'DANH SACH QUA';
-const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
-
-// === LICENSE VALIDATION ===
-// PRODUCTION: trỏ tới license-server riêng (license-server/ hoặc cloudflare-worker/).
-//             Sheet ID ẩn ở server, app chỉ POST key → nhận result.
-// TEST/DEV:   nếu LICENSE_WORKER_URL chưa được cấu hình (placeholder),
-//             app sẽ FALLBACK đọc Google Sheet trực tiếp (như v1.0.4 cũ).
-//             Tiện cho test local trước khi deploy license-server.
+// === Mọi data source đi qua license-server (HP Media kiểm soát) ===
+// App không biết thông tin backend → installer .exe extract ra cũng không lộ gì.
+// PRODUCTION URL hardcoded — luôn dùng (không có fallback đọc trực tiếp data nguồn).
 const LICENSE_WORKER_URL = process.env.HP_LICENSE_WORKER_URL
-    || 'https://hp-license.nguyenvu.dev';   // production license server
-
-const KEY_SHEET_NAME = 'KEY_HP_GAME';
-const KEY_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(KEY_SHEET_NAME)}`;
+    || 'https://hp-license.nguyenvu.dev';   // license-server production
 function isWorkerConfigured() {
     return !LICENSE_WORKER_URL.includes('YOUR-DOMAIN') && !LICENSE_WORKER_URL.includes('YOUR-CF-USERNAME');
 }
@@ -114,65 +103,31 @@ for (const gId of Object.keys(GAMES)) {
 }
 saveAppConfig();
 
-// ====== Google Sheet loader ======
+// ====== Gift list loader (via license-server proxy) ======
 let giftMap = {};
 let giftList = [];
 
-function parseCsv(text) {
-    const rows = [];
-    let cur = '';
-    let inQuote = false;
-    let row = [];
-    const flushCell = () => { row.push(cur); cur = ''; };
-    const flushRow = () => { row.push(cur); rows.push(row); cur = ''; row = []; };
-    for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (inQuote) {
-            if (ch === '"') {
-                if (text[i + 1] === '"') { cur += '"'; i++; }
-                else inQuote = false;
-            } else cur += ch;
-        } else {
-            if (ch === '"') inQuote = true;
-            else if (ch === ',') flushCell();
-            else if (ch === '\n') flushRow();
-            else if (ch === '\r') { /* skip */ }
-            else cur += ch;
-        }
-    }
-    if (cur.length || row.length) flushRow();
-    return rows;
-}
-
 async function loadGiftSheet() {
-    console.log('[gift-sheet] Tải danh sách quà từ Google Sheet...');
-    const res = await fetch(SHEET_CSV_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const rows = parseCsv(text);
-    const list = [];
-    const map = {};
-    for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || r.length < 3) continue;
-        const id = (r[0] || '').toString().trim();
-        const name = (r[1] || '').toString().trim();
-        const link = (r[2] || '').toString().trim();
-        // Sheet schema mới: A=id, B=name, C=link, D=diamond (E trở đi là formula CHỌN A-Z).
-        // Backward-compat: nếu r[3] không phải số (schema cũ có cột webm), fallback đọc r[4].
-        const dRaw = (r[3] || '').toString().replace(/[^\d]/g, '');
-        let diamond = parseInt(dRaw, 10);
-        if (!diamond || isNaN(diamond)) {
-            diamond = parseInt((r[4] || '').toString().replace(/[^\d]/g, ''), 10) || 0;
-        }
-        if (!id) continue;
-        const item = { id, name, image: link, diamond };
-        list.push(item);
-        map[id] = item;
+    if (!isWorkerConfigured()) {
+        console.error('[gift-sheet] LICENSE_WORKER_URL chưa cấu hình — không thể tải gift sheet');
+        giftList = []; giftMap = {};
+        io.emit('giftSheet', giftList);
+        return giftList;
     }
-    giftList = list;
-    giftMap = map;
-    console.log(`[gift-sheet] Đã tải ${list.length} quà.`);
+    console.log('[gift-sheet] Tải danh sách quà qua license-server...');
+    const url = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/gift-sheet';
+    const res = await fetch(url, { timeout: 15000 });
+    if (!res.ok) throw new Error(`License-server HTTP ${res.status}`);
+    const body = await res.json();
+    if (!body.ok || !Array.isArray(body.gifts)) {
+        throw new Error('License-server response invalid');
+    }
+    giftList = body.gifts;
+    giftMap = {};
+    for (const g of giftList) {
+        if (g && g.id) giftMap[String(g.id)] = g;
+    }
+    console.log(`[gift-sheet] Đã tải ${giftList.length} quà.`);
     io.emit('giftSheet', giftList);
     return giftList;
 }
@@ -213,85 +168,15 @@ function getDeviceFingerprint() {
     return _cachedDeviceId;
 }
 
-// ===== FALLBACK: đọc Sheet trực tiếp (dùng cho test/dev khi chưa deploy license-server) =====
-let _keySheetCache = null;
-let _keySheetCachedAt = 0;
-const KEY_SHEET_TTL_MS = 5 * 60 * 1000;
-
-function _normalizeRole(raw) {
-    const up = String(raw || '').toUpperCase();
-    if (up === 'ADMIN' || up === 'CREATOR') return up;
-    return 'ADMIN';   // backward compat: VIP/Thường/blank → full access
-}
-
-function _parseDmy(s) {
-    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!m) return null;
-    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 23, 59, 59);
-    return isNaN(d.getTime()) ? null : d;
-}
-
-async function _validateLicenseKeyDirect(key) {
-    let list = _keySheetCache;
-    if (!list || Date.now() - _keySheetCachedAt > KEY_SHEET_TTL_MS) {
-        try {
-            const r = await fetch(KEY_SHEET_CSV_URL);
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const csv = await r.text();
-            const rows = parseCsv(csv);
-            list = [];
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                if (!row || !row[0]) continue;
-                const k = String(row[0]).trim();
-                if (!k) continue;
-                list.push({
-                    key: k,
-                    expiry: String(row[1] || '').trim(),
-                    role: _normalizeRole(row[2] || ''),
-                    roleRaw: String(row[2] || '').trim(),
-                    status: String(row[3] || '').trim(),
-                    note: String(row[4] || '').trim()
-                });
-            }
-            _keySheetCache = list;
-            _keySheetCachedAt = Date.now();
-        } catch (e) {
-            return { ok: false, error: 'Không kết nối được Google Sheet — kiểm tra mạng', _offline: true };
-        }
-    }
-    const row = list.find(r => r.key.toLowerCase() === key.toLowerCase());
-    if (!row) return { ok: false, error: 'Key không tồn tại trong hệ thống' };
-    if (/hết hạn|tạm khóa|tam khoa|het han|khoa|locked/i.test(row.status)) {
-        return { ok: false, error: 'Key đã bị khoá hoặc hết hạn' };
-    }
-    const expiryDate = _parseDmy(row.expiry);
-    if (expiryDate && expiryDate.getTime() < Date.now()) {
-        return { ok: false, error: `Key đã hết hạn từ ${row.expiry}` };
-    }
-    return {
-        ok: true,
-        key: row.key,
-        role: row.role,
-        vip: row.roleRaw,
-        expiry: row.expiry,
-        expiryISO: expiryDate ? expiryDate.toISOString() : null,
-        status: 'Đang sử dụng',
-        note: row.note
-    };
-}
-
 async function validateLicenseKey(rawKey) {
     const key = String(rawKey || '').trim();
     if (!key) return { ok: false, error: 'Vui lòng nhập key bản quyền' };
 
-    // === Test/dev mode: chưa cấu hình LICENSE_WORKER_URL → đọc Sheet trực tiếp ===
     if (!isWorkerConfigured()) {
-        console.log('[license] [TEST MODE] LICENSE_WORKER_URL chưa cấu hình — fallback đọc Sheet trực tiếp');
-        return _validateLicenseKeyDirect(key);
+        return { ok: false, error: 'Hệ thống bản quyền chưa cấu hình — liên hệ HP Media' };
     }
 
-    // === Production mode: gọi license-server ===
+    // Gọi license-server (HP Media). Không có fallback đọc data nguồn trực tiếp.
     let body;
     try {
         const res = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/activate', {
