@@ -1678,14 +1678,18 @@
             <!-- Subtle body shadow -->
             <path d="M 16 38 L 32 44 L 48 38 L 48 62 L 16 62 Z" fill="#000" opacity="0.25"/>
         </svg>`;
+        // Tone xanh rêu cảnh sát Việt Nam (đồng bộ với FAB police):
+        //   #3f6212 lime-800  — áo chính, gam đậm
+        //   #1a2e0a lime-950  — cà vạt + nón đậm
+        //   #65a30d lime-600  — lapels + nón crown, gam sáng pop
         const POLICE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
             <!-- Uniform body -->
-            <path d="M 16 36 L 16 62 L 48 62 L 48 36 L 42 33 L 38 38 L 32 40 L 26 38 L 22 33 Z" fill="#1e3a8a"/>
+            <path d="M 16 36 L 16 62 L 48 62 L 48 36 L 42 33 L 38 38 L 32 40 L 26 38 L 22 33 Z" fill="#3f6212"/>
             <!-- Tie strip -->
-            <path d="M 30 36 L 34 36 L 33 56 L 32 58 L 31 56 Z" fill="#0c1e58"/>
+            <path d="M 30 36 L 34 36 L 33 56 L 32 58 L 31 56 Z" fill="#1a2e0a"/>
             <!-- Lapels (V collar) -->
-            <path d="M 22 33 L 32 42 L 26 38 Z" fill="#1d4ed8"/>
-            <path d="M 42 33 L 32 42 L 38 38 Z" fill="#1d4ed8"/>
+            <path d="M 22 33 L 32 42 L 26 38 Z" fill="#65a30d"/>
+            <path d="M 42 33 L 32 42 L 38 38 Z" fill="#65a30d"/>
             <!-- Buttons -->
             <circle cx="32" cy="46" r="1.1" fill="#fbbf24"/>
             <circle cx="32" cy="52" r="1.1" fill="#fbbf24"/>
@@ -1713,11 +1717,11 @@
             <!-- Cap shadow on forehead -->
             <ellipse cx="32" cy="14.5" rx="11" ry="2" fill="#000" opacity="0.2"/>
             <!-- Cap brim -->
-            <ellipse cx="32" cy="14" rx="14" ry="2.5" fill="#0c1e58"/>
+            <ellipse cx="32" cy="14" rx="14" ry="2.5" fill="#1a2e0a"/>
             <!-- Cap crown -->
-            <path d="M 21 14 L 22 6 Q 22 4 24.5 4 L 39.5 4 Q 42 4 42 6 L 43 14 Z" fill="#1d4ed8"/>
+            <path d="M 21 14 L 22 6 Q 22 4 24.5 4 L 39.5 4 Q 42 4 42 6 L 43 14 Z" fill="#65a30d"/>
             <!-- Cap band -->
-            <rect x="21" y="11" width="22" height="2.5" fill="#0c1e58"/>
+            <rect x="21" y="11" width="22" height="2.5" fill="#1a2e0a"/>
             <!-- Cap shield -->
             <g transform="translate(32,8)">
                 <path d="M -3 0 L 3 0 L 2 4 L 0 5 L -2 4 Z" fill="#fbbf24" stroke="#a16207" stroke-width="0.4"/>
