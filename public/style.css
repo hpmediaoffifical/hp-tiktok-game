@@ -2965,114 +2965,194 @@ body.game-caro #caught-popup {
 .caro-toast.ok { background: linear-gradient(135deg, var(--caro-cyan), #18b5ae); color: #000; }
 
 /* ============================================================
-   PK TikTok — Hiệu ứng trận PK
-   ============================================================
-   Layout dùng pattern .game-body chuẩn của project: grid 2 cột,
-   flex:1, min-height:0. Card bên trong có overflow:hidden, grid
-   scroll riêng để 13 event card không bị cắt khi window thu nhỏ. */
-.pktiktok-body { grid-template-columns: minmax(0, 1fr) 320px; }
+   PK TikTok — Hiệu ứng trận PK (compact design)
+   ============================================================ */
+.pktiktok-body { grid-template-columns: minmax(0, 1fr) 220px; gap: 10px; }
 @media (max-width: 1100px) { .pktiktok-body { grid-template-columns: 1fr; } .pktiktok-body .col-right { display: none; } }
 
 .pktiktok-card {
     display: flex; flex-direction: column;
-    padding: 14px 14px 0;
+    padding: 10px 10px 0;
     min-height: 0; overflow: hidden;
     flex: 1;
 }
 .pktiktok-toolbar {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
-    padding: 10px 12px; margin-bottom: 10px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+    padding: 7px 10px; margin-bottom: 8px;
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;
 }
 .pktiktok-toolbar-spacer { flex: 1 1 auto; }
-.pktiktok-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #d6dae6; font-weight: 600; cursor: pointer; user-select: none; }
-.pktiktok-switch input { width: 16px; height: 16px; accent-color: #ff2d55; cursor: pointer; }
-.pktiktok-stats { font-size: 12px; color: #8b93a8; font-weight: 700; padding: 4px 10px; background: rgba(0,0,0,0.25); border-radius: 999px; }
-
-.pktiktok-hint {
-    margin: 4px 0 14px; padding: 10px 12px;
-    background: linear-gradient(135deg, rgba(255, 45, 85, 0.08), rgba(124, 58, 237, 0.08));
-    border: 1px solid rgba(255, 45, 85, 0.18); border-radius: 10px;
-    font-size: 12.5px; color: #c8cdd9; line-height: 1.55;
-}
+.pktiktok-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #d6dae6; font-weight: 600; cursor: pointer; user-select: none; }
+.pktiktok-switch input { width: 14px; height: 14px; accent-color: #ff2d55; cursor: pointer; }
+.pktiktok-stats { font-size: 11px; color: #8b93a8; font-weight: 700; padding: 3px 8px; background: rgba(0,0,0,0.25); border-radius: 999px; }
 
 .pktiktok-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 8px;
     flex: 1; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
-    padding: 2px 8px 16px 2px;
-    margin-right: -6px; /* kéo scrollbar sát mép card */
+    padding: 2px 8px 12px 2px;
+    margin-right: -6px;
     align-content: start;
 }
-/* Scrollbar mảnh cho grid PK FX */
 .pktiktok-grid::-webkit-scrollbar { width: 8px; }
 .pktiktok-grid::-webkit-scrollbar-track { background: transparent; }
 .pktiktok-grid::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
 .pktiktok-grid::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
 .pkfx-card {
-    display: flex; flex-direction: column; gap: 8px;
-    padding: 12px; min-height: 168px;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 9px 10px;
     background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
-    border: 1.5px solid #2c303d; border-radius: 12px;
+    border: 1.5px solid #2c303d; border-radius: 10px;
     transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     position: relative;
 }
-.pkfx-card:hover { transform: translateY(-2px); border-color: #4a5066; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4); }
+.pkfx-card:hover { transform: translateY(-1px); border-color: #4a5066; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
 .pkfx-card.has-file { border-color: #3d6e5f; background: linear-gradient(155deg, #1c2c2a 0%, #181b25 100%); }
 .pkfx-card.disabled { opacity: 0.5; }
 .pkfx-card.drag-over { border-color: #ff2d55; border-style: dashed; background: rgba(255, 45, 85, 0.08); }
 .pkfx-card.uploading::after {
     content: '⏳ đang tải...'; position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.6); color: #fff; font-weight: 700; border-radius: 12px;
+    background: rgba(0, 0, 0, 0.6); color: #fff; font-weight: 700; border-radius: 10px;
     z-index: 5;
 }
 
-.pkfx-card-head { display: flex; align-items: center; gap: 8px; }
-.pkfx-card-emoji { font-size: 24px; line-height: 1; flex-shrink: 0; }
-.pkfx-card-title { flex: 1; font-size: 13.5px; font-weight: 800; color: #f3f5fa; letter-spacing: 0.3px; min-width: 0; }
+.pkfx-card-head { display: flex; align-items: center; gap: 6px; }
+.pkfx-card-emoji { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.pkfx-card-title { flex: 1; font-size: 12px; font-weight: 800; color: #f3f5fa; letter-spacing: 0.2px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pkfx-card-toggle { display: inline-flex; align-items: center; cursor: pointer; }
-.pkfx-card-toggle input { width: 16px; height: 16px; accent-color: #4ad07a; cursor: pointer; }
-.pkfx-card-desc { font-size: 11px; color: #8b93a8; line-height: 1.4; min-height: 30px; }
+.pkfx-card-toggle input { width: 14px; height: 14px; accent-color: #4ad07a; cursor: pointer; }
+/* Ẩn mô tả ngắn — emoji + title đã đủ ngữ cảnh, hover title sẽ thấy tooltip */
+.pkfx-card-desc { display: none; }
 
 .pkfx-card-file {
-    display: flex; align-items: center; gap: 6px;
-    min-height: 36px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 5px;
+    min-height: 28px; padding: 5px 8px;
     background: rgba(0, 0, 0, 0.3);
-    border: 1.5px dashed rgba(255, 255, 255, 0.12); border-radius: 8px;
-    font-size: 11.5px; color: #aeb6c7;
+    border: 1.5px dashed rgba(255, 255, 255, 0.12); border-radius: 6px;
+    font-size: 11px; color: #aeb6c7;
 }
 .pkfx-card.has-file .pkfx-card-file { border-style: solid; border-color: rgba(77, 208, 122, 0.3); background: rgba(77, 208, 122, 0.08); }
 .pkfx-file-badge {
-    flex-shrink: 0; padding: 2px 6px; border-radius: 5px;
+    flex-shrink: 0; padding: 1px 5px; border-radius: 4px;
     background: rgba(138, 214, 255, 0.15); color: #8ad6ff;
-    font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+    font-size: 9px; font-weight: 800; letter-spacing: 0.4px;
 }
-.pkfx-file-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d6dae6; }
-.pkfx-file-empty { color: #667085; font-style: italic; font-size: 11px; }
+.pkfx-file-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d6dae6; font-size: 10.5px; }
+.pkfx-file-empty { color: #667085; font-style: italic; font-size: 10.5px; }
 
-.pkfx-card-controls { display: flex; align-items: center; gap: 8px; }
-.pkfx-vol { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #aeb6c7; flex: 1; min-width: 0; }
-.pkfx-vol input[type="range"] { flex: 1; min-width: 0; accent-color: #ff2d55; }
-.pkfx-vol span { min-width: 32px; text-align: right; font-weight: 700; color: #d6dae6; }
+.pkfx-card-controls { display: flex; align-items: center; gap: 6px; }
+.pkfx-vol { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: #aeb6c7; flex: 1; min-width: 0; }
+.pkfx-vol input[type="range"] { flex: 1; min-width: 0; accent-color: #ff2d55; height: 4px; }
+.pkfx-vol span { min-width: 28px; text-align: right; font-weight: 700; color: #d6dae6; font-size: 10.5px; }
 
-.pkfx-card-actions { display: flex; gap: 6px; }
-.pkfx-card-actions button { flex: 1; padding: 7px 6px; font-size: 12px; }
-.pkfx-card-actions button.danger { flex: 0 0 38px; }
+.pkfx-card-actions { display: flex; gap: 4px; }
+.pkfx-card-actions button { flex: 1; padding: 5px 4px; font-size: 11px; }
+.pkfx-card-actions button.danger { flex: 0 0 30px; }
 
+/* Cột Log — narrow + compact */
+.pktiktok-right .pktiktok-log-card { padding: 0; }
+.pktiktok-log-title { padding: 6px 10px; font-size: 10px; }
 .pktiktok-log {
     display: flex; flex-direction: column;
-    max-height: calc(100vh - 220px); min-height: 200px;
-    padding: 6px; overflow-y: auto;
-    background: rgba(0, 0, 0, 0.3); border-radius: 8px;
+    flex: 1; min-height: 0;
+    padding: 5px; overflow-y: auto;
+    background: rgba(0, 0, 0, 0.3);
     font-family: ui-monospace, "SF Mono", Consolas, monospace;
-    font-size: 11px; line-height: 1.6; color: #c8cdd9;
+    font-size: 10.5px; line-height: 1.5; color: #c8cdd9;
 }
 .pkfx-log-line {
-    padding: 4px 8px; border-radius: 4px;
+    padding: 3px 6px; border-radius: 3px;
     border-left: 2px solid rgba(255, 45, 85, 0.4);
     margin-bottom: 2px; background: rgba(255, 255, 255, 0.02);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ============================================================
+   SIDEBAR — toggle thu/mở manual (toàn cục, không chỉ pktiktok)
+   ============================================================
+   - .app dùng CSS variable --sidebar-w cho grid track → sidebar có
+     kích thước CỐ ĐỊNH 260px expanded / 60px collapsed, không bao giờ
+     thay đổi theo nội dung game đang mở (fix bug ảnh 2 vs ảnh 3 khác cỡ).
+   - .sidebar.collapsed: ẩn text, chỉ chừa icon — vẫn click chuyển game OK.
+   - Nút toggle ở góc dưới sidebar.
+   - Khi collapsed, status dot phình to + đổi màu theo state:
+     • mặc định / error → đỏ
+     • connecting → vàng pulse
+     • online → xanh chớp glow */
+.app {
+    grid-template-columns: var(--sidebar-w, 260px) 1fr;
+    transition: grid-template-columns 0.22s ease;
+}
+.app.sidebar-collapsed { --sidebar-w: 60px; }
+
+.sidebar { position: relative; padding-bottom: 44px; }
+
+.sidebar-toggle {
+    position: absolute;
+    bottom: 10px;
+    left: 50%; transform: translateX(-50%);
+    width: 32px; height: 28px;
+    border-radius: 8px;
+    background: #1a1f2b;
+    border: 1px solid #2c303d;
+    color: #c8cdd9;
+    cursor: pointer;
+    font-size: 16px; font-weight: 700;
+    line-height: 1;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+    z-index: 10;
+}
+.sidebar-toggle:hover { background: #232938; color: #fff; }
+.app.sidebar-collapsed .sidebar-toggle { /* mũi tên đổi chiều khi đã thu */ }
+
+/* ===== Collapsed state — ẩn text, chỉ icon ===== */
+.sidebar.collapsed { overflow: hidden; }
+.sidebar.collapsed .brand { padding: 10px 0; justify-content: center; }
+.sidebar.collapsed .brand > div { display: none; }
+.sidebar.collapsed .side-card { padding: 8px 4px; }
+.sidebar.collapsed .side-card-title { display: none; }
+.sidebar.collapsed .conn-row,
+.sidebar.collapsed .conn-actions,
+.sidebar.collapsed .stats-row { display: none; }
+.sidebar.collapsed .status-row { justify-content: center; padding: 4px; }
+.sidebar.collapsed .status-row #status-text { display: none; }
+.sidebar.collapsed .game-item { padding: 8px 0; justify-content: center; }
+.sidebar.collapsed .game-item .meta { display: none; }
+.sidebar.collapsed .game-item .ico { font-size: 22px; }
+.sidebar.collapsed .side-footer { display: none; }
+
+/* ===== Status dot khi collapsed — to hơn + màu rõ ràng ===== */
+.sidebar.collapsed .dot {
+    width: 14px; height: 14px;
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+.sidebar.collapsed .dot.connecting {
+    background: #fbbf24;
+    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+    animation: pulse 1s infinite;
+}
+.sidebar.collapsed .dot.online {
+    background: #22c55e;
+    animation: dot-glow 1.4s ease-in-out infinite;
+}
+.sidebar.collapsed .dot.error {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+}
+@keyframes dot-glow {
+    0%, 100% { box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0.4); opacity: 0.92; }
+    50%      { box-shadow: 0 0 18px #22c55e, 0 0 0 4px rgba(34, 197, 94, 0.15); opacity: 1; }
+}
+
+/* ===== FAB police/caught vẫn ẩn khi ở tab PK TikTok (không liên quan game này) ===== */
+body.game-pktiktok #police-fab,
+body.game-pktiktok #caught-fab,
+body.game-pktiktok #police-popup,
+body.game-pktiktok #caught-popup { display: none !important; }

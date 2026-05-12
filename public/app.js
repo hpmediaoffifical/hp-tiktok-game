@@ -2270,8 +2270,33 @@
         } catch (e) {}
         await loadGames();
         if (games.length) openGame(games[0].id);
+        initSidebarToggle();
         // CHỈ check 1 lần khi mở app — KHÔNG có setInterval định kỳ
         setTimeout(() => checkForUpdate(), 3000);
+    }
+
+    // ===== Sidebar toggle thu/mở =====
+    // Manual toggle (không auto hover) + persist qua localStorage.
+    // Class .sidebar.collapsed cho child styling, .app.sidebar-collapsed cho grid track.
+    function initSidebarToggle() {
+        const btn = document.getElementById('sidebar-toggle');
+        const sidebar = document.querySelector('.sidebar');
+        const app = document.querySelector('.app');
+        if (!btn || !sidebar || !app) return;
+        const KEY = 'hp-sidebar-collapsed';
+        const saved = localStorage.getItem(KEY) === '1';
+        applyState(saved);
+        btn.addEventListener('click', () => {
+            const willCollapse = !sidebar.classList.contains('collapsed');
+            applyState(willCollapse);
+            localStorage.setItem(KEY, willCollapse ? '1' : '0');
+        });
+        function applyState(collapsed) {
+            sidebar.classList.toggle('collapsed', collapsed);
+            app.classList.toggle('sidebar-collapsed', collapsed);
+            btn.textContent = collapsed ? '›' : '‹';
+            btn.title = collapsed ? 'Mở rộng menu' : 'Thu gọn menu';
+        }
     }
 
     // ===== Init: license gate trước, app sau =====
