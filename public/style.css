@@ -2026,10 +2026,10 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
     bottom: 18px;
     left: calc(var(--fab-base-left) + 54px);   /* sau Comments (46 + 8 gap) */
     border-radius: 50%;
-    background: linear-gradient(135deg, #2563eb, #0ea5e9);
+    background: linear-gradient(135deg, #3f6212, #65a30d);   /* xanh rêu cảnh sát VN */
     color: #fff;
     border: none; cursor: pointer;
-    box-shadow: 0 10px 24px rgba(37,99,235,0.45);
+    box-shadow: 0 10px 24px rgba(63,98,18,0.45);
     z-index: 9000;
     display: flex; align-items: center; justify-content: center;
 }
@@ -2089,8 +2089,8 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 .police-popup .pp-row:first-child { border-top: none; }
 .police-popup .pp-avatar {
     width: 36px; height: 36px; border-radius: 50%;
-    background: #1e3a8a; object-fit: cover;
-    border: 1.5px solid rgba(96,165,250,0.55);
+    background: #365314; object-fit: cover;                /* lime-900 — xanh lá đậm */
+    border: 1.5px solid rgba(132,204,22,0.55);             /* lime-500 alpha */
 }
 .police-popup .pp-avatar.ph {
     display: flex; align-items: center; justify-content: center;
