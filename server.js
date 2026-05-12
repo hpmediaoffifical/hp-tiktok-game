@@ -143,6 +143,59 @@ saveAppConfig();
 let giftMap = {};
 let giftList = [];
 
+// Fallback fetch trực tiếp Google Sheet khi license-server trả empty
+// (workaround cho lúc env SHEET_ID ở VPS chưa update đúng).
+// Schema: A=id | B=name | C=link | D=webm (bỏ qua) | E=diamond
+const FALLBACK_SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
+const FALLBACK_SHEET_NAME = 'DANH SACH QUA';
+
+function parseCsvSimple(text) {
+    const rows = [];
+    let cur = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+            if (c === '"') {
+                if (text[i + 1] === '"') { field += '"'; i++; }
+                else inQuotes = false;
+            } else field += c;
+        } else {
+            if (c === '"') inQuotes = true;
+            else if (c === ',') { cur.push(field); field = ''; }
+            else if (c === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+            else if (c !== '\r') field += c;
+        }
+    }
+    if (field || cur.length) { cur.push(field); rows.push(cur); }
+    return rows;
+}
+
+async function fetchGiftSheetDirect() {
+    const url = `https://docs.google.com/spreadsheets/d/${FALLBACK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(FALLBACK_SHEET_NAME)}`;
+    const res = await fetch(url, { timeout: 15000 });
+    if (!res.ok) throw new Error(`Direct sheet HTTP ${res.status}`);
+    const csv = await res.text();
+    const rows = parseCsvSimple(csv);
+    const list = [];
+    for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length < 3) continue;
+        const id = (r[0] || '').toString().trim();
+        const name = (r[1] || '').toString().trim();
+        const image = (r[2] || '').toString().trim();
+        // Cột D có thể là webm (sheet bản chuẩn) — skip, đọc cột E làm diamond.
+        // Nếu D có số → dùng D (sheet cũ có A=id B=name C=link D=diamond).
+        const dRaw = (r[3] || '').toString().replace(/[^\d]/g, '');
+        let diamond = parseInt(dRaw, 10);
+        if (!diamond || isNaN(diamond)) {
+            diamond = parseInt((r[4] || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+        }
+        if (!id) continue;
+        list.push({ id, name, image, diamond });
+    }
+    return list;
+}
+
 async function loadGiftSheet() {
     if (!isWorkerConfigured()) {
         console.error('[gift-sheet] LICENSE_WORKER_URL chưa cấu hình — không thể tải gift sheet');
@@ -151,14 +204,30 @@ async function loadGiftSheet() {
         return giftList;
     }
     console.log('[gift-sheet] Tải danh sách quà qua license-server...');
-    const url = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/gift-sheet';
-    const res = await fetch(url, { timeout: 15000 });
-    if (!res.ok) throw new Error(`License-server HTTP ${res.status}`);
-    const body = await res.json();
-    if (!body.ok || !Array.isArray(body.gifts)) {
-        throw new Error('License-server response invalid');
+    let listFromServer = [];
+    let serverFailed = false;
+    try {
+        const url = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/gift-sheet';
+        const res = await fetch(url, { timeout: 15000 });
+        if (!res.ok) throw new Error(`License-server HTTP ${res.status}`);
+        const body = await res.json();
+        if (!body.ok || !Array.isArray(body.gifts)) throw new Error('License-server response invalid');
+        listFromServer = body.gifts;
+    } catch (e) {
+        console.warn('[gift-sheet] License-server fail:', e.message);
+        serverFailed = true;
     }
-    giftList = body.gifts;
+    // Fallback: nếu server empty hoặc fail → fetch trực tiếp Google Sheet
+    if (serverFailed || listFromServer.length === 0) {
+        console.log('[gift-sheet] License-server empty → fallback fetch Google Sheet trực tiếp...');
+        try {
+            listFromServer = await fetchGiftSheetDirect();
+            console.log(`[gift-sheet] Fallback OK: ${listFromServer.length} quà từ Google Sheet`);
+        } catch (e) {
+            console.error('[gift-sheet] Fallback cũng fail:', e.message);
+        }
+    }
+    giftList = listFromServer;
     giftMap = {};
     for (const g of giftList) {
         if (g && g.id) giftMap[String(g.id)] = g;
