@@ -222,7 +222,7 @@ function readVersionInfo() {
 let giftSheetCache = null;
 let giftSheetCachedAt = 0;
 const GIFT_SHEET_TTL_MS = 5 * 60 * 1000;
-const GIFT_SHEET_NAME = process.env.GIFT_SHEET_NAME || 'gifts';
+const GIFT_SHEET_NAME = process.env.GIFT_SHEET_NAME || 'DANH SACH QUA';
 
 async function fetchGiftSheet(force = false) {
     if (!force && giftSheetCache && (Date.now() - giftSheetCachedAt) < GIFT_SHEET_TTL_MS) return giftSheetCache;
