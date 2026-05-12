@@ -1632,6 +1632,7 @@
     });
     function openUnknownPopup() {
         if (!unknownPopup) return;
+        closeAllPopupsExcept('unknown');
         unknownPopup.hidden = false;
         renderUnknownList();
     }
@@ -1780,10 +1781,24 @@
             commentsBadge.textContent = unreadComments > 99 ? '99+' : String(unreadComments);
         }
     }
+    // Helper: đóng tất cả popup FAB khác (mutual exclusive — chỉ 1 popup mở 1 lúc)
+    function closeAllPopupsExcept(name) {
+        const map = {
+            comments: 'comments-popup',
+            unknown: 'unknown-popup',
+            police: 'police-popup',
+            caught: 'caught-popup',
+        };
+        for (const k of Object.keys(map)) {
+            if (k === name) continue;
+            const el = document.getElementById(map[k]);
+            if (el && !el.hidden) el.hidden = true;
+        }
+    }
     function openCommentsPopup() {
+        closeAllPopupsExcept('comments');
         if (commentsPopup) commentsPopup.hidden = false;
         setUnread(0);
-        // scroll xuống dưới
         const list = document.getElementById('comments');
         if (list) list.scrollTop = list.scrollHeight;
     }
@@ -2054,8 +2069,10 @@
     const policeListEl = document.getElementById('police-list');
     policeFab?.addEventListener('click', () => {
         if (!policePopup) return;
-        policePopup.hidden = !policePopup.hidden;
-        if (!policePopup.hidden) syncPoliceFromGame();   // force re-render khi mở
+        const willOpen = policePopup.hidden;
+        if (willOpen) closeAllPopupsExcept('police');
+        policePopup.hidden = !willOpen;
+        if (willOpen) syncPoliceFromGame();   // force re-render khi mở
     });
     document.getElementById('police-close')?.addEventListener('click', () => {
         if (policePopup) policePopup.hidden = true;
@@ -2098,8 +2115,10 @@
     const caughtListEl = document.getElementById('caught-popup-list');
     caughtFab?.addEventListener('click', () => {
         if (!caughtPopup) return;
-        caughtPopup.hidden = !caughtPopup.hidden;
-        if (!caughtPopup.hidden) syncCaughtFromGame();   // force re-render khi mở
+        const willOpen = caughtPopup.hidden;
+        if (willOpen) closeAllPopupsExcept('caught');
+        caughtPopup.hidden = !willOpen;
+        if (willOpen) syncCaughtFromGame();   // force re-render khi mở
     });
     document.getElementById('caught-close')?.addEventListener('click', () => {
         if (caughtPopup) caughtPopup.hidden = true;
@@ -2286,7 +2305,10 @@
         const app = document.querySelector('.app');
         if (!btn || !sidebar || !app) return;
         const KEY = 'hp-sidebar-collapsed';
-        const saved = localStorage.getItem(KEY) === '1';
+        // Default thu gọn khi lần đầu mở app (chưa có localStorage entry).
+        // User toggle 1 lần → preference được nhớ qua KEY ('0' = mở rộng, '1' = thu).
+        const savedRaw = localStorage.getItem(KEY);
+        const saved = savedRaw === null ? true : savedRaw === '1';
         applyState(saved);
         btn.addEventListener('click', () => {
             const willCollapse = !sidebar.classList.contains('collapsed');

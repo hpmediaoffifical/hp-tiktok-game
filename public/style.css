@@ -708,17 +708,18 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .gift-card { position: relative; }
 
 /* Bình luận LIVE — Floating popup */
-/* === FAB cluster — gom 4 icon (Comments, Police, Caught, Unknown) sát mép phải sidebar.
-   Dùng CSS var để dịch theo trạng thái sidebar collapse/expand. */
+/* === FAB stack — 4 icon (Comments, Police, Caught, Unknown) xếp DỌC sát mép sidebar.
+   Compact hơn cluster ngang, không đè game canvas. Popup mở ra bên phải FAB.
+   Tab Caro/PK TikTok chỉ giữ Unknown-fab (3 FAB Hũ ẩn) → rất gọn. */
 body { --fab-base-left: 272px; }  /* sidebar 260 + gap 12 */
 body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 .comments-fab,
 .police-fab,
 .caught-fab,
 .comments-fab.unknown-fab {
-    width: 46px; height: 46px;
-    font-size: 20px;
-    transition: left 0.22s ease, transform .12s ease;
+    width: 44px; height: 44px;
+    font-size: 19px;
+    transition: left 0.22s ease, bottom 0.22s ease, transform .12s ease;
 }
 .comments-fab {
     position: fixed;
@@ -730,7 +731,7 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
     border: none;
     cursor: pointer;
     z-index: 200;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 4px rgba(255,107,61,0.15);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 3px rgba(255,107,61,0.18);
     display: flex; align-items: center; justify-content: center;
 }
 .comments-fab:hover { transform: scale(1.05); }
@@ -748,7 +749,7 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 }
 .comments-popup {
     position: fixed;
-    bottom: 78px; left: var(--fab-base-left);
+    bottom: 18px; left: calc(var(--fab-base-left) + 52px);   /* mở bên phải Comments FAB */
     width: 360px;
     max-height: 60vh;
     background: #161a23;
@@ -792,14 +793,18 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
    Đặt ở GÓC TRÊN-PHẢI màn hình, tách hẳn cụm 💬/🚓/🚔 ở dưới-trái để KHÔNG đè
    lên popup Lực Lượng Cảnh Sát / Bị Tóm. Vị trí top-right cũng không che game canvas. */
 .comments-fab.unknown-fab {
-    bottom: 18px;
-    left: calc(var(--fab-base-left) + 162px);    /* sau Caught (3 fab × 54px gap-bao gồm) */
+    bottom: 18px;                       /* default: solo position khi ở Caro/PK TikTok */
+    left: var(--fab-base-left);
     top: auto; right: auto;
     background: linear-gradient(135deg, #f59e0b, #ef4444);
     box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.18);
     opacity: 0.6;
-    transition: opacity .15s ease, transform .12s ease, left 0.22s ease;
+    transition: opacity .15s ease, transform .12s ease, left 0.22s ease, bottom 0.22s ease;
     z-index: 9500;
+}
+/* Ở tab Hũ Thủy Tinh — Unknown đứng trên cùng stack (sau Caught) */
+body.game-thuytinh .comments-fab.unknown-fab {
+    bottom: 174px;                      /* trên Caught (122 + 44 + 8) */
 }
 .comments-fab.unknown-fab:hover { opacity: 1; }
 /* Khi có quà unknown mới → nổi bật + pulse thu hút sự chú ý */
@@ -813,13 +818,16 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
     50%      { box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 7px rgba(245,158,11,0.40); }
 }
 .comments-popup.unknown-popup {
-    top: 138px;
-    right: 24px;
-    left: auto;          /* huỷ left từ rule base */
-    bottom: auto;        /* huỷ bottom từ rule base */
-    width: 440px;
+    top: auto; right: auto;
+    bottom: 174px;
+    left: calc(var(--fab-base-left) + 52px);   /* mở bên phải Unknown FAB */
+    width: 420px;
     max-height: 70vh;
     z-index: 9501;
+}
+/* Ở Caro / PK TikTok: unknown-fab solo bottom 18, popup align ngang */
+body:not(.game-thuytinh) .comments-popup.unknown-popup {
+    bottom: 18px;
 }
 /* (.unknown-hint đã bỏ — không hiển thị URL Google Sheet trong popup vì lý do bảo mật) */
 .unknown-list {
@@ -2023,10 +2031,10 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 /* === 8. Police force popup (như Comments popup nhưng góc khác) === */
 .police-fab {
     position: fixed;
-    bottom: 18px;
-    left: calc(var(--fab-base-left) + 54px);   /* sau Comments (46 + 8 gap) */
+    bottom: 70px;                       /* dọc lên trên Comments (18 + 44 + 8 gap) */
+    left: var(--fab-base-left);
     border-radius: 50%;
-    background: linear-gradient(135deg, #3f6212, #65a30d);   /* xanh rêu cảnh sát VN */
+    background: linear-gradient(135deg, #3f6212, #65a30d);
     color: #fff;
     border: none; cursor: pointer;
     box-shadow: 0 10px 24px rgba(63,98,18,0.45);
@@ -2046,7 +2054,7 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 }
 .police-popup {
     position: fixed;
-    left: calc(var(--fab-base-left) + 54px); bottom: 78px;   /* trên Police FAB */
+    left: calc(var(--fab-base-left) + 52px); bottom: 70px;   /* mở bên phải Police FAB */
     width: 320px; max-height: 480px;
     background: linear-gradient(180deg, #1a1f2c, #131722);
     border: 1px solid #2c3243;
@@ -2108,8 +2116,8 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 /* === Bị Tóm FAB + popup (cạnh phải Police FAB) === */
 .caught-fab {
     position: fixed;
-    bottom: 18px;
-    left: calc(var(--fab-base-left) + 108px);   /* sau Police (46 + 8 gap) */
+    bottom: 122px;                      /* trên Police (70 + 44 + 8) */
+    left: var(--fab-base-left);
     border-radius: 50%;
     background: linear-gradient(135deg, #f59e0b, #ef4444);
     color: #fff;
@@ -2136,7 +2144,7 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
 .comments-fab .badge[hidden] { display: none !important; }
 .caught-popup {
     position: fixed;
-    left: calc(var(--fab-base-left) + 108px); bottom: 78px;
+    left: calc(var(--fab-base-left) + 52px); bottom: 122px;   /* mở bên phải Caught FAB */
     width: 360px; max-height: 480px;
     background: linear-gradient(180deg, #1a1f2c, #131722);
     border: 1px solid #2c3243;
@@ -2368,6 +2376,11 @@ body.game-caro #caught-popup {
 /* Card override neon */
 #view-caro .caro-card { background: var(--caro-card); border: 1px solid var(--caro-border); }
 #view-caro .caro-card .card-tabs .tab.active { color: var(--caro-cyan); border-bottom-color: var(--caro-cyan); }
+/* Pane visibility cho .caro-card (card này không có class .tabbed-card nên cần rule riêng).
+   Trước đây tất cả 3 pane đều default display:block → chồng nhau → bấm tab khác không
+   thấy hiệu ứng vì pane setup vẫn visible. */
+#view-caro .caro-card .tab-pane { display: none; }
+#view-caro .caro-card .tab-pane.active { display: block; }
 
 /* Segmented controls */
 .caro-seg {
@@ -2555,15 +2568,13 @@ body.game-caro #caught-popup {
    → display:flex thắng [hidden] → popup không bao giờ đóng được */
 .cgp-pop {
     display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
+    position: fixed;            /* fixed thay absolute để không bị clip bởi parent overflow-auto */
+    /* top/left/width set bởi JS open() qua trigger.getBoundingClientRect() */
     background: var(--caro-card);
     border: 1px solid var(--caro-border-strong);
     border-radius: 10px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.6), 0 0 20px rgba(37, 244, 238, 0.15);
-    z-index: 100;
+    z-index: 9999;              /* trên hết cả FAB cluster */
     max-height: 360px;
     flex-direction: column;
     overflow: hidden;
@@ -3161,8 +3172,12 @@ body.game-caro #caught-popup {
     50%      { box-shadow: 0 0 18px #22c55e, 0 0 0 4px rgba(34, 197, 94, 0.15); opacity: 1; }
 }
 
-/* ===== FAB police/caught vẫn ẩn khi ở tab PK TikTok (không liên quan game này) ===== */
-body.game-pktiktok #police-fab,
-body.game-pktiktok #caught-fab,
-body.game-pktiktok #police-popup,
-body.game-pktiktok #caught-popup { display: none !important; }
+/* ===== FAB Hũ Thủy Tinh-only — Comments, Police, Caught CHỈ hiện khi ở tab thuytinh.
+   Các game khác (Caro, PK TikTok) không liên quan → ẩn hoàn toàn (FAB + popup),
+   tránh chiếm không gian + tránh hiển thị badge stale. */
+body:not(.game-thuytinh) .comments-fab:not(.unknown-fab),
+body:not(.game-thuytinh) .comments-popup,
+body:not(.game-thuytinh) #police-fab,
+body:not(.game-thuytinh) #caught-fab,
+body:not(.game-thuytinh) #police-popup,
+body:not(.game-thuytinh) #caught-popup { display: none !important; }

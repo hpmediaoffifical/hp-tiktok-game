@@ -176,17 +176,38 @@
             if (typeof onChange === 'function') onChange(id);
         }
 
+        function positionPopup() {
+            // .cgp-pop dùng position:fixed nên cần JS đặt top/left khớp trigger.
+            const r = trigger.getBoundingClientRect();
+            const popH = Math.min(400, window.innerHeight - r.bottom - 12);
+            pop.style.left = r.left + 'px';
+            pop.style.width = r.width + 'px';
+            // Nếu chỗ dưới quá ít → mở lên trên trigger
+            if (window.innerHeight - r.bottom < 200 && r.top > 240) {
+                pop.style.top = '';
+                pop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+                pop.style.maxHeight = Math.min(400, r.top - 12) + 'px';
+            } else {
+                pop.style.bottom = '';
+                pop.style.top = (r.bottom + 4) + 'px';
+                pop.style.maxHeight = Math.max(220, popH) + 'px';
+            }
+        }
         function open() {
             pop.classList.add('show');
             root.classList.add('open');
             search.value = '';
             render('');
+            positionPopup();
             setTimeout(() => search.focus(), 30);
         }
         function close() {
             pop.classList.remove('show');
             root.classList.remove('open');
         }
+        // Re-position khi scroll/resize trong lúc dropdown mở.
+        window.addEventListener('scroll', () => { if (isOpen()) positionPopup(); }, true);
+        window.addEventListener('resize', () => { if (isOpen()) positionPopup(); });
         function isOpen() { return pop.classList.contains('show'); }
 
         trigger.addEventListener('click', (e) => {
@@ -582,8 +603,9 @@
             logSystem('❌ Đóng game');
             pushState();
         });
-        // Reset hiệp hiện tại — KHÔNG đổi tỉ số, không sang round mới
-        $('#caro-btn-reset-round').addEventListener('click', () => {
+        // Reset hiệp hiện tại — KHÔNG đổi tỉ số, không sang round mới.
+        // Wire cả nút trong tab Match LẪN nút header (vị trí dễ thấy hơn).
+        const resetRoundHandler = () => {
             const st = game.getState();
             if (st.phase === 'setup') { flashWarn('Chưa bắt đầu hiệp nào'); return; }
             const moveCount = st.round.moves.length;
@@ -591,7 +613,9 @@
             game.resetCurrentRound();
             logSystem(`🔁 Reset hiệp ${st.round.idx}`);
             pushState();
-        });
+        };
+        $('#caro-btn-reset-round')?.addEventListener('click', resetRoundHandler);
+        $('#caro-btn-reset-round-header')?.addEventListener('click', resetRoundHandler);
     }
 
     // ============ DRAW MODAL — bàn đầy không ai thắng ============
