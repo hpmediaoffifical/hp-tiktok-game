@@ -708,19 +708,30 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .gift-card { position: relative; }
 
 /* Bình luận LIVE — Floating popup */
+/* === FAB cluster — gom 4 icon (Comments, Police, Caught, Unknown) sát mép phải sidebar.
+   Dùng CSS var để dịch theo trạng thái sidebar collapse/expand. */
+body { --fab-base-left: 272px; }  /* sidebar 260 + gap 12 */
+body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
+.comments-fab,
+.police-fab,
+.caught-fab,
+.comments-fab.unknown-fab {
+    width: 46px; height: 46px;
+    font-size: 20px;
+    transition: left 0.22s ease, transform .12s ease;
+}
 .comments-fab {
     position: fixed;
-    bottom: 18px; left: 314px;
+    bottom: 18px;
+    left: var(--fab-base-left);
     background: linear-gradient(135deg, #ff2d55, #ff6b3d);
     color: white;
-    width: 52px; height: 52px;
     border-radius: 50%;
     border: none;
-    font-size: 22px;
     cursor: pointer;
     z-index: 200;
     box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 4px rgba(255,107,61,0.15);
-    transition: transform .12s ease;
+    display: flex; align-items: center; justify-content: center;
 }
 .comments-fab:hover { transform: scale(1.05); }
 .comments-fab .badge {
@@ -737,7 +748,7 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 }
 .comments-popup {
     position: fixed;
-    bottom: 84px; left: 314px;
+    bottom: 78px; left: var(--fab-base-left);
     width: 360px;
     max-height: 60vh;
     background: #161a23;
@@ -781,16 +792,14 @@ button.mini { padding: 2px 8px; font-size: 11px; }
    Đặt ở GÓC TRÊN-PHẢI màn hình, tách hẳn cụm 💬/🚓/🚔 ở dưới-trái để KHÔNG đè
    lên popup Lực Lượng Cảnh Sát / Bị Tóm. Vị trí top-right cũng không che game canvas. */
 .comments-fab.unknown-fab {
-    top: 80px;
-    right: 24px;
-    left: auto;          /* huỷ left từ rule base */
-    bottom: auto;        /* huỷ bottom từ rule base */
-    width: 48px; height: 48px; font-size: 20px;
+    bottom: 18px;
+    left: calc(var(--fab-base-left) + 162px);    /* sau Caught (3 fab × 54px gap-bao gồm) */
+    top: auto; right: auto;
     background: linear-gradient(135deg, #f59e0b, #ef4444);
     box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.18);
-    opacity: 0.6;        /* mờ khi không có quà mới — đỡ rối */
-    transition: opacity .15s ease, transform .12s ease;
-    z-index: 9500;       /* cao hơn police/caught fab để chắc chắn không bị che */
+    opacity: 0.6;
+    transition: opacity .15s ease, transform .12s ease, left 0.22s ease;
+    z-index: 9500;
 }
 .comments-fab.unknown-fab:hover { opacity: 1; }
 /* Khi có quà unknown mới → nổi bật + pulse thu hút sự chú ý */
@@ -2014,16 +2023,14 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 /* === 8. Police force popup (như Comments popup nhưng góc khác) === */
 .police-fab {
     position: fixed;
-    bottom: 18px; left: 374px;   /* nằm ngay cạnh phải Comments FAB (left:314 + 60) */
-    width: 52px; height: 52px;
+    bottom: 18px;
+    left: calc(var(--fab-base-left) + 54px);   /* sau Comments (46 + 8 gap) */
     border-radius: 50%;
     background: linear-gradient(135deg, #2563eb, #0ea5e9);
     color: #fff;
-    font-size: 22px;
     border: none; cursor: pointer;
     box-shadow: 0 10px 24px rgba(37,99,235,0.45);
     z-index: 9000;
-    transition: transform .15s ease;
     display: flex; align-items: center; justify-content: center;
 }
 .police-fab:hover { transform: scale(1.05); }
@@ -2039,7 +2046,7 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 }
 .police-popup {
     position: fixed;
-    left: 374px; bottom: 82px;   /* mở trên Police FAB, cùng cột trái */
+    left: calc(var(--fab-base-left) + 54px); bottom: 78px;   /* trên Police FAB */
     width: 320px; max-height: 480px;
     background: linear-gradient(180deg, #1a1f2c, #131722);
     border: 1px solid #2c3243;
@@ -2101,16 +2108,14 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 /* === Bị Tóm FAB + popup (cạnh phải Police FAB) === */
 .caught-fab {
     position: fixed;
-    bottom: 18px; left: 434px;    /* cạnh phải police-fab (left:374 + 60) */
-    width: 52px; height: 52px;
+    bottom: 18px;
+    left: calc(var(--fab-base-left) + 108px);   /* sau Police (46 + 8 gap) */
     border-radius: 50%;
     background: linear-gradient(135deg, #f59e0b, #ef4444);
     color: #fff;
-    font-size: 22px;
     border: none; cursor: pointer;
     box-shadow: 0 10px 24px rgba(239,68,68,0.45);
     z-index: 9000;
-    transition: transform .15s ease;
     display: flex; align-items: center; justify-content: center;
 }
 .caught-fab:hover { transform: scale(1.05); }
@@ -2124,9 +2129,14 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     padding: 0 5px;
     border: 2px solid #0b0d12;
 }
+/* Fix bug: display:flex của badge các fab override [hidden] attribute default
+   → khi JS set badge.hidden=true thì vẫn hiển thị. Force ẩn bằng !important. */
+.caught-fab .badge[hidden],
+.police-fab .badge[hidden],
+.comments-fab .badge[hidden] { display: none !important; }
 .caught-popup {
     position: fixed;
-    left: 434px; bottom: 82px;
+    left: calc(var(--fab-base-left) + 108px); bottom: 78px;
     width: 360px; max-height: 480px;
     background: linear-gradient(180deg, #1a1f2c, #131722);
     border: 1px solid #2c3243;

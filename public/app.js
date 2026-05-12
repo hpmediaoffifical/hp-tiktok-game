@@ -1178,7 +1178,9 @@
             return 0;
         });
         const frag = document.createDocumentFragment();
-        for (const g of list.slice(0, 400)) {
+        // Render toàn bộ list (DOM grid 619 cards vẫn nhẹ). Trước đây slice(0,400)
+        // khiến sort ASC theo Kim Cương bị cắt mất 219 quà cao nhất.
+        for (const g of list) {
             const card = document.createElement('div');
             card.className = 'gift-card';
             const im = document.createElement('img');
@@ -2294,6 +2296,8 @@
         function applyState(collapsed) {
             sidebar.classList.toggle('collapsed', collapsed);
             app.classList.toggle('sidebar-collapsed', collapsed);
+            // Toggle ở body để FAB ngoài .app cũng pick up --fab-base-left.
+            document.body.classList.toggle('sidebar-collapsed', collapsed);
             btn.textContent = collapsed ? '›' : '‹';
             btn.title = collapsed ? 'Mở rộng menu' : 'Thu gọn menu';
         }

@@ -227,12 +227,14 @@ async function loadGiftSheet() {
             console.error('[gift-sheet] Fallback cũng fail:', e.message);
         }
     }
-    giftList = listFromServer;
+    // Sort theo Kim Cương ASC (thấp → cao). Áp dụng cho cả nguồn license-server
+    // lẫn fallback Google Sheet trực tiếp.
+    giftList = listFromServer.slice().sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
     giftMap = {};
     for (const g of giftList) {
         if (g && g.id) giftMap[String(g.id)] = g;
     }
-    console.log(`[gift-sheet] Đã tải ${giftList.length} quà.`);
+    console.log(`[gift-sheet] Đã tải ${giftList.length} quà (sort theo Kim Cương ASC).`);
     io.emit('giftSheet', giftList);
     return giftList;
 }
