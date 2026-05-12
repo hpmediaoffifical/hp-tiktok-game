@@ -11,10 +11,13 @@
     const placeholderImg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="8" fill="%231f2533"/><text x="32" y="38" text-anchor="middle" fill="%23ff6b3d" font-size="14" font-family="Arial">QUÀ</text></svg>';
 
     // ===== Effects list (trigger map) =====
+    // Mỗi effect chỉ gán cho 1 quà duy nhất (1 hiệu ứng ↔ 1 quà).
+    // (Trước đây shape có multi:true nhưng đã bỏ theo phản hồi user — đơn giản hoá UX.)
     const EFFECTS = [
         { key: 'thief',      ico: '🥷', label: 'Trộm' },
         { key: 'joinPolice', ico: '🚓', label: 'Gia nhập CS' },
         { key: 'osin',       ico: '🧹', label: 'Osin nhặt quà' },
+        { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'fireworks',  ico: '🎆', label: 'Pháo hoa' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'tornado',    ico: '🌀', label: 'Lốc xoáy' },
@@ -27,6 +30,44 @@
         { key: 'combo',      ico: '⛓', label: 'Combo (chuỗi)' },
         { key: 'clear',      ico: '🗑', label: 'Xoá hết hũ' }
     ];
+    function isMultiEffect(key) {
+        const ef = EFFECTS.find(e => e.key === key);
+        return !!(ef && ef.multi);
+    }
+    function giftIdsForEffect(key) {
+        return Object.keys(currentTriggers).filter(id => currentTriggers[id] === key);
+    }
+    // Đẩy giftId lên đầu danh sách "vừa gán" → catalog hiển thị quà này trước.
+    function bumpRecent(giftId) {
+        const id = String(giftId);
+        recentAssignments = recentAssignments.filter(x => x !== id);
+        recentAssignments.unshift(id);
+        if (recentAssignments.length > 50) recentAssignments.length = 50;
+    }
+    function dropRecent(giftId) {
+        const id = String(giftId);
+        recentAssignments = recentAssignments.filter(x => x !== id);
+    }
+    // Đồng bộ danh sách giftIds trong editingDraft (multi) → currentTriggers.
+    // Dùng để auto-commit ngay khi user pick/bỏ trong modal — tránh "save xong vẫn mất".
+    function commitMultiDraftToTriggers() {
+        if (!editingEffect || !editingEffect.multi || !editingDraft) return;
+        // Snapshot trước-sau để tính diff: quà mới thêm → bump, quà bỏ → drop khỏi recent.
+        const oldIds = new Set(giftIdsForEffect(editingEffect.key));
+        for (const k of Object.keys(currentTriggers)) {
+            if (currentTriggers[k] === editingEffect.key) delete currentTriggers[k];
+        }
+        const newIds = new Set();
+        const ids = (editingDraft.giftIds || []).map(String);
+        for (const id of ids) {
+            if (currentTriggers[id] && currentTriggers[id] !== editingEffect.key) continue;
+            currentTriggers[id] = editingEffect.key;
+            newIds.add(id);
+        }
+        // Diff: thêm mới → bump; bỏ → drop
+        for (const id of newIds) if (!oldIds.has(id)) bumpRecent(id);
+        for (const id of oldIds) if (!newIds.has(id)) dropRecent(id);
+    }
 
     // ===== Feature toggles map =====
     const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police'];
@@ -93,6 +134,7 @@
         btnOsin: $('#btn-osin'),
         btnFxFirework: $('#btn-fx-firework'),
         btnFxTornado: $('#btn-fx-tornado'),
+        btnFxShape: $('#btn-fx-shape'),
         cfgGoal: $('#cfg-goal'),
         cfgGoalV: $('#cfg-goal-v'),
         cfgShakeAt: $('#cfg-shake-at'),
@@ -115,6 +157,9 @@
         giftOptions: $('#gift-options'),
     };
     let currentTriggers = {};  // giftId → action
+    // Track thứ tự gán mới nhất (giftId) — dùng để sort catalog: quà mới gán lên đầu.
+    // Tồn tại trong phiên app, không persist. Mở app lại thì dùng thứ tự key trong triggers.
+    let recentAssignments = [];   // giftIds, mới nhất ở đầu
 
     // ===== Helpers =====
     function setStatus(state, text) {
@@ -180,7 +225,26 @@
         if (!game) return;
         currentGame = game;
         highlightActiveGame(gameId);
+        // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
+        document.body.classList.remove('game-thuytinh', 'game-caro');
+        document.body.classList.add('game-' + gameId);
+        // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
+        if (gameId !== 'thuytinh') {
+            document.getElementById('police-popup')?.setAttribute('hidden', '');
+            document.getElementById('caught-popup')?.setAttribute('hidden', '');
+        }
         if (gameId === 'thuytinh') openThuytinh(game);
+        else if (gameId === 'caro') openCaro(game);
+    }
+
+    function openCaro(game) {
+        // Cache giftSheet để caro-panel có thể dùng (nếu chưa cache)
+        if (!window.__giftSheet) window.__giftSheet = giftSheet;
+        if (window.HpCaroPanel && typeof window.HpCaroPanel.open === 'function') {
+            window.HpCaroPanel.open(socket);
+        } else {
+            console.error('[caro] HpCaroPanel chưa load');
+        }
     }
 
     // ===== Thuytinh game =====
@@ -419,6 +483,35 @@
         }
         currentTriggers = JSON.parse(JSON.stringify(cfg.triggers || {}));
         currentEffectsConfig = JSON.parse(JSON.stringify(cfg.effects || {}));
+        // Migration cleanup: bảo đảm mỗi effect chỉ có 1 quà (kể cả config cũ từ thời shape
+        // có multi). Giữ entry đầu tiên cho mỗi effect, xoá phần thừa.
+        {
+            const seen = new Set();
+            const cleaned = {};
+            for (const id of Object.keys(currentTriggers)) {
+                const eff = currentTriggers[id];
+                if (seen.has(eff)) continue;
+                seen.add(eff);
+                cleaned[id] = eff;
+            }
+            const removedCount = Object.keys(currentTriggers).length - Object.keys(cleaned).length;
+            if (removedCount > 0) {
+                currentTriggers = cleaned;
+                // Đẩy lại cleanup config lên server để overlay cũng sync (không gọi
+                // pushConfigUpdate vì game chưa được create xong — chỉ POST trực tiếp).
+                setTimeout(() => {
+                    if (currentGame) {
+                        fetch(`/api/games/${currentGame.id}/config`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(gatherConfig())
+                        }).catch(() => {});
+                    }
+                }, 500);
+            }
+        }
+        // Khởi tạo recentAssignments theo thứ tự key trong cfg.triggers (giữ relative order
+        // sau khi reload). User mới gán quà nào trong phiên hiện tại thì bumpRecent sẽ đẩy lên đầu.
+        recentAssignments = Object.keys(currentTriggers);
         renderTriggerList();
         // Re-render catalog để badge has-trigger hiện đúng theo state mới
         if (dom.giftCatalogEl) renderGiftCatalog(dom.giftSearchInput?.value || '');
@@ -537,15 +630,36 @@
         dom.triggerList.innerHTML = '';
         const frag = document.createDocumentFragment();
         for (const ef of EFFECTS) {
-            const giftId = Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key) || '';
             const row = document.createElement('div');
             row.className = 'trigger-row';
             const ico = document.createElement('span'); ico.className = 'ico'; ico.textContent = ef.ico;
             const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = ef.label;
             const prev = document.createElement('span'); prev.className = 'preview';
-            const g = giftMap[String(giftId)];
-            if (g?.image) {
-                const im = document.createElement('img'); im.src = g.image; im.title = g.name; prev.appendChild(im);
+            if (ef.multi) {
+                // Multi: hiện stack thumbnail (tối đa 3) + count badge nếu nhiều hơn
+                const ids = giftIdsForEffect(ef.key);
+                prev.classList.add('preview-multi');
+                const show = ids.slice(0, 3);
+                for (const id of show) {
+                    const g = giftMap[String(id)];
+                    if (g?.image) {
+                        const im = document.createElement('img');
+                        im.src = g.image; im.title = g.name;
+                        prev.appendChild(im);
+                    }
+                }
+                if (ids.length > 3) {
+                    const more = document.createElement('span');
+                    more.className = 'more';
+                    more.textContent = '+' + (ids.length - 3);
+                    prev.appendChild(more);
+                }
+            } else {
+                const giftId = Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key) || '';
+                const g = giftMap[String(giftId)];
+                if (g?.image) {
+                    const im = document.createElement('img'); im.src = g.image; im.title = g.name; prev.appendChild(im);
+                }
             }
             const gear = document.createElement('button');
             gear.className = 'gear'; gear.title = `Cài đặt ${ef.label}`; gear.textContent = '⚙';
@@ -575,11 +689,23 @@
 
     function openEffectModal(ef) {
         editingEffect = ef;
-        const existingGift = Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key) || '';
-        editingDraft = {
-            giftId: existingGift,
-            params: JSON.parse(JSON.stringify(currentEffectsConfig[ef.key] || {}))
-        };
+        if (ef.multi) {
+            // Multi-effect: edit danh sách giftIds
+            editingDraft = {
+                giftIds: giftIdsForEffect(ef.key).slice(),
+                params: JSON.parse(JSON.stringify(currentEffectsConfig[ef.key] || {}))
+            };
+            if (btnPick) btnPick.textContent = 'Thêm quà';
+            if (btnClearGift) btnClearGift.textContent = 'Xoá tất cả';
+        } else {
+            const existingGift = Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key) || '';
+            editingDraft = {
+                giftId: existingGift,
+                params: JSON.parse(JSON.stringify(currentEffectsConfig[ef.key] || {}))
+            };
+            if (btnPick) btnPick.textContent = 'Chọn quà';
+            if (btnClearGift) btnClearGift.textContent = 'Xoá';
+        }
         modalIco.textContent = ef.ico;
         modalName.textContent = ef.label;
         renderModalGift();
@@ -593,6 +719,45 @@
         editingDraft = null;
     }
     function renderModalGift() {
+        if (editingEffect?.multi) {
+            // Render danh sách chip giftIds + nút × để xoá
+            efCurrent.classList.add('ef-current-multi');
+            efCurrent.innerHTML = '';
+            const ids = editingDraft.giftIds || [];
+            if (!ids.length) {
+                const note = document.createElement('span');
+                note.className = 'ef-empty';
+                note.textContent = '— Chưa gán quà nào — Bấm "Thêm quà" →';
+                efCurrent.appendChild(note);
+                return;
+            }
+            for (const id of ids) {
+                const g = giftMap[String(id)];
+                const chip = document.createElement('div');
+                chip.className = 'ef-chip';
+                chip.title = g?.name || ('ID ' + id);
+                if (g?.image) {
+                    const im = document.createElement('img'); im.src = g.image; chip.appendChild(im);
+                }
+                const nm = document.createElement('span'); nm.className = 'nm';
+                nm.textContent = g?.name || ('ID ' + id); chip.appendChild(nm);
+                const rm = document.createElement('button');
+                rm.className = 'rm'; rm.title = 'Bỏ quà này'; rm.textContent = '×';
+                rm.addEventListener('click', () => {
+                    editingDraft.giftIds = (editingDraft.giftIds || []).filter(x => x !== id);
+                    // AUTO-COMMIT — đồng bộ với cách pick ở picker (không cần bấm Lưu)
+                    commitMultiDraftToTriggers();
+                    pushConfigUpdate(true);
+                    renderModalGift();
+                    renderTriggerList();
+                    if (dom.giftCatalogEl) renderGiftCatalog(dom.giftSearchInput.value);
+                });
+                chip.appendChild(rm);
+                efCurrent.appendChild(chip);
+            }
+            return;
+        }
+        efCurrent.classList.remove('ef-current-multi');
         if (!editingDraft?.giftId) {
             efCurrent.textContent = '— Chưa gán —';
             return;
@@ -621,20 +786,53 @@
         const title = document.createElement('div');
         title.className = 'modal-sec-title'; title.textContent = '⚙ Thông số';
         efParams.appendChild(title);
+        // Helper: render 1 control trong row (return DOM nodes append). Dùng cho cả row đơn lẫn
+        // row gộp 2 control trong 1 hàng (vd: 'Hiện tên user' + 'Màu chữ' cùng dòng cho gọn).
+        const renderControl = (d, container) => {
+            const lbl = document.createElement('label'); lbl.textContent = d.label;
+            const cur = (editingDraft.params[d.key] !== undefined) ? editingDraft.params[d.key] : d.default;
+            if (d.type === 'checkbox') {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = !!cur;
+                cb.addEventListener('change', () => { editingDraft.params[d.key] = cb.checked; });
+                // Tight layout: checkbox kẹp sát label
+                const wrap = document.createElement('span');
+                wrap.className = 'ef-inline-cb';
+                wrap.appendChild(cb); wrap.appendChild(lbl);
+                container.appendChild(wrap);
+                return;
+            }
+            if (d.type === 'color') {
+                const cp = document.createElement('input');
+                cp.type = 'color'; cp.value = String(cur || '#ffd166');
+                cp.addEventListener('input', () => { editingDraft.params[d.key] = cp.value; });
+                const wrap = document.createElement('span');
+                wrap.className = 'ef-inline-color';
+                wrap.appendChild(lbl); wrap.appendChild(cp);
+                container.appendChild(wrap);
+                return;
+            }
+        };
+
         for (const d of defs) {
+            // 'row' = gộp nhiều control inline (compact)
+            if (d.type === 'row') {
+                const row = document.createElement('div');
+                row.className = 'ef-param-row ef-param-row-inline';
+                for (const sub of (d.items || [])) renderControl(sub, row);
+                efParams.appendChild(row);
+                continue;
+            }
             const row = document.createElement('div'); row.className = 'ef-param-row';
             const lbl = document.createElement('label'); lbl.textContent = d.label;
             const cur = (editingDraft.params[d.key] !== undefined) ? editingDraft.params[d.key] : d.default;
             if (d.type === 'text') {
-                // Text input chiếm 2 cột
                 row.classList.add('ef-param-text');
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.value = String(cur || '');
                 if (d.placeholder) input.placeholder = d.placeholder;
-                input.addEventListener('input', () => {
-                    editingDraft.params[d.key] = input.value;
-                });
+                input.addEventListener('input', () => { editingDraft.params[d.key] = input.value; });
                 row.appendChild(lbl); row.appendChild(input);
                 efParams.appendChild(row);
                 if (d.hint) {
@@ -643,6 +841,35 @@
                     hint.textContent = d.hint;
                     efParams.appendChild(hint);
                 }
+                continue;
+            }
+            if (d.type === 'select') {
+                const sel = document.createElement('select');
+                for (const op of (d.options || [])) {
+                    const o = document.createElement('option');
+                    o.value = op.v; o.textContent = op.label;
+                    if (String(cur) === String(op.v)) o.selected = true;
+                    sel.appendChild(o);
+                }
+                sel.addEventListener('change', () => { editingDraft.params[d.key] = sel.value; });
+                row.appendChild(lbl); row.appendChild(sel);
+                efParams.appendChild(row);
+                continue;
+            }
+            if (d.type === 'checkbox') {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = !!cur;
+                cb.addEventListener('change', () => { editingDraft.params[d.key] = cb.checked; });
+                row.appendChild(lbl); row.appendChild(cb);
+                efParams.appendChild(row);
+                continue;
+            }
+            if (d.type === 'color') {
+                const cp = document.createElement('input');
+                cp.type = 'color'; cp.value = String(cur || '#ffd166');
+                cp.addEventListener('input', () => { editingDraft.params[d.key] = cp.value; });
+                row.appendChild(lbl); row.appendChild(cp);
+                efParams.appendChild(row);
                 continue;
             }
             const input = document.createElement('input');
@@ -691,6 +918,30 @@
                     { key: 'sequence', label: 'Chuỗi', type: 'text', default: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5',
                       hint: 'effect:giâyDelay, cách nhau bằng dấu phẩy. VD: crackJar:0,stealJar:2' }
                 ];
+            case 'shape':
+                return [
+                    { key: 'type', label: 'Kiểu hình', type: 'select', default: 'heart',
+                      options: [
+                          { v: 'heart',    label: '❤️ Trái tim' },
+                          { v: 'star',     label: '⭐ Ngôi sao' },
+                          { v: 'circle',   label: '⚪ Tròn' },
+                          { v: 'triangle', label: '🔺 Tam giác' },
+                          { v: 'diamond',  label: '🔷 Kim cương' },
+                          { v: 'smile',    label: '😊 Mặt cười' },
+                          { v: 'text',     label: '🔤 Chữ tuỳ ý' }
+                      ] },
+                    { key: 'customText', label: 'Chữ (khi chọn Chữ)', type: 'text', default: '',
+                      placeholder: 'VD: LOVE, HP, Cảm ơn (≤16 ký tự, hỗ trợ tiếng Việt)',
+                      hint: 'Chỉ áp dụng khi "Kiểu hình" = Chữ tuỳ ý' },
+                    { key: 'sizePercent', label: 'Kích thước hình', min: 20, max: 95, step: 5, default: 65, suffix: '%' },
+                    { key: 'durationMs', label: 'Thời gian giữ', min: 1000, max: 10000, step: 250, default: 3000, suffix: 'ms' },
+                    { key: 'nameSize', label: 'Cỡ chữ tên', min: 24, max: 200, step: 4, default: 64, suffix: 'px' },
+                    // Gộp 2 control thành 1 hàng (compact)
+                    { type: 'row', items: [
+                        { key: 'showName', label: 'Hiện tên user', type: 'checkbox', default: true },
+                        { key: 'color',    label: 'Màu chữ',       type: 'color',    default: '#ffd166' }
+                    ] }
+                ];
             default: return [];
         }
     }
@@ -698,51 +949,100 @@
         efPicker.hidden = false;
         efPicker.innerHTML = '';
         const frag = document.createDocumentFragment();
-        // Hiển thị toàn bộ; quà đã gán cho hiệu ứng KHÁC sẽ bị disable
+        const isMulti = !!editingEffect.multi;
+        const draftMultiIds = isMulti ? new Set((editingDraft.giftIds || []).map(String)) : null;
+        // Hiển thị toàn bộ; quà đã gán cho hiệu ứng KHÁC sẽ bị disable.
+        // Multi: quà đã có trong draft hiển thị "Đã thêm" (active) — bấm để bỏ.
         for (const g of giftSheet) {
             const assignedTo = currentTriggers[String(g.id)];
             const isTakenByOther = assignedTo && assignedTo !== editingEffect.key;
+            const alreadyInDraft = isMulti && draftMultiIds.has(String(g.id));
             const pg = document.createElement('div'); pg.className = 'pg';
             if (isTakenByOther) {
                 const otherEf = EFFECTS.find(e => e.key === assignedTo);
                 pg.classList.add('pg-disabled');
                 pg.title = `Đã gán cho ${otherEf?.label || assignedTo}`;
+            } else if (alreadyInDraft) {
+                pg.classList.add('pg-active');
+                pg.title = `Đang được thêm vào ${editingEffect.label}. Bấm để bỏ.`;
             } else {
                 pg.title = g.name;
             }
             const badge = isTakenByOther
                 ? `<div class="pg-badge">${(EFFECTS.find(e => e.key === assignedTo)?.ico || '·')}</div>`
-                : '';
+                : (alreadyInDraft ? `<div class="pg-badge">✓</div>` : '');
             pg.innerHTML = `${badge}<img src="${g.image}" /><div class="nm">${g.name || ''}</div><div class="di">${g.diamond}⭐</div>`;
-            if (!isTakenByOther) {
+            if (isTakenByOther) {
+                pg.addEventListener('click', () => {
+                    const otherEf = EFFECTS.find(e => e.key === assignedTo);
+                    alert(`Quà "${g.name}" đã được gán cho hiệu ứng "${otherEf?.label || assignedTo}". Hãy xoá gán cũ trước.`);
+                });
+            } else if (isMulti) {
+                pg.addEventListener('click', () => {
+                    const id = String(g.id);
+                    const arr = editingDraft.giftIds || (editingDraft.giftIds = []);
+                    const idx = arr.indexOf(id);
+                    if (idx >= 0) arr.splice(idx, 1);
+                    else arr.push(id);
+                    // AUTO-COMMIT cho multi: mỗi lần thêm/bớt quà thì lưu NGAY vào currentTriggers
+                    // + push lên server. Tránh tình trạng user pick xong tưởng đã lưu mà thực ra
+                    // chưa bấm "Lưu" → mở lại modal là mất.
+                    commitMultiDraftToTriggers();
+                    pushConfigUpdate(true);
+                    renderModalGift();
+                    renderTriggerList();
+                    if (dom.giftCatalogEl) renderGiftCatalog(dom.giftSearchInput.value);
+                    openModalPicker();   // re-render picker để cập nhật trạng thái active
+                });
+            } else {
                 pg.addEventListener('click', () => {
                     editingDraft.giftId = String(g.id);
                     renderModalGift();
                     efPicker.hidden = true;
-                });
-            } else {
-                pg.addEventListener('click', () => {
-                    const otherEf = EFFECTS.find(e => e.key === assignedTo);
-                    alert(`Quà "${g.name}" đã được gán cho hiệu ứng "${otherEf?.label || assignedTo}". Hãy xoá gán cũ trước.`);
                 });
             }
             frag.appendChild(pg);
         }
         efPicker.appendChild(frag);
     }
-    btnPick?.addEventListener('click', openModalPicker);
-    btnClearGift?.addEventListener('click', () => { editingDraft.giftId = ''; renderModalGift(); efPicker.hidden = true; });
+    btnPick?.addEventListener('click', () => {
+        if (efPicker.hidden) openModalPicker();
+        else efPicker.hidden = true;
+    });
+    btnClearGift?.addEventListener('click', () => {
+        if (editingEffect?.multi) {
+            editingDraft.giftIds = [];
+            // Auto-commit: clear ngay trong currentTriggers + push
+            commitMultiDraftToTriggers();
+            pushConfigUpdate(true);
+            renderTriggerList();
+            if (dom.giftCatalogEl) renderGiftCatalog(dom.giftSearchInput.value);
+        } else {
+            editingDraft.giftId = '';
+        }
+        renderModalGift();
+        efPicker.hidden = true;
+    });
     btnClose?.addEventListener('click', closeEffectModal);
     btnCancel?.addEventListener('click', closeEffectModal);
     btnSave?.addEventListener('click', () => {
         if (!editingEffect || !editingDraft) return closeEffectModal();
-        // 1) Cập nhật triggers: xoá assignment cũ cho effect này + cho gift này
-        for (const k of Object.keys(currentTriggers)) {
-            if (currentTriggers[k] === editingEffect.key) delete currentTriggers[k];
-        }
-        if (editingDraft.giftId) {
-            delete currentTriggers[String(editingDraft.giftId)];
-            currentTriggers[String(editingDraft.giftId)] = editingEffect.key;
+        // 1) Cập nhật triggers
+        if (editingEffect.multi) {
+            // Multi: commit helper tự diff giữa old/new + bump/drop recent đúng cách
+            commitMultiDraftToTriggers();
+        } else {
+            // Single: xoá toàn bộ assignment cũ của effect này, drop khỏi recent, rồi gán mới
+            for (const k of Object.keys(currentTriggers)) {
+                if (currentTriggers[k] === editingEffect.key) {
+                    dropRecent(k);
+                    delete currentTriggers[k];
+                }
+            }
+            if (editingDraft.giftId) {
+                currentTriggers[String(editingDraft.giftId)] = editingEffect.key;
+                bumpRecent(editingDraft.giftId);
+            }
         }
         // 2) Cập nhật effects params
         currentEffectsConfig[editingEffect.key] = editingDraft.params;
@@ -750,10 +1050,17 @@
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
         pushConfigUpdate(true);
-        const g = editingDraft.giftId ? giftMap[String(editingDraft.giftId)] : null;
-        flashTriggerToast(g
-            ? `✓ Đã gán ${g.name} → ${editingEffect.ico} ${editingEffect.label}`
-            : `✓ Đã lưu cài đặt ${editingEffect.label}`);
+        if (editingEffect.multi) {
+            const count = (editingDraft.giftIds || []).length;
+            flashTriggerToast(count
+                ? `✓ Đã gán ${count} quà → ${editingEffect.ico} ${editingEffect.label}`
+                : `✓ Đã lưu cài đặt ${editingEffect.label}`);
+        } else {
+            const g = editingDraft.giftId ? giftMap[String(editingDraft.giftId)] : null;
+            flashTriggerToast(g
+                ? `✓ Đã gán ${g.name} → ${editingEffect.ico} ${editingEffect.label}`
+                : `✓ Đã lưu cài đặt ${editingEffect.label}`);
+        }
         closeEffectModal();
     });
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !modal.hidden) closeEffectModal(); });
@@ -838,9 +1145,29 @@
         if (!dom.giftCatalogEl) return;
         dom.giftCatalogEl.innerHTML = '';
         const f = filter.trim().toLowerCase();
-        const list = (!f ? giftSheet : giftSheet.filter(g =>
+        let list = (!f ? giftSheet : giftSheet.filter(g =>
             g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
         ));
+        // ƯU TIÊN sort:
+        // 1) Quà đã gán → trước quà chưa gán
+        // 2) Trong nhóm "đã gán": quà gán GẦN ĐÂY NHẤT lên đầu (recentAssignments index)
+        // 3) Còn lại giữ thứ tự gốc (diamond asc)
+        list = list.slice().sort((a, b) => {
+            const aT = currentTriggers[String(a.id)] ? 1 : 0;
+            const bT = currentTriggers[String(b.id)] ? 1 : 0;
+            if (aT !== bT) return bT - aT;
+            if (aT === 1) {
+                const ai = recentAssignments.indexOf(String(a.id));
+                const bi = recentAssignments.indexOf(String(b.id));
+                // Trong nhóm "đã gán": có trong recent thì index nhỏ hơn = mới hơn → trước
+                if (ai !== bi) {
+                    if (ai === -1) return 1;
+                    if (bi === -1) return -1;
+                    return ai - bi;
+                }
+            }
+            return 0;
+        });
         const frag = document.createDocumentFragment();
         for (const g of list.slice(0, 400)) {
             const card = document.createElement('div');
@@ -927,11 +1254,19 @@
         cmGift = null;
     }
     function assignTrigger(giftId, effect) {
-        // Xoá assignment cũ của effect này (1 effect → 1 quà)
-        for (const k of Object.keys(currentTriggers)) {
-            if (currentTriggers[k] === effect) delete currentTriggers[k];
+        const multi = isMultiEffect(effect);
+        if (!multi) {
+            // Single: xoá assignment cũ của effect này (1 effect → 1 quà).
+            // Cũng xoá khỏi recent vì quà cũ không còn được gán nữa.
+            for (const k of Object.keys(currentTriggers)) {
+                if (currentTriggers[k] === effect) {
+                    dropRecent(k);
+                    delete currentTriggers[k];
+                }
+            }
         }
         currentTriggers[String(giftId)] = effect;
+        bumpRecent(giftId);   // Quà vừa gán → lên đầu catalog
         closeGiftContextMenu();
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
@@ -944,6 +1279,7 @@
         if (!cmGift) return;
         const removed = currentTriggers[String(cmGift.id)];
         delete currentTriggers[String(cmGift.id)];
+        dropRecent(cmGift.id);
         closeGiftContextMenu();
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
@@ -1115,6 +1451,20 @@
     });
     dom.btnFxFirework?.addEventListener('click', () => { gameInstance?.fxFireworks(); sendCmd('fireworks'); });
     dom.btnFxTornado?.addEventListener('click', () => { gameInstance?.fxTornado(); sendCmd('tornado'); });
+    dom.btnFxShape?.addEventListener('click', () => {
+        if (!gameInstance) return;
+        // Bấm test = chọn 1 tipper gần đây để hiện tên ở giữa hình
+        const stats = gameInstance.getStats();
+        const pool = (stats?.tippers || []);
+        const recent = pool.filter(t => Date.now() - (t.lastTs || 0) < 5 * 60 * 1000);
+        const list = recent.length ? recent : pool;
+        const pick = list.length ? list[Math.floor(Math.random() * list.length)] : null;
+        const userInfo = pick
+            ? { name: pick.nickname || pick.uniqueId || 'Khách', avatar: pick.avatar, uid: pick.uid }
+            : { name: 'Khách' };
+        gameInstance.fxShape(userInfo);
+        sendCmd('shape', userInfo);
+    });
     dom.btnOsin?.addEventListener('click', () => {
         if (!gameInstance) return;
         // Bấm test = chọn 1 tipper gần đây làm OSIN
@@ -1142,7 +1492,229 @@
         populateGiftDatalist();
         renderTriggerList();
         dom.giftCountHint.textContent = `${giftSheet.length} quà sẵn sàng`;
+        // Share with caro-panel (and any other future game panels)
+        window.__giftSheet = giftSheet;
+        // Sau khi sheet mới load, server cũng đã dọn các entry đã có trong sheet.
+        // Refresh local danh sách unknown.
+        fetchUnknownGifts();
     });
+
+    // ===== Unknown gifts (quà mới phát hiện) =====
+    let unknownList = [];
+    const unknownFab = document.getElementById('unknown-fab');
+    const unknownBadge = document.getElementById('unknown-badge');
+    const unknownPopup = document.getElementById('unknown-popup');
+    const unknownListEl = document.getElementById('unknown-list');
+    const unknownCountInline = document.getElementById('unknown-count-inline');
+    function updateUnknownBadge(n) {
+        if (!unknownFab) return;
+        // FAB luôn hiện để user truy cập được — chỉ toggle badge số đếm.
+        // Khi có quà mới: badge đỏ + pulse animation thu hút sự chú ý.
+        // Khi rỗng: badge ẩn, FAB vẫn ở góc dưới (mờ hơn qua CSS).
+        if (n > 0) {
+            unknownBadge.hidden = false;
+            unknownBadge.textContent = n > 99 ? '99+' : String(n);
+            unknownFab.classList.add('has-new');
+        } else {
+            unknownBadge.hidden = true;
+            unknownFab.classList.remove('has-new');
+        }
+        if (unknownCountInline) unknownCountInline.textContent = `(${n})`;
+    }
+    async function fetchUnknownGifts() {
+        try {
+            const r = await fetch('/api/unknown-gifts');
+            const j = await r.json();
+            unknownList = j.list || [];
+            updateUnknownBadge(unknownList.length);
+            if (unknownPopup && !unknownPopup.hidden) renderUnknownList();
+        } catch (e) { /* ignore */ }
+    }
+    function fmtAgo(ts) {
+        if (!ts) return '';
+        const s = Math.floor((Date.now() - ts) / 1000);
+        if (s < 60) return s + 's';
+        if (s < 3600) return Math.floor(s / 60) + 'm';
+        if (s < 86400) return Math.floor(s / 3600) + 'h';
+        return Math.floor(s / 86400) + 'd';
+    }
+    // Build TSV (tab-separated) row khớp cột Google Sheet: A=ID | B=Name | C=Image link | D=Diamond
+    // (Schema mới — bỏ cột Webm. Cột E trở đi là formula sort/dropdown, không paste vào.)
+    function buildSheetRow(entry) {
+        return [entry.id, entry.name || '', entry.image || '', entry.diamond || 0].join('\t');
+    }
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            // Fallback dùng textarea + execCommand
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); document.body.removeChild(ta); return true; }
+            catch (_) { document.body.removeChild(ta); return false; }
+        }
+    }
+    function renderUnknownList() {
+        if (!unknownListEl) return;
+        unknownListEl.innerHTML = '';
+        if (!unknownList.length) {
+            unknownListEl.innerHTML = '<div class="unknown-empty">✓ Chưa phát hiện quà mới nào ngoài Google Sheet.</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        for (const e of unknownList) {
+            const row = document.createElement('div');
+            row.className = 'unknown-row';
+            // Source: 'scan' = phát hiện qua nút Quét (chưa có event); else = từ live gift event
+            const isScan = e.source === 'scan' || (e.count || 0) === 0;
+            const sourceLabel = isScan
+                ? `<span class="ug-src ug-src-scan" title="Từ rà soát TikTok catalog (chưa nhận event live)">🔎 scan</span>`
+                : `<span class="ug-src ug-src-live" title="Từ gift event trực tiếp">📡 live ×${e.count}</span>`;
+            row.innerHTML = `
+                <div class="ug-img">${e.image ? `<img src="${escAttrInline(e.image)}" loading="lazy" onerror="this.style.display='none'"/>` : '<span class="ph">?</span>'}</div>
+                <div class="ug-main">
+                    <div class="ug-name" title="${escAttrInline(e.name || '')}">${escHtml(e.name || '(chưa có tên)')}</div>
+                    <div class="ug-meta">
+                        <span class="ug-id">ID <b>${escHtml(e.id)}</b></span>
+                        <span class="ug-dia">${e.diamond || 0}⭐</span>
+                        ${sourceLabel}
+                        <span class="ug-time" title="${new Date(e.lastSeen || 0).toLocaleString('vi-VN')}">${fmtAgo(e.lastSeen)}</span>
+                    </div>
+                </div>
+                <div class="ug-actions">
+                    <button class="ghost mini" data-action="copy" data-id="${escAttrInline(e.id)}" title="Copy dòng tab-separated cho Google Sheet">📋 Copy</button>
+                    <button class="ghost mini" data-action="download" data-id="${escAttrInline(e.id)}" title="Tải icon về máy" ${e.image ? '' : 'disabled'}>💾 Icon</button>
+                    <button class="ghost mini" data-action="done" data-id="${escAttrInline(e.id)}" style="color:#22c55e" title="Đã thêm vào Sheet — xoá khỏi danh sách">✓</button>
+                </div>
+            `;
+            frag.appendChild(row);
+        }
+        unknownListEl.appendChild(frag);
+    }
+    // Delegate clicks trên danh sách
+    unknownListEl?.addEventListener('click', async (ev) => {
+        const btn = ev.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        const entry = unknownList.find(x => String(x.id) === String(id));
+        if (!entry) return;
+        if (action === 'copy') {
+            const row = buildSheetRow(entry);
+            const ok = await copyText(row);
+            flashTriggerToast(ok ? `📋 Đã copy dòng "${entry.name || entry.id}" — paste vào Sheet` : 'Lỗi copy');
+        }
+        else if (action === 'download') {
+            // Mở endpoint server proxy → trigger download
+            window.open(`/api/unknown-gifts/${encodeURIComponent(id)}/image`, '_blank');
+        }
+        else if (action === 'done') {
+            await fetch(`/api/unknown-gifts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            // unknownGiftCleared event sẽ tự refresh; but optimistic update:
+            unknownList = unknownList.filter(x => String(x.id) !== String(id));
+            updateUnknownBadge(unknownList.length);
+            renderUnknownList();
+            flashTriggerToast(`✓ Đã xoá "${entry.name || entry.id}" khỏi danh sách`);
+        }
+    });
+    function openUnknownPopup() {
+        if (!unknownPopup) return;
+        unknownPopup.hidden = false;
+        renderUnknownList();
+    }
+    function closeUnknownPopup() { if (unknownPopup) unknownPopup.hidden = true; }
+    unknownFab?.addEventListener('click', () => {
+        if (unknownPopup.hidden) openUnknownPopup(); else closeUnknownPopup();
+    });
+    document.getElementById('unknown-close')?.addEventListener('click', closeUnknownPopup);
+    document.getElementById('btn-unknown-clear')?.addEventListener('click', async () => {
+        if (!window.confirm(`Xoá toàn bộ ${unknownList.length} quà khỏi danh sách phát hiện?`)) return;
+        await fetch('/api/unknown-gifts/clear', { method: 'POST' });
+        unknownList = []; updateUnknownBadge(0); renderUnknownList();
+    });
+    document.getElementById('btn-unknown-reload')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-unknown-reload');
+        if (btn) { btn.disabled = true; btn.textContent = '↻ Đang tải...'; }
+        try {
+            const r = await fetch('/api/reload-gifts', { method: 'POST' });
+            const j = await r.json();
+            await fetchUnknownGifts();
+            flashTriggerToast(`✓ Đã tải ${j.count} quà · Dọn ${j.cleanedUnknown || 0} quà unknown đã có trong Sheet`);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '↻ Đồng bộ'; }
+        }
+    });
+    document.getElementById('btn-unknown-scan')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-unknown-scan');
+        if (btn) { btn.disabled = true; btn.textContent = '🔎 Đang quét...'; }
+        try {
+            const r = await fetch('/api/scan-tiktok-gifts', { method: 'POST' });
+            const j = await r.json();
+            if (!j.ok) {
+                flashTriggerToast(`⚠️ ${j.error || 'Lỗi quét'}`);
+            } else {
+                await fetchUnknownGifts();
+                // Báo cáo chi tiết: tổng quà TikTok, đã có / mới thêm / cập nhật / skip
+                const lines = [
+                    `🔎 Quét xong ${j.scanned} quà TikTok:`,
+                    `  ✓ ${j.existing} đã có trong Sheet`,
+                    `  + ${j.added} mới thêm vào danh sách`,
+                    j.updated > 0 ? `  🔄 ${j.updated} cập nhật icon/tên` : null,
+                    j.skipped > 0 ? `  · ${j.skipped} thiếu thông tin (bỏ qua)` : null,
+                    '',
+                    `Tổng danh sách: ${j.totalUnknown} quà cần thêm vào Sheet`
+                ].filter(Boolean).join('\n');
+                // Toast ngắn + alert chi tiết nếu added > 0
+                if (j.added > 0) {
+                    flashTriggerToast(`🔎 Đã quét: thêm ${j.added} quà mới vào danh sách`);
+                    setTimeout(() => alert(lines), 50);
+                } else {
+                    flashTriggerToast(`🔎 Quét xong: ${j.existing}/${j.scanned} đã có trong Sheet · không có gì mới`);
+                }
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🔎 Quét'; }
+        }
+    });
+    document.getElementById('btn-unknown-refresh-tt')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-unknown-refresh-tt');
+        if (btn) { btn.disabled = true; btn.textContent = '🔄 Đang dò...'; }
+        try {
+            const r = await fetch('/api/unknown-gifts/refresh-from-tiktok', { method: 'POST' });
+            const j = await r.json();
+            if (!j.ok) {
+                flashTriggerToast(`⚠️ ${j.error || 'Lỗi dò TikTok'}`);
+            } else {
+                await fetchUnknownGifts();
+                flashTriggerToast(j.updated > 0
+                    ? `🔄 Đã điền ${j.updated} icon/tên từ TikTok`
+                    : '🔄 Không có entry nào cần update — đã đủ thông tin'
+                );
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 Dò icon'; }
+        }
+    });
+    document.getElementById('btn-unknown-copy-all')?.addEventListener('click', async () => {
+        if (!unknownList.length) return;
+        const lines = unknownList.map(buildSheetRow).join('\n');
+        const ok = await copyText(lines);
+        flashTriggerToast(ok ? `📋 Đã copy ${unknownList.length} dòng — paste 1 lần vào Sheet` : 'Lỗi copy');
+    });
+    // Socket events realtime
+    socket.on('unknownGift', ({ entry, total }) => {
+        // Insert hoặc update entry
+        const idx = unknownList.findIndex(x => String(x.id) === String(entry.id));
+        if (idx >= 0) unknownList[idx] = entry;
+        else unknownList.unshift(entry);   // mới phát hiện → lên đầu
+        updateUnknownBadge(total);
+        if (unknownPopup && !unknownPopup.hidden) renderUnknownList();
+    });
+    socket.on('unknownGiftCleared', () => fetchUnknownGifts());
+    // Khởi tạo ngay khi load app
+    fetchUnknownGifts();
 
     socket.on('status', (s) => {
         if (s?.connected) {
@@ -1407,9 +1979,9 @@
 
     // ===== Settings popup =====
     const settingsPopup = document.getElementById('settings-popup');
-    document.getElementById('btn-open-settings')?.addEventListener('click', () => {
-        if (settingsPopup) settingsPopup.hidden = false;
-    });
+    const openSettingsPopup = () => { if (settingsPopup) settingsPopup.hidden = false; };
+    document.getElementById('btn-open-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('caro-btn-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('settings-close')?.addEventListener('click', () => {
         if (settingsPopup) settingsPopup.hidden = true;
     });

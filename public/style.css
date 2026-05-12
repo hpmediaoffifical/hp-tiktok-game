@@ -110,6 +110,7 @@ input, button { font-family: inherit; }
 .lg-footer a { color: #ff8a65; text-decoration: none; }
 .lg-footer a:hover { text-decoration: underline; }
 .lg-footer .lg-divider { padding: 0 6px; opacity: 0.5; }
+.lg-footer .lg-info { color: #ffd166; }
 
 /* ============ License badge sidebar ============ */
 .lic-card .lic-badge {
@@ -410,10 +411,14 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 
 .system-line { font-size: 11px; color: #8b93a8; padding: 4px 8px; font-style: italic; }
 
-/* Gift stream */
+/* Gift stream — FIX cao 5 hàng, dư thì cuộn trong. Tránh card "nhảy" khi quà mới về,
+   dẫn đến user vô tình bấm nhầm quà (1 hàng ≈ 44px + 5px gap, 5 hàng + padding ≈ 250px). */
 .gift-stream {
-    max-height: 220px;
+    height: 250px;
+    min-height: 250px;
+    max-height: 250px;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 8px;
     display: flex; flex-direction: column; gap: 5px;
 }
@@ -680,8 +685,15 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .context-menu hr { border: none; border-top: 1px solid #1f2533; margin: 4px 0; }
 .gift-card.has-trigger {
     border-color: #ffd166;
-    box-shadow: 0 0 0 1px rgba(255,209,102,0.4);
+    box-shadow: 0 0 0 1px rgba(255,209,102,0.4),
+                0 0 14px rgba(255,209,102,0.18);
+    background: linear-gradient(180deg, rgba(255,209,102,0.08), #0f1218 65%);
 }
+/* Icon to hơn cho quà đã gán → user dễ thao tác/nhận diện */
+.gift-card.has-trigger img {
+    width: 60px; height: 60px;
+}
+.gift-card.has-trigger .name { font-weight: 700; color: #ffe3a3; }
 .gift-card .trigger-badge {
     position: absolute;
     top: 2px; right: 2px;
@@ -765,6 +777,102 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     font-style: italic;
 }
 
+/* ===== Unknown gifts: FAB + popup =====
+   Đặt ở GÓC TRÊN-PHẢI màn hình, tách hẳn cụm 💬/🚓/🚔 ở dưới-trái để KHÔNG đè
+   lên popup Lực Lượng Cảnh Sát / Bị Tóm. Vị trí top-right cũng không che game canvas. */
+.comments-fab.unknown-fab {
+    top: 80px;
+    right: 24px;
+    left: auto;          /* huỷ left từ rule base */
+    bottom: auto;        /* huỷ bottom từ rule base */
+    width: 48px; height: 48px; font-size: 20px;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.18);
+    opacity: 0.6;        /* mờ khi không có quà mới — đỡ rối */
+    transition: opacity .15s ease, transform .12s ease;
+    z-index: 9500;       /* cao hơn police/caught fab để chắc chắn không bị che */
+}
+.comments-fab.unknown-fab:hover { opacity: 1; }
+/* Khi có quà unknown mới → nổi bật + pulse thu hút sự chú ý */
+.comments-fab.unknown-fab.has-new {
+    opacity: 1;
+    animation: ug-pulse 2s ease-in-out infinite;
+}
+.comments-fab.unknown-fab[hidden] { display: none; }
+@keyframes ug-pulse {
+    0%, 100% { box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.22); }
+    50%      { box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 7px rgba(245,158,11,0.40); }
+}
+.comments-popup.unknown-popup {
+    top: 138px;
+    right: 24px;
+    left: auto;          /* huỷ left từ rule base */
+    bottom: auto;        /* huỷ bottom từ rule base */
+    width: 440px;
+    max-height: 70vh;
+    z-index: 9501;
+}
+/* (.unknown-hint đã bỏ — không hiển thị URL Google Sheet trong popup vì lý do bảo mật) */
+.unknown-list {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.unknown-empty {
+    padding: 20px; text-align: center;
+    color: #8b93a8; font-size: 12px;
+}
+.unknown-row {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 10px;
+    padding: 8px;
+    background: #0f1218;
+    border: 1px solid #1f2533;
+    border-radius: 8px;
+    align-items: center;
+}
+.unknown-row .ug-img {
+    width: 44px; height: 44px;
+    border-radius: 6px;
+    background: #1f2533;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+}
+.unknown-row .ug-img img { width: 100%; height: 100%; object-fit: contain; }
+.unknown-row .ug-img .ph { color: #5b6378; font-size: 18px; }
+.unknown-row .ug-main { min-width: 0; }
+.unknown-row .ug-name {
+    font-size: 12px; font-weight: 700; color: #ffd166;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.unknown-row .ug-meta {
+    display: flex; gap: 8px; align-items: center;
+    font-size: 10px; color: #8b93a8;
+    margin-top: 2px;
+    flex-wrap: wrap;
+}
+.unknown-row .ug-meta .ug-id b { color: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.unknown-row .ug-meta .ug-dia { color: #60a5fa; font-weight: 700; }
+.unknown-row .ug-meta .ug-cnt { color: #ef4444; font-weight: 700; }
+.unknown-row .ug-meta .ug-src {
+    font-size: 9px; padding: 1px 5px;
+    border-radius: 3px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.3px;
+}
+.unknown-row .ug-meta .ug-src-scan { background: rgba(96,165,250,0.18); color: #60a5fa; }
+.unknown-row .ug-meta .ug-src-live { background: rgba(239,68,68,0.18); color: #f87171; }
+.unknown-row .ug-actions {
+    display: flex; gap: 4px;
+    flex-direction: column;
+}
+.unknown-row .ug-actions button {
+    font-size: 11px; padding: 3px 8px; min-width: 80px;
+    white-space: nowrap;
+}
+.unknown-row .ug-actions button[disabled] {
+    opacity: 0.4; cursor: not-allowed;
+}
+
 /* Modal cài đặt hiệu ứng */
 .modal {
     position: fixed; inset: 0;
@@ -834,6 +942,12 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 }
 .ef-gift-picker .pg.pg-disabled:hover { border-color: #1f2533; }
 .ef-gift-picker .pg.pg-disabled img { filter: grayscale(1); }
+.ef-gift-picker .pg.pg-active {
+    border-color: #22c55e;
+    box-shadow: 0 0 0 1px rgba(34,197,94,0.4) inset;
+    background: linear-gradient(180deg, rgba(34,197,94,0.12), transparent);
+}
+.ef-gift-picker .pg.pg-active .pg-badge { background: #22c55e; color: #052e16; }
 .ef-gift-picker .pg .pg-badge {
     position: absolute;
     top: -4px; right: -4px;
@@ -843,6 +957,115 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     width: 18px; height: 18px;
     display: flex; align-items: center; justify-content: center;
     font-size: 10px;
+}
+
+/* === Multi-gift effect (vd: 🎨 Tạo hình quà) === */
+.ef-current.ef-current-multi {
+    flex-wrap: wrap; gap: 6px; padding: 8px;
+    min-height: 44px;
+}
+.ef-current.ef-current-multi .ef-empty {
+    font-size: 12px; color: #8b93a8; padding: 2px 4px;
+}
+.ef-current.ef-current-multi .ef-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #161a23; border: 1px solid #2c3243;
+    border-radius: 999px; padding: 3px 6px 3px 4px;
+    max-width: 180px;
+}
+.ef-current.ef-current-multi .ef-chip img {
+    width: 22px; height: 22px; object-fit: contain;
+    border-radius: 50%; background: #0f1218;
+    flex-shrink: 0;
+}
+.ef-current.ef-current-multi .ef-chip .nm {
+    font-size: 11px; color: #e6e8ee;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 110px;
+}
+.ef-current.ef-current-multi .ef-chip .rm {
+    background: transparent; color: #ef4444;
+    border: none; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 0 4px;
+    border-radius: 50%;
+}
+.ef-current.ef-current-multi .ef-chip .rm:hover {
+    background: rgba(239,68,68,0.15);
+}
+
+/* Select / color / checkbox trong ef-params */
+.ef-param-row select,
+.ef-param-row input[type="color"] {
+    background: #0f1218; border: 1px solid #1f2533; border-radius: 6px;
+    color: #e6e8ee; padding: 4px 6px; font-size: 12px; outline: none;
+}
+.ef-param-row select:focus { border-color: #ff6b3d; }
+.ef-param-row input[type="color"] {
+    width: 38px; height: 28px; padding: 2px; cursor: pointer;
+}
+.ef-param-row input[type="checkbox"] {
+    width: 16px; height: 16px; cursor: pointer;
+    accent-color: #ff6b3d;
+}
+
+/* Trigger row preview: nhiều thumbnail stack cho multi-effect */
+.trigger-row .preview.preview-multi {
+    width: auto; min-width: 24px;
+    display: inline-flex; align-items: center; gap: 2px;
+    background: transparent; padding: 0;
+}
+.trigger-row .preview.preview-multi img {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    background: #0f1218;
+    border: 1px solid #1f2533;
+    object-fit: contain;
+}
+.trigger-row .preview.preview-multi .more {
+    font-size: 10px; font-weight: 700;
+    color: #ffd166;
+    background: #0f1218; border: 1px solid #2c3243;
+    border-radius: 4px; padding: 2px 4px;
+    min-width: 18px; text-align: center;
+}
+
+/* === Shape username overlay (giữa hình tạo từ quà) === */
+.tt-shape-name {
+    position: absolute;
+    transform: translate(-50%, -50%) scale(0.6);
+    z-index: 7;
+    pointer-events: none;
+    font-family: 'Arial Black', Arial, sans-serif;
+    font-weight: 900;
+    font-size: 64px;
+    color: #ffd166;
+    text-shadow:
+        0 0 16px rgba(0,0,0,0.85),
+        0 4px 10px rgba(0,0,0,0.75),
+        0 0 24px currentColor;
+    opacity: 0;
+    transition: opacity 0.35s ease, transform 0.45s cubic-bezier(.2,1.5,.5,1);
+    letter-spacing: 1px;
+    white-space: nowrap;
+    max-width: 80%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tt-shape-name.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    animation: tt-shape-name-pulse 1.6s ease-in-out infinite;
+}
+.tt-shape-name.fade {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.3);
+    transition: opacity 0.9s ease-out, transform 0.9s ease-out;
+    animation: none;
+    filter: blur(2px);
+}
+@keyframes tt-shape-name-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50%      { transform: translate(-50%, -50%) scale(1.06); }
 }
 .modal-foot {
     display: flex; gap: 8px; justify-content: flex-end;
@@ -865,6 +1088,32 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     width: 100%;
 }
 .ef-param-row.ef-param-text input[type="text"]:focus { border-color: #ff6b3d; }
+
+/* Row gộp nhiều control inline (compact: vd 'Hiện tên user' + 'Màu chữ' cùng 1 hàng) */
+.ef-param-row.ef-param-row-inline {
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 12px;
+}
+.ef-inline-cb {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; color: #b9c0d4;
+    user-select: none;
+}
+.ef-inline-cb input[type="checkbox"] {
+    width: 16px; height: 16px; margin: 0; cursor: pointer;
+    accent-color: #ff6b3d;
+}
+.ef-inline-color {
+    display: inline-flex; align-items: center; gap: 8px;
+    justify-content: flex-end;
+    font-size: 12px; color: #b9c0d4;
+}
+.ef-inline-color input[type="color"] {
+    width: 36px; height: 26px; padding: 2px;
+    border: 1px solid #1f2533; border-radius: 6px;
+    background: #0f1218; cursor: pointer;
+}
 .ef-param-hint {
     font-size: 10px; color: #8b93a8;
     padding: 4px 0 6px 110px;
@@ -2032,3 +2281,685 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .tt-osin .osin-hand img {
     display: block;
 }
+
+/* ============================================================
+   GAME-SCOPED FABs — ẩn FAB của game khác khi chuyển tab
+   ============================================================ */
+/* Khi đang ở Caro: ẩn FAB/popup của Hũ (Police, Caught) */
+body.game-caro #police-fab,
+body.game-caro #police-popup,
+body.game-caro #caught-fab,
+body.game-caro #caught-popup {
+    display: none !important;
+}
+/* Hiện đầy đủ khi quay lại Hũ — không cần rule riêng (default hiện) */
+
+/* ============================================================
+   HP CARO LIVE — UI styles (TikTok neon theme)
+   ============================================================ */
+:root {
+    --caro-cyan: #25F4EE;
+    --caro-pink: #FE2C55;
+    --caro-bg: #0a0a0f;
+    --caro-card: #14141f;
+    --caro-card-2: #1a1a28;
+    --caro-border: rgba(37, 244, 238, 0.18);
+    --caro-border-strong: rgba(37, 244, 238, 0.45);
+}
+
+#view-caro .caro-body {
+    display: grid;
+    grid-template-columns: 360px 1fr 340px;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+#view-caro .col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow: hidden;
+}
+/* Cột trái + phải: cuộn dọc khi nội dung tràn */
+#view-caro .col-left,
+#view-caro .col-right {
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Scrollbar style — không quá dày */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(37, 244, 238, 0.5) rgba(255, 255, 255, 0.04);
+    padding-right: 4px;
+}
+#view-caro .col-left::-webkit-scrollbar,
+#view-caro .col-right::-webkit-scrollbar {
+    width: 8px;
+}
+#view-caro .col-left::-webkit-scrollbar-track,
+#view-caro .col-right::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+}
+#view-caro .col-left::-webkit-scrollbar-thumb,
+#view-caro .col-right::-webkit-scrollbar-thumb {
+    background: rgba(37, 244, 238, 0.4);
+    border-radius: 4px;
+}
+#view-caro .col-left::-webkit-scrollbar-thumb:hover,
+#view-caro .col-right::-webkit-scrollbar-thumb:hover {
+    background: rgba(37, 244, 238, 0.7);
+}
+#view-caro .col-center { min-width: 0; }
+/* Card trong cột trái: không tự shrink, cho phép expand */
+#view-caro .col-left .card,
+#view-caro .col-right .card { flex-shrink: 0; }
+
+/* Card override neon */
+#view-caro .caro-card { background: var(--caro-card); border: 1px solid var(--caro-border); }
+#view-caro .caro-card .card-tabs .tab.active { color: var(--caro-cyan); border-bottom-color: var(--caro-cyan); }
+
+/* Segmented controls */
+.caro-seg {
+    display: flex;
+    gap: 3px;
+    background: rgba(255,255,255,0.04);
+    padding: 3px;
+    border-radius: 10px;
+    border: 1px solid var(--caro-border);
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+}
+.caro-seg button {
+    background: transparent;
+    color: rgba(255,255,255,0.75);
+    border: 0;
+    padding: 6px 6px;
+    border-radius: 7px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+    white-space: normal;            /* CHO PHÉP wrap text khi cần */
+    word-break: keep-all;            /* không tách từ tiếng Việt */
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 40px;                /* đảm bảo cùng cao */
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.caro-seg button:hover { background: rgba(37, 244, 238, 0.1); color: #fff; }
+.caro-seg button.active {
+    background: linear-gradient(135deg, var(--caro-cyan) 0%, #1ad4cc 100%);
+    color: #000;
+    box-shadow: 0 0 12px rgba(37, 244, 238, 0.5);
+}
+
+.caro-select {
+    background: var(--caro-card-2);
+    color: #fff;
+    border: 1px solid var(--caro-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    width: 100%;
+    font-size: 13px;
+}
+.caro-select:focus { outline: none; border-color: var(--caro-cyan); }
+
+/* === Caro custom cfg-row override — label rộng + nowrap === */
+#view-caro .cfg-row {
+    grid-template-columns: 130px 1fr 64px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+#view-caro .cfg-row > label {
+    color: rgba(255,255,255,0.85);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+}
+#view-caro .cfg-row.cfg-row-wide {
+    grid-template-columns: 130px 1fr;
+}
+#view-caro .cfg-row > label.toggle-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 100%;
+    white-space: nowrap;
+}
+#view-caro .cfg-row > label.toggle-row > span {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#view-caro .cfg-row .cfg-val {
+    color: var(--caro-cyan);
+    font-weight: 700;
+    font-size: 13px;
+    text-align: right;
+    white-space: nowrap;
+}
+#view-caro .cfg-row input[type="range"] {
+    accent-color: var(--caro-cyan);
+}
+/* Segmented control: chiếm 2 cột (slider + value) để rộng rãi không bị cắt */
+#view-caro .cfg-row > .caro-seg {
+    grid-column: 2 / -1;
+    width: 100%;
+}
+
+/* === Custom Gift Picker === */
+.caro-gift-picker { width: 100%; }
+.cgp { position: relative; width: 100%; }
+.cgp-trigger {
+    width: 100%;
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    border-radius: 8px;
+    color: #fff;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 38px;
+    transition: border-color 0.15s, background 0.15s;
+}
+.cgp-trigger:hover { border-color: var(--caro-border-strong); }
+.cgp.open .cgp-trigger { border-color: var(--caro-cyan); background: rgba(37, 244, 238, 0.06); }
+.cgp-current {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.cgp-placeholder { color: rgba(255,255,255,0.45); }
+.cgp-arrow { color: var(--caro-cyan); font-size: 11px; flex: 0 0 auto; }
+.cgp.open .cgp-arrow { transform: rotate(180deg); }
+/* Clear button: ẨN mặc định, hiện khi có class .show
+   (KHÔNG dùng [hidden] vì conflict với display:flex) */
+.cgp-clear {
+    display: none;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(254, 44, 85, 0.15);
+    color: #FE2C55;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-right: 4px;
+}
+.cgp-clear.show { display: flex; }
+.cgp-clear:hover {
+    background: #FE2C55;
+    color: #fff;
+    box-shadow: 0 0 10px rgba(254, 44, 85, 0.5);
+    transform: scale(1.08);
+}
+.cgp-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255,255,255,0.04);
+    flex: 0 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+.cgp-icon.none {
+    color: rgba(255,255,255,0.4);
+}
+.cgp-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #fff;
+    font-weight: 600;
+}
+.cgp-dia {
+    color: var(--caro-pink);
+    font-weight: 700;
+    flex: 0 0 auto;
+    font-size: 12px;
+}
+/* Dropdown popup: ẨN mặc định (display:none), HIỆN qua class .show
+   ROOT CAUSE FIX: trước đây dùng [hidden] attribute với display:flex
+   → display:flex thắng [hidden] → popup không bao giờ đóng được */
+.cgp-pop {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--caro-card);
+    border: 1px solid var(--caro-border-strong);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6), 0 0 20px rgba(37, 244, 238, 0.15);
+    z-index: 100;
+    max-height: 360px;
+    flex-direction: column;
+    overflow: hidden;
+}
+.cgp-pop.show {
+    display: flex;
+}
+.cgp-search {
+    border: 0;
+    border-bottom: 1px solid var(--caro-border);
+    background: rgba(0,0,0,0.3);
+    color: #fff;
+    padding: 8px 12px;
+    font-size: 13px;
+    outline: none;
+}
+.cgp-list {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    padding: 4px;
+}
+.cgp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.1s;
+}
+.cgp-row:hover { background: rgba(37, 244, 238, 0.08); }
+.cgp-row.active {
+    background: linear-gradient(90deg, rgba(37,244,238,0.18), rgba(37,244,238,0.04));
+    border-left: 3px solid var(--caro-cyan);
+    padding-left: 5px;
+}
+.cgp-row-none {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: linear-gradient(180deg, var(--caro-card) 80%, rgba(20, 20, 31, 0.85));
+    border-bottom: 1px dashed rgba(254, 44, 85, 0.3);
+    margin-bottom: 4px;
+    color: #FE2C55;
+    font-weight: 700;
+}
+.cgp-row-none:hover {
+    background: rgba(254, 44, 85, 0.12);
+}
+.cgp-row-none .cgp-icon.none {
+    background: rgba(254, 44, 85, 0.15);
+    color: #FE2C55;
+}
+.cgp-row-none .cgp-name {
+    color: #FE2C55;
+}
+.cgp-empty {
+    padding: 16px;
+    text-align: center;
+    color: rgba(255,255,255,0.4);
+    font-size: 13px;
+}
+
+.caro-sep { border: 0; border-top: 1px solid var(--caro-border); margin: 14px 0 10px; }
+
+/* ============================================================
+   Accordion sections — gom nhóm setting tương tự, thu gọn lại
+   Dùng native <details><summary> + custom style
+   ============================================================ */
+.caro-acc {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--caro-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+}
+.caro-acc[open] {
+    border-color: var(--caro-border-strong);
+    background: rgba(37, 244, 238, 0.03);
+}
+.caro-acc > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.92);
+    user-select: none;
+    position: relative;
+    transition: background 0.15s;
+}
+.caro-acc > summary::-webkit-details-marker { display: none; }
+.caro-acc > summary::after {
+    content: '▾';
+    color: var(--caro-cyan);
+    font-size: 11px;
+    transition: transform 0.2s;
+    flex: 0 0 auto;
+}
+.caro-acc[open] > summary::after { transform: rotate(180deg); }
+.caro-acc > summary:hover {
+    background: rgba(37, 244, 238, 0.06);
+}
+.caro-acc > summary .acc-hint {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: auto;
+    margin-right: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+.caro-acc-body {
+    padding: 6px 0 10px;
+    border-top: 1px solid var(--caro-border);
+    animation: accBodySlide 0.18s ease-out;
+}
+@keyframes accBodySlide {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.toggle-row { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.toggle-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--caro-cyan); }
+/* Practice mode toggle — highlight để dễ thấy là chế độ debug/test */
+#view-caro .caro-practice-toggle {
+    background: linear-gradient(90deg, rgba(255, 209, 102, 0.12), rgba(254, 44, 85, 0.08));
+    border: 1px dashed rgba(255, 209, 102, 0.4);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+#view-caro .caro-practice-toggle b { color: #FFD166; }
+#view-caro .caro-practice-toggle input[type="checkbox"] { accent-color: #FFD166; }
+/* Rolling mode toggle — highlight tím để phân biệt */
+#view-caro .caro-rolling-toggle {
+    background: linear-gradient(90deg, rgba(180, 90, 240, 0.14), rgba(37, 244, 238, 0.08));
+    border: 1px dashed rgba(180, 90, 240, 0.5);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+#view-caro .caro-rolling-toggle b { color: #B95AF0; }
+#view-caro .caro-rolling-toggle input[type="checkbox"] { accent-color: #B95AF0; }
+
+/* Phase pill */
+.caro-phase-pill {
+    background: rgba(37, 244, 238, 0.1);
+    border: 1px solid var(--caro-border-strong);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    text-align: center;
+    margin-bottom: 12px;
+}
+.caro-phase-pill b { color: var(--caro-cyan); }
+
+/* Actions */
+.caro-actions { display: flex; flex-direction: column; gap: 8px; }
+.caro-actions .block { width: 100%; padding: 10px; font-weight: 600; }
+
+/* Leaderboard */
+.caro-leaderboard {
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    border: 1px solid var(--caro-border);
+}
+.caro-lb-empty {
+    text-align: center;
+    color: rgba(255,255,255,0.4);
+    padding: 20px 10px;
+    font-size: 13px;
+}
+.caro-lb-row {
+    display: grid;
+    grid-template-columns: 32px 28px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--caro-card-2);
+    border-radius: 6px;
+    font-size: 13px;
+    transition: all 0.15s;
+}
+.caro-lb-row.active {
+    background: linear-gradient(90deg, rgba(254,44,85,0.18), rgba(254,44,85,0.05));
+    border-left: 3px solid var(--caro-pink);
+    padding-left: 5px;
+}
+.caro-lb-row .rank { color: var(--caro-cyan); font-weight: 700; font-size: 12px; }
+.caro-lb-row .avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.caro-lb-row .name { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caro-lb-row .dia { color: var(--caro-pink); font-weight: 700; }
+
+/* Stage frame */
+.caro-stage-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.caro-stage-frame {
+    flex: 1;
+    min-height: 400px;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(37, 244, 238, 0.08), transparent 60%),
+        radial-gradient(circle at 70% 70%, rgba(254, 44, 85, 0.06), transparent 60%),
+        var(--caro-bg);
+    border: 1px solid var(--caro-border-strong);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.caro-stage-frame canvas { display: block; cursor: pointer; }
+
+.caro-quick-row {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: nowrap;
+    gap: 12px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--caro-border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+}
+.caro-quick-row > span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.caro-quick-row b { color: var(--caro-cyan); }
+
+/* Comments stream — cố định cao, cuộn dọc, cmt mới ở TRÊN */
+.caro-comments {
+    height: 380px;             /* cố định, không co giãn */
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(254, 44, 85, 0.5) rgba(255, 255, 255, 0.04);
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+}
+.caro-comments::-webkit-scrollbar { width: 6px; }
+.caro-comments::-webkit-scrollbar-thumb { background: rgba(254, 44, 85, 0.5); border-radius: 3px; }
+.caro-comment {
+    display: grid;
+    grid-template-columns: 20px 24px 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    font-size: 12px;
+}
+.caro-comment .tag { text-align: center; font-weight: 800; }
+.caro-comment.accepted .tag { color: #25F4EE; }
+.caro-comment.rejected .tag { color: #FE2C55; }
+.caro-comment.unparsed .tag { color: rgba(255,255,255,0.4); }
+.caro-comment .avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.caro-comment .name { color: rgba(255,255,255,0.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caro-comment .text { color: #fff; font-weight: 600; }
+
+/* Log */
+.caro-log {
+    max-height: 280px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 8px;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+}
+.caro-log-line { padding: 2px 0; }
+.caro-log-line.idol { color: var(--caro-cyan); }
+.caro-log-line.user { color: var(--caro-pink); }
+.caro-log-line.system { color: rgba(255,255,255,0.5); font-style: italic; }
+
+/* Undo status */
+.caro-undo-status {
+    text-align: center;
+    color: rgba(255,255,255,0.75);
+    padding: 8px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+.caro-undo-status b { color: var(--caro-cyan); font-size: 16px; }
+
+/* End actions */
+.caro-end-actions {
+    background: linear-gradient(135deg, rgba(37,244,238,0.1), rgba(254,44,85,0.1));
+    border: 1px solid var(--caro-border-strong);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.caro-end-title {
+    text-align: center;
+    font-weight: 800;
+    color: var(--caro-cyan);
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+
+/* Modal — opponent picker */
+.caro-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.caro-modal {
+    background: var(--caro-card);
+    border: 1px solid var(--caro-border-strong);
+    border-radius: 14px;
+    width: 480px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(37, 244, 238, 0.25);
+}
+.caro-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--caro-border);
+    color: #fff;
+    font-weight: 700;
+}
+.caro-modal-body {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.caro-picker-row {
+    display: grid;
+    grid-template-columns: 32px 36px 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--caro-card-2);
+    border-radius: 8px;
+}
+.caro-picker-row .rank { color: var(--caro-cyan); font-weight: 700; }
+.caro-picker-row .avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.caro-picker-row .name { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caro-picker-row .dia { color: var(--caro-pink); font-weight: 700; }
+
+/* Draw modal (bàn đầy) */
+.caro-draw-modal {
+    width: 440px !important;
+    background: linear-gradient(135deg, #14141f 0%, #1a1622 100%);
+    border: 1px solid #FFD166 !important;
+    box-shadow: 0 20px 60px rgba(255, 209, 102, 0.25) !important;
+}
+.caro-draw-modal .caro-modal-head {
+    color: #FFD166;
+    border-bottom-color: rgba(255, 209, 102, 0.3);
+    font-weight: 800;
+}
+
+/* Toast */
+.caro-toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    z-index: 99999;
+    opacity: 0;
+    transform: translateX(20px);
+    transition: all 0.25s ease;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+.caro-toast.show { opacity: 1; transform: translateX(0); }
+.caro-toast.warn { background: linear-gradient(135deg, var(--caro-pink), #b91c45); }
+.caro-toast.ok { background: linear-gradient(135deg, var(--caro-cyan), #18b5ae); color: #000; }

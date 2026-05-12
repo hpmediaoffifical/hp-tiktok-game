@@ -52,7 +52,10 @@ app.setAppUserModelId('com.hpmedia.actionlive');
 
 app.on('second-instance', () => {
     if (mainWindow) {
+        // Re-launch khi app đang ở tray → mở lại window (restore taskbar icon nữa)
+        mainWindow.setSkipTaskbar(false);
         if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
         mainWindow.focus();
     }
 });
@@ -172,30 +175,55 @@ function createMainWindow() {
         return { action: 'deny' };
     });
 
+    // X (close) hoặc minimize → ẨN xuống tray, KHÔNG quit.
+    // Server tiếp tục chạy → socket OBS vẫn connect → overlay overlay nhận quà/state bình
+    // thường khi user đang dọn màn hình hoặc nhường focus cho app khác trong livestream.
+    // Muốn thoát thực sự: chuột phải tray icon → "Thoát" (gọi fullQuit).
+    let trayBalloonShown = false;
     mainWindow.on('close', (e) => {
-        // X button = THOÁT HOÀN TOÀN (không hide xuống tray nữa).
-        // Lý do: user muốn OBS overlay tự ẩn khi đóng app. OBS chỉ ẩn khi socket disconnect.
-        // Socket chỉ disconnect khi server (main process) chết. Nếu X chỉ hide → server vẫn chạy
-        // → OBS vẫn nhận state → KHÔNG ẨN. Vì vậy X PHẢI fullQuit để OBS biết app offline.
-        if (!isQuitting) {
-            e.preventDefault();   // chặn close mặc định, để fullQuit destroy theo trình tự
-            fullQuit();
+        if (isQuitting) return;
+        e.preventDefault();
+        mainWindow.hide();
+        if (process.platform === 'win32') {
+            mainWindow.setSkipTaskbar(true);
+            // Lần đầu ẩn → bóng nhắc nhở user app đang chạy ở tray (1 lần / phiên)
+            if (!trayBalloonShown && tray && !tray.isDestroyed()) {
+                trayBalloonShown = true;
+                try {
+                    tray.displayBalloon({
+                        title: 'HP Action LIVE vẫn đang chạy',
+                        content: 'App đã thu xuống tray. OBS overlay vẫn hoạt động bình thường. Chuột phải tray để Thoát.',
+                        iconType: 'info'
+                    });
+                } catch (_) {}
+            }
         }
     });
+    // Minimize cũng nên xuống tray cho nhất quán (tuỳ chọn — user có thể thích minimize bình
+    // thường xuống taskbar). Giữ minimize MẶC ĐỊNH = taskbar (không can thiệp) để không phá
+    // workflow của user. Chỉ X mới gửi xuống tray.
 }
 
+function showMainWindow() {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.setSkipTaskbar(false);
+    mainWindow.show();
+    mainWindow.focus();
+}
 function buildTray() {
     try {
         tray = new Tray(getIcon().resize({ width: 16, height: 16 }));
         const contextMenu = Menu.buildFromTemplate([
-            { label: 'Mở HP Action LIVE', click: () => { mainWindow.show(); mainWindow.focus(); } },
+            { label: 'Mở HP Action LIVE', click: showMainWindow },
             { label: 'Mở overlay OBS trong trình duyệt', click: () => shell.openExternal(`${APP_URL}/overlay/thuytinh`) },
             { type: 'separator' },
             { label: 'Thoát', click: () => fullQuit() }
         ]);
-        tray.setToolTip(APP_NAME);
+        tray.setToolTip(`${APP_NAME} (đang chạy — overlay OBS hoạt động)`);
         tray.setContextMenu(contextMenu);
-        tray.on('double-click', () => { mainWindow.show(); mainWindow.focus(); });
+        tray.on('double-click', showMainWindow);
+        tray.on('click', showMainWindow);   // single click cũng mở (UX nhanh hơn)
     } catch (e) {}
 }
 
@@ -298,7 +326,7 @@ app.on('window-all-closed', () => {
 });
 app.on('activate', () => {
     if (!mainWindow) createMainWindow();
-    else mainWindow.show();
+    else { mainWindow.setSkipTaskbar(false); mainWindow.show(); mainWindow.focus(); }
 });
 
 // Kéo signal ctrl+c / kill từ terminal về fullQuit để cleanup đầy đủ

@@ -18,6 +18,7 @@ try { require('dotenv').config(); } catch {}
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
@@ -248,7 +249,35 @@ app.get('/api/download/installer', (req, res) => {
     logLine(`UPDATE_DOWNLOAD ip=${req.ip} version=${v.version} ua="${(req.headers['user-agent'] || '').slice(0, 60)}"`);
 });
 
-// Admin endpoint: upload new release (dùng để publish phiên bản)
+// Admin endpoint: UPLOAD file installer .exe (raw binary stream).
+// Header: X-Filename: HP-Action-LIVE-Setup-1.0.9.exe
+// Body: raw .exe bytes (Content-Type: application/octet-stream)
+// → File được ghi vào RELEASES_DIR/<filename>.
+// Dùng kết hợp với /admin/api/publish-version (gọi sau khi upload xong).
+app.post('/admin/api/upload-installer', requireAdminAuth,
+    express.raw({ type: 'application/octet-stream', limit: '300mb' }),
+    (req, res) => {
+        const filename = String(req.headers['x-filename'] || '').replace(/[^\w\-.]/g, '');
+        if (!filename || !filename.endsWith('.exe')) {
+            return res.status(400).json({ ok: false, error: 'Header X-Filename phải là tên file .exe hợp lệ' });
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+            return res.status(400).json({ ok: false, error: 'Body rỗng — gửi raw .exe bytes với Content-Type: application/octet-stream' });
+        }
+        try {
+            if (!fs.existsSync(RELEASES_DIR)) fs.mkdirSync(RELEASES_DIR, { recursive: true });
+            const filePath = path.join(RELEASES_DIR, filename);
+            fs.writeFileSync(filePath, req.body);
+            const size = req.body.length;
+            const sha = crypto.createHash('sha256').update(req.body).digest('hex');
+            logLine(`ADMIN_UPLOAD file=${filename} size=${size} sha256=${sha.slice(0, 16)}...`);
+            res.json({ ok: true, filename, size, sha256: sha });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+// Admin endpoint: publish metadata (sau khi đã upload .exe).
 // curl POST /admin/api/publish-version với body JSON: {version, notes, filename, sha256, size}
 app.post('/admin/api/publish-version', requireAdminAuth, (req, res) => {
     const { version, notes, filename, sha256, size } = req.body || {};

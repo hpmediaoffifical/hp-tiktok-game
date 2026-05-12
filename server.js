@@ -22,7 +22,7 @@ const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/t
 //             app sẽ FALLBACK đọc Google Sheet trực tiếp (như v1.0.4 cũ).
 //             Tiện cho test local trước khi deploy license-server.
 const LICENSE_WORKER_URL = process.env.HP_LICENSE_WORKER_URL
-    || 'https://hp-license.YOUR-DOMAIN.workers.dev';   // ← UPDATE sau khi deploy server
+    || 'https://hp-license.nguyenvu.dev';   // production license server
 
 const KEY_SHEET_NAME = 'KEY_HP_GAME';
 const KEY_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(KEY_SHEET_NAME)}`;
@@ -40,6 +40,18 @@ const app = express();
 const httpServer = http.createServer(app);
 const io = new SocketIOServer(httpServer, { cors: { origin: '*' } });
 
+// Static files: tắt cache cho JS/CSS/HTML để Electron renderer luôn nhận file mới
+// sau khi app update (tránh tình trạng renderer cache code cũ → tính năng mới không hiện).
+// Ảnh/assets vẫn được cache bình thường (max-age 1h) cho hiệu năng.
+app.use((req, res, next) => {
+    const p = req.path;
+    if (/\.(js|css|html)$/i.test(p)) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+    next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '1mb' }));
 
@@ -57,6 +69,29 @@ const GAMES = {
             physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
             jarVisible: true,
             maxCapacity: 0
+        }
+    },
+    caro: {
+        id: 'caro',
+        name: 'Caro Đối Đầu',
+        description: 'Idol đấu Caro với khán giả — user bình luận tọa độ (vd "9F") để đánh.',
+        icon: '🎯',
+        overlayPath: '/overlay/caro',
+        defaultConfig: {
+            board: { cols: 12, rows: 12, winLength: 5 },
+            match: { bestOf: 3, idolFirst: true, alternateFirst: true },
+            registration: { giftId: '', minCount: 1, autoCloseSeconds: 0 },
+            undo: { window: 30, maxPerRound: 3, mode: 'idol', giftId: '', cooldown: 60 },
+            turnTimer: 0,
+            practiceMode: false,
+            rolling: { enabled: false, tokensPerSide: 3 },
+            audio: { enabled: true, volume: 50 },
+            colors: { idol: '#25F4EE', user: '#FE2C55' },
+            display: {
+                showHistory: true, showInfo: true,
+                scale: 100, xPercent: 50, yPercent: 50,
+                cellHints: false, cellHintOpacity: 35
+            }
         }
     }
 };
@@ -123,10 +158,15 @@ async function loadGiftSheet() {
         const id = (r[0] || '').toString().trim();
         const name = (r[1] || '').toString().trim();
         const link = (r[2] || '').toString().trim();
-        const webm = (r[3] || '').toString().trim();
-        const diamond = parseInt((r[4] || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+        // Sheet schema mới: A=id, B=name, C=link, D=diamond (E trở đi là formula CHỌN A-Z).
+        // Backward-compat: nếu r[3] không phải số (schema cũ có cột webm), fallback đọc r[4].
+        const dRaw = (r[3] || '').toString().replace(/[^\d]/g, '');
+        let diamond = parseInt(dRaw, 10);
+        if (!diamond || isNaN(diamond)) {
+            diamond = parseInt((r[4] || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+        }
         if (!id) continue;
-        const item = { id, name, image: link, webm, diamond };
+        const item = { id, name, image: link, diamond };
         list.push(item);
         map[id] = item;
     }
@@ -354,8 +394,118 @@ function attachConnectionEvents(conn) {
     });
 }
 
+// ====== Unknown gifts detector ======
+// Khi TikTok đẩy gift event với giftId KHÔNG có trong Google Sheet → ghi nhận để user
+// biết và bổ sung sau. Persist sang đĩa để không mất qua restart.
+// Schema mỗi entry: { id, name, image, diamond, count, firstSeen, lastSeen }
+const UNKNOWN_GIFTS_FILE = path.join(DATA_DIR, 'unknown-gifts.json');
+let unknownGifts = {};   // id (string) → entry
+function loadUnknownGifts() {
+    try {
+        if (fs.existsSync(UNKNOWN_GIFTS_FILE)) {
+            unknownGifts = JSON.parse(fs.readFileSync(UNKNOWN_GIFTS_FILE, 'utf8')) || {};
+        }
+    } catch (e) { unknownGifts = {}; }
+}
+function saveUnknownGifts() {
+    try {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(UNKNOWN_GIFTS_FILE, JSON.stringify(unknownGifts, null, 2));
+    } catch (e) { /* non-fatal */ }
+}
+loadUnknownGifts();
+// Debounce ghi đĩa — gift events có thể đến dồn dập, không cần flush mỗi event
+let _unknownSaveTimer = null;
+function scheduleSaveUnknown() {
+    clearTimeout(_unknownSaveTimer);
+    _unknownSaveTimer = setTimeout(saveUnknownGifts, 1500);
+}
+// Tra cứu metadata gift từ availableGifts (do TikTok API trả về sau connect).
+// Trả về { name, image, diamond } nếu tìm thấy giftId, ngược lại null.
+function lookupGiftFromTikTok(id) {
+    if (!connection || !connection.availableGifts) return null;
+    const list = connection.availableGifts;
+    // availableGifts có thể là array hoặc object — handle cả 2 case
+    const items = Array.isArray(list) ? list : Object.values(list || {});
+    const target = items.find(g => String(g.id) === String(id));
+    if (!target) return null;
+    // Schema TikTok: { id, name, diamond_count, image: { url_list: [...] }, icon: { url_list: [...] } }
+    const imgUrls = target.image?.url_list || target.icon?.url_list || [];
+    return {
+        name: target.name || '',
+        image: imgUrls[0] || '',
+        diamond: target.diamond_count || 0
+    };
+}
+
+function recordUnknownGift(g) {
+    const id = String(g.giftId || '').trim();
+    if (!id) return null;
+    // Đã có trong sheet → skip
+    if (giftMap[id]) return null;
+    // Thử fallback từ availableGifts của TikTok nếu event đến mà thiếu name/picture
+    // (xảy ra với streak gift hoặc khi giftDetails chưa flush) — tra cứu trong cache
+    // sẽ điền vào những field còn trống.
+    const tt = lookupGiftFromTikTok(id);
+    const resolvedName = g.giftName || tt?.name || '';
+    const resolvedImage = g.giftPicture || tt?.image || '';
+    const resolvedDiamond = parseInt(g.diamondCount, 10) || tt?.diamond || 0;
+    // Cần ít nhất 1 trong (name | picture) để hữu ích — tránh ghi entry rỗng hoàn toàn
+    if (!resolvedName && !resolvedImage) return null;
+    const now = Date.now();
+    const prev = unknownGifts[id];
+    if (prev) {
+        prev.count = (prev.count || 0) + (parseInt(g.repeatCount, 10) || 1);
+        prev.lastSeen = now;
+        // Update các field nếu lần này có thông tin tốt hơn
+        if (!prev.name && resolvedName) prev.name = resolvedName;
+        if (!prev.image && resolvedImage) prev.image = resolvedImage;
+        if ((!prev.diamond || prev.diamond <= 0) && resolvedDiamond > 0) prev.diamond = resolvedDiamond;
+    } else {
+        unknownGifts[id] = {
+            id,
+            name: resolvedName,
+            image: resolvedImage,
+            diamond: resolvedDiamond,
+            count: parseInt(g.repeatCount, 10) || 1,
+            firstSeen: now,
+            lastSeen: now
+        };
+    }
+    scheduleSaveUnknown();
+    // Emit realtime để App show badge ngay
+    io.emit('unknownGift', { entry: unknownGifts[id], total: Object.keys(unknownGifts).length });
+    return unknownGifts[id];
+}
+
+// Quét toàn bộ unknownGifts hiện có, điền lại name/image/diamond từ availableGifts
+// (gọi khi user bấm "🔄 Dò icon" hoặc sau khi reconnect).
+function refreshUnknownGiftsFromTikTok() {
+    if (!connection || !connection.availableGifts) {
+        return { ok: false, error: 'Chưa kết nối LIVE — không có availableGifts để tra' };
+    }
+    let updated = 0;
+    for (const id of Object.keys(unknownGifts)) {
+        const tt = lookupGiftFromTikTok(id);
+        if (!tt) continue;
+        const e = unknownGifts[id];
+        let touched = false;
+        if (!e.name && tt.name) { e.name = tt.name; touched = true; }
+        if (!e.image && tt.image) { e.image = tt.image; touched = true; }
+        if ((!e.diamond || e.diamond <= 0) && tt.diamond > 0) { e.diamond = tt.diamond; touched = true; }
+        if (touched) {
+            updated++;
+            io.emit('unknownGift', { entry: e, total: Object.keys(unknownGifts).length });
+        }
+    }
+    if (updated > 0) scheduleSaveUnknown();
+    return { ok: true, updated, total: Object.keys(unknownGifts).length };
+}
+
 function emitGift(g) {
     const sheetItem = giftMap[String(g.giftId)] || null;
+    // Quà unknown → ghi vào danh sách phát hiện được
+    if (!sheetItem) recordUnknownGift(g);
     const enriched = {
         ...g,
         sheetItem,
@@ -383,6 +533,17 @@ async function connectToUser(username) {
         attachConnectionEvents(connection);
         const state = await connection.connect();
         currentRoomId = state?.roomId;
+        // Sau khi connect → connection.availableGifts có sẵn metadata cho mọi gift trong room.
+        // Quét lại các unknown entry cũ thiếu icon/name → điền từ TikTok metadata cache.
+        // Chạy sau 500ms để chắc availableGifts đã fully load.
+        setTimeout(() => {
+            try {
+                const r = refreshUnknownGiftsFromTikTok();
+                if (r.ok && r.updated > 0) {
+                    console.log(`[unknown-gifts] Tự dò TikTok metadata → điền ${r.updated} entry thiếu.`);
+                }
+            } catch (e) { /* non-fatal */ }
+        }, 500);
         return { ok: true, roomId: currentRoomId, username: currentUsername };
     } finally {
         connecting = false;
@@ -391,6 +552,128 @@ async function connectToUser(username) {
 
 // ====== Routes ======
 app.get('/api/gifts', (req, res) => res.json(giftList));
+
+// ===== Unknown gifts API (quà mới phát hiện ngoài Google Sheet) =====
+// Trả về sorted theo lastSeen DESC để quà vừa thấy nằm trên cùng.
+app.get('/api/unknown-gifts', (req, res) => {
+    const list = Object.values(unknownGifts).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    res.json({ list, total: list.length });
+});
+// Xoá 1 entry (sau khi user đã add vào Google Sheet)
+app.delete('/api/unknown-gifts/:id', (req, res) => {
+    const id = String(req.params.id || '');
+    if (unknownGifts[id]) {
+        delete unknownGifts[id];
+        scheduleSaveUnknown();
+        io.emit('unknownGiftCleared', { id, total: Object.keys(unknownGifts).length });
+    }
+    res.json({ ok: true, total: Object.keys(unknownGifts).length });
+});
+// Xoá toàn bộ — dùng khi user reload Google Sheet và muốn reset.
+// Có option ?keepStillUnknown=1 → giữ lại các entry vẫn không có trong sheet sau reload.
+app.post('/api/unknown-gifts/clear', (req, res) => {
+    const keepStillUnknown = req.query.keepStillUnknown === '1' || req.body?.keepStillUnknown;
+    if (keepStillUnknown) {
+        // Sau reload sheet, các giftId đã có trong giftMap có thể xoá khỏi unknown.
+        let removed = 0;
+        for (const id of Object.keys(unknownGifts)) {
+            if (giftMap[id]) { delete unknownGifts[id]; removed++; }
+        }
+        scheduleSaveUnknown();
+        io.emit('unknownGiftCleared', { all: false, removed, total: Object.keys(unknownGifts).length });
+        return res.json({ ok: true, removed, total: Object.keys(unknownGifts).length });
+    }
+    unknownGifts = {};
+    scheduleSaveUnknown();
+    io.emit('unknownGiftCleared', { all: true, total: 0 });
+    res.json({ ok: true, removed: 'all', total: 0 });
+});
+// Tra cứu metadata từ TikTok availableGifts để điền name/image cho các entry bị thiếu
+// (vd: streak gift đến mà event không có giftPicture URL).
+app.post('/api/unknown-gifts/refresh-from-tiktok', (req, res) => {
+    const r = refreshUnknownGiftsFromTikTok();
+    res.json(r);
+});
+
+// ===== SCAN: rà soát TOÀN BỘ availableGifts của TikTok room hiện tại so với Google Sheet.
+// Logic: với mỗi gift trong availableGifts → check giftMap[id]. Nếu KHÔNG có trong Sheet
+// và có đủ name/image → thêm vào unknownGifts (source='scan'). Trả về thống kê.
+// → User bấm "📋 Copy all" để batch copy → paste 1 lần vào Sheet.
+app.post('/api/scan-tiktok-gifts', (req, res) => {
+    if (!connection || !connection.availableGifts) {
+        return res.status(400).json({ ok: false, error: 'Chưa kết nối LIVE — không có availableGifts để rà soát. Bấm "Kết nối LIVE" trước.' });
+    }
+    const items = Array.isArray(connection.availableGifts)
+        ? connection.availableGifts
+        : Object.values(connection.availableGifts || {});
+    const stats = { scanned: items.length, existing: 0, added: 0, updated: 0, skipped: 0 };
+    const now = Date.now();
+    for (const g of items) {
+        const id = String(g.id || '').trim();
+        if (!id) { stats.skipped++; continue; }
+        if (giftMap[id]) { stats.existing++; continue; }
+        const imgUrls = g.image?.url_list || g.icon?.url_list || [];
+        const name = g.name || '';
+        const image = imgUrls[0] || '';
+        const diamond = g.diamond_count || 0;
+        if (!name && !image) { stats.skipped++; continue; }
+        if (unknownGifts[id]) {
+            // Đã từng phát hiện (live event) → chỉ refresh thông tin
+            const prev = unknownGifts[id];
+            let touched = false;
+            if (!prev.name && name) { prev.name = name; touched = true; }
+            if (!prev.image && image) { prev.image = image; touched = true; }
+            if ((!prev.diamond || prev.diamond <= 0) && diamond > 0) { prev.diamond = diamond; touched = true; }
+            prev.lastSeen = now;
+            if (touched) stats.updated++; else stats.existing++;   // count "existing" cho entries không cần đổi
+        } else {
+            // Quà mới — chưa có trong Sheet, cũng chưa từng nhận event
+            unknownGifts[id] = {
+                id, name, image, diamond,
+                count: 0,        // chưa có event nào, chỉ rà từ catalog
+                firstSeen: now,
+                lastSeen: now,
+                source: 'scan'   // đánh dấu để UI hiển thị khác (vd: "từ scan")
+            };
+            stats.added++;
+        }
+    }
+    if (stats.added > 0 || stats.updated > 0) {
+        scheduleSaveUnknown();
+        // Emit toàn bộ snapshot — App refetch để render đúng
+        io.emit('unknownGiftCleared', { all: false, removed: 0, total: Object.keys(unknownGifts).length });
+    }
+    stats.totalUnknown = Object.keys(unknownGifts).length;
+    res.json({ ok: true, ...stats });
+});
+// Lookup 1 giftId ngay cả khi CHƯA có trong unknownGifts (user nhập ID thủ công từ UI).
+app.get('/api/tiktok-gift/:id', (req, res) => {
+    const id = String(req.params.id || '');
+    const tt = lookupGiftFromTikTok(id);
+    if (!tt) return res.status(404).json({ ok: false, error: 'Không tìm thấy gift ID này trong availableGifts (cần đang kết nối LIVE)' });
+    res.json({ ok: true, id, ...tt });
+});
+// Proxy tải icon: server fetch ảnh từ TikTok CDN rồi stream về client (tránh CORS khi
+// download trực tiếp từ browser).
+app.get('/api/unknown-gifts/:id/image', async (req, res) => {
+    const id = String(req.params.id || '');
+    const entry = unknownGifts[id];
+    if (!entry || !entry.image) return res.status(404).json({ ok: false, error: 'Không có ảnh' });
+    try {
+        const r = await fetch(entry.image);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const ct = r.headers.get('content-type') || 'image/png';
+        // Suffix file theo content-type
+        const ext = ct.includes('webp') ? 'webp' : ct.includes('png') ? 'png' : 'jpg';
+        const safeName = (entry.name || ('gift-' + id)).replace(/[^\w\-]+/g, '_').slice(0, 40);
+        res.setHeader('Content-Type', ct);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}-${id}.${ext}"`);
+        const buf = Buffer.from(await r.arrayBuffer());
+        res.end(buf);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
 
 app.get('/api/games', (req, res) => {
     const list = Object.values(GAMES).map(g => ({
@@ -808,8 +1091,19 @@ app.post('/api/license/refresh-sheet', async (req, res) => {
 });
 
 app.post('/api/reload-gifts', async (req, res) => {
-    try { await loadGiftSheet(); res.json({ ok: true, count: giftList.length }); }
-    catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    try {
+        await loadGiftSheet();
+        // Sau khi sheet được cập nhật, dọn các unknown gift hiện đã có trong sheet
+        let cleaned = 0;
+        for (const id of Object.keys(unknownGifts)) {
+            if (giftMap[id]) { delete unknownGifts[id]; cleaned++; }
+        }
+        if (cleaned > 0) {
+            scheduleSaveUnknown();
+            io.emit('unknownGiftCleared', { all: false, removed: cleaned, total: Object.keys(unknownGifts).length });
+        }
+        res.json({ ok: true, count: giftList.length, cleanedUnknown: cleaned });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/connect', async (req, res) => {
@@ -889,6 +1183,9 @@ app.post('/api/games/:id/test-gift', (req, res) => {
 // OBS overlay (transparent fullpage)
 app.get('/overlay/thuytinh', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'games', 'thuytinh', 'overlay.html'));
+});
+app.get('/overlay/caro', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'caro', 'overlay.html'));
 });
 
 // Default index

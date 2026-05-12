@@ -18,7 +18,7 @@
             <button id="lg-activate-btn" class="lg-btn primary">🔓 Kích hoạt</button>
             <div id="lg-message" class="lg-message"></div>
             <div class="lg-footer">
-                <a href="https://docs.google.com/spreadsheets/d/1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M/edit#gid=0" target="_blank">Mua key bản quyền</a>
+                <span class="lg-info">📩 Mua key: liên hệ HP Media</span>
                 <span class="lg-divider">·</span>
                 <a href="https://github.com/hpmediaoffifical/hp-tiktok-game" target="_blank">Hỗ trợ</a>
             </div>
@@ -242,6 +242,7 @@
                                     <button id="btn-osin" class="ghost small">🧹 Gọi OSIN</button>
                                     <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
                                     <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
+                                    <button id="btn-fx-shape" class="ghost small">🎨 Tạo hình</button>
                                 </div>
                             </div>
 
@@ -282,7 +283,296 @@
                     </div>
                 </div>
             </section>
+
+            <!-- ============ GAME VIEW: Caro ============ -->
+            <section id="view-caro" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="caro-title">🎯 Caro Đối Đầu</h2>
+                        <div class="game-sub" id="caro-sub">Idol đấu Caro với khán giả — user bình luận tọa độ (VD "9F") để đánh.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <input id="caro-overlay-url" type="text" readonly hidden />
+                        <button id="caro-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
+                        <button id="caro-btn-save" class="primary small" title="Lưu cài đặt Caro">💾 Lưu cài đặt</button>
+                        <button id="caro-btn-settings" class="ghost small" title="Mở cài đặt chung">⚙ Cài đặt</button>
+                    </div>
+                </header>
+
+                <div class="game-body caro-body">
+                    <!-- Cột trái: cấu hình & điều khiển -->
+                    <div class="col col-left">
+                        <div class="card caro-card">
+                            <div class="card-tabs">
+                                <button class="tab active" data-caro-tab="setup">⚙ Cấu hình</button>
+                                <button class="tab" data-caro-tab="match">🎮 Đối đầu</button>
+                                <button class="tab" data-caro-tab="undo">🔄 Hoàn nước</button>
+                            </div>
+
+                            <!-- ⚙ Setup — accordion nhóm theo chức năng -->
+                            <div class="tab-pane active" data-caro-pane="setup">
+                                <!-- 📐 BÀN CỜ -->
+                                <details class="caro-acc" open>
+                                    <summary>📐 Bàn cờ <span class="acc-hint" id="acc-hint-board">12×12 · Win 5</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label>Số cột (1→N)</label>
+                                            <input type="range" id="caro-cols" min="3" max="20" step="1" />
+                                            <span class="cfg-val" id="caro-cols-v">12</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Số hàng (A→Z)</label>
+                                            <input type="range" id="caro-rows" min="3" max="20" step="1" />
+                                            <span class="cfg-val" id="caro-rows-v">12</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Quân thắng</label>
+                                            <div class="caro-seg" id="caro-winlen-seg">
+                                                <button data-v="3">3</button>
+                                                <button data-v="4">4</button>
+                                                <button data-v="5" class="active">5</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🏆 MATCH -->
+                                <details class="caro-acc" open>
+                                    <summary>🏆 Match <span class="acc-hint" id="acc-hint-match">BO3 · 🩵 Idol đi</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label>Hiệp đấu</label>
+                                            <div class="caro-seg" id="caro-bo-seg">
+                                                <button data-v="1">BO1</button>
+                                                <button data-v="3" class="active">BO3</button>
+                                                <button data-v="5">BO5</button>
+                                                <button data-v="7">BO7</button>
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Đi trước</label>
+                                            <div class="caro-seg" id="caro-first-seg">
+                                                <button data-v="idol" class="active">🩵 Idol</button>
+                                                <button data-v="user">🩷 User</button>
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-alternate-first" checked />
+                                                <span>Luân phiên đi trước mỗi hiệp</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🎁 GHI DANH -->
+                                <details class="caro-acc">
+                                    <summary>🎁 Ghi danh <span class="acc-hint" id="acc-hint-reg">Chưa chọn quà</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Quà ghi danh</label>
+                                            <div id="caro-reg-gift" class="caro-gift-picker" data-target="reg"></div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🧪 CHẾ ĐỘ ĐẶC BIỆT -->
+                                <details class="caro-acc">
+                                    <summary>🧪 Chế độ đặc biệt <span class="acc-hint" id="acc-hint-mode">—</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row caro-practice-toggle">
+                                                <input type="checkbox" id="caro-practice-mode" />
+                                                <span>🧪 <b>CHƠI THỬ</b> — tap luân phiên 2 màu, bỏ qua ghi danh</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label class="toggle-row caro-rolling-toggle">
+                                                <input type="checkbox" id="caro-rolling-enabled" />
+                                                <span>♻️ <b>TÍCH ĐIỂM</b> — mỗi bên giữ N quân, đặt thêm thì cũ tự mất</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Số quân/bên</label>
+                                            <input type="range" id="caro-rolling-tokens" min="2" max="10" step="1" />
+                                            <span class="cfg-val" id="caro-rolling-tokens-v">3</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🎨 HIỂN THỊ -->
+                                <details class="caro-acc">
+                                    <summary>🎨 Hiển thị <span class="acc-hint" id="acc-hint-display">Scale 100%</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label>Tỉ lệ scale overlay</label>
+                                            <input type="range" id="caro-scale" min="60" max="140" step="5" />
+                                            <span class="cfg-val" id="caro-scale-v">100%</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-show-history" checked />
+                                                <span>Hiện 5 nước gần nhất ở overlay</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-cell-hints" />
+                                                <span>🎯 Hiện toạ độ MỜ trong từng ô (giúp đếm nhanh)</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Độ đậm toạ độ</label>
+                                            <input type="range" id="caro-cell-hint-op" min="0" max="100" step="5" />
+                                            <span class="cfg-val" id="caro-cell-hint-op-v">35%</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🔊 ÂM THANH -->
+                                <details class="caro-acc">
+                                    <summary>🔊 Âm thanh <span class="acc-hint" id="acc-hint-audio">Bật · 50%</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-audio-enabled" checked />
+                                                <span>🔊 Âm thanh đặt quân (2 màu khác nhau)</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Âm lượng</label>
+                                            <input type="range" id="caro-audio-volume" min="0" max="100" step="5" />
+                                            <span class="cfg-val" id="caro-audio-volume-v">50%</span>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+
+                            <!-- 🎮 Match controls -->
+                            <div class="tab-pane" data-caro-pane="match">
+                                <div class="caro-phase-pill" id="caro-phase-pill">Đang ở pha: <b>Setup</b></div>
+
+                                <div class="caro-actions">
+                                    <button class="primary block" id="caro-btn-open-reg">▶ Mở ghi danh</button>
+                                    <button class="ghost block" id="caro-btn-close-reg" disabled>⏹ Đóng ghi danh</button>
+                                </div>
+
+                                <hr class="caro-sep" />
+                                <div class="caro-leaderboard" id="caro-leaderboard">
+                                    <div class="caro-lb-empty">Chưa có ai ghi danh</div>
+                                </div>
+
+                                <hr class="caro-sep" />
+                                <div class="caro-actions">
+                                    <button class="primary block" id="caro-btn-pick-top" disabled>👑 Chọn Top 1</button>
+                                    <button class="ghost block" id="caro-btn-change-opponent" disabled>🚪 Đổi đối thủ</button>
+                                </div>
+
+                                <hr class="caro-sep" />
+                                <div class="caro-actions">
+                                    <button class="ghost block" id="caro-btn-reset-round" title="Xoá bàn cờ và chơi lại hiệp này (không đổi tỉ số)">🔁 Reset hiệp này</button>
+                                </div>
+
+                                <hr class="caro-sep" />
+                                <div class="caro-end-actions" id="caro-end-actions" style="display:none">
+                                    <div class="caro-end-title">🏆 Match kết thúc!</div>
+                                    <button class="primary block" id="caro-btn-replay">🔁 Tái đấu cùng user</button>
+                                    <button class="ghost block" id="caro-btn-newreg">📋 Mở vòng ghi danh mới</button>
+                                    <button class="ghost block" id="caro-btn-close-game">❌ Đóng game</button>
+                                </div>
+                            </div>
+
+                            <!-- 🔄 Undo settings -->
+                            <div class="tab-pane" data-caro-pane="undo">
+                                <div class="cfg-row">
+                                    <label>Cách hoàn</label>
+                                    <div class="caro-seg" id="caro-undo-mode-seg">
+                                        <button data-v="idol" class="active" title="Idol bấm để hoàn">Idol</button>
+                                        <button data-v="gift" title="User gửi quà để hoàn">Qua quà</button>
+                                        <button data-v="both" title="Cả idol và user đều hoàn được">Cả 2</button>
+                                        <button data-v="off" title="Tắt tính năng hoàn">Tắt</button>
+                                    </div>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Window (giây)</label>
+                                    <input type="range" id="caro-undo-window" min="0" max="120" step="5" />
+                                    <span class="cfg-val" id="caro-undo-window-v">30s</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Tối đa / hiệp</label>
+                                    <input type="range" id="caro-undo-max" min="0" max="10" step="1" />
+                                    <span class="cfg-val" id="caro-undo-max-v">3</span>
+                                </div>
+                                <div class="cfg-row">
+                                    <label>Cooldown (giây)</label>
+                                    <input type="range" id="caro-undo-cooldown" min="0" max="120" step="5" />
+                                    <span class="cfg-val" id="caro-undo-cooldown-v">60s</span>
+                                </div>
+                                <div class="cfg-row cfg-row-wide">
+                                    <label>Quà hoàn (nếu mode = gift/both)</label>
+                                    <div id="caro-undo-gift" class="caro-gift-picker" data-target="undo"></div>
+                                </div>
+                                <hr class="caro-sep" />
+                                <div class="caro-undo-status">
+                                    Đã hoàn: <b id="caro-undo-used">0</b> / <span id="caro-undo-cap">3</span>
+                                </div>
+                                <div class="caro-actions">
+                                    <button class="primary block" id="caro-btn-undo">🔄 Hoàn nước cuối</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cột giữa: bàn cờ preview -->
+                    <div class="col col-center">
+                        <div class="card stage-card caro-stage-card">
+                            <div class="stage-frame caro-stage-frame" id="caro-stage-frame">
+                                <canvas id="caro-canvas" width="1080" height="1920"></canvas>
+                            </div>
+                            <div class="caro-quick-row">
+                                <span>Lượt: <b id="caro-turn-label">—</b></span>
+                                <span>Hiệp: <b id="caro-round-label">1</b> / <span id="caro-bo-label">3</span></span>
+                                <span>Tỉ số: <b id="caro-score-label">0 - 0</b></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cột phải: bình luận & log -->
+                    <div class="col col-right">
+                        <div class="card">
+                            <div class="card-title">💬 Bình luận từ user</div>
+                            <div class="caro-comments" id="caro-comments"></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">📜 Log nước đi</div>
+                            <div class="caro-log" id="caro-log"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
+    </div>
+
+    <!-- Floating: quà mới phát hiện (không có trong Google Sheet) — luôn hiện để user
+         truy cập được kể cả khi chưa có quà nào. Badge chỉ hiện khi count > 0. -->
+    <button id="unknown-fab" class="comments-fab unknown-fab" title="Quà mới phát hiện (chưa có trong Sheet)">
+        🆕<span class="badge" id="unknown-badge" hidden>0</span>
+    </button>
+    <!-- Popup danh sách quà mới — show từng entry với nút Copy/Tải icon/Đã thêm -->
+    <div id="unknown-popup" class="comments-popup unknown-popup" hidden>
+        <div class="comments-popup-head">
+            <span>🆕 Quà mới phát hiện <span id="unknown-count-inline" style="color:#ffd166">(0)</span></span>
+            <div class="head-actions">
+                <button id="btn-unknown-scan" class="ghost mini" title="Rà soát TOÀN BỘ quà TikTok của room vs Google Sheet — tự thêm các ID còn thiếu vào danh sách (cần đang kết nối LIVE)">🔎 Quét</button>
+                <button id="btn-unknown-refresh-tt" class="ghost mini" title="Dò icon/tên cho các entry đã có (lấy từ TikTok metadata)">🔄 Dò icon</button>
+                <button id="btn-unknown-copy-all" class="ghost mini" title="Copy TẤT CẢ dòng cho Google Sheet">📋 Copy all</button>
+                <button id="btn-unknown-reload" class="ghost mini" title="Đồng bộ lại danh sách quà từ Google Sheet">↻ Đồng bộ</button>
+                <button id="btn-unknown-clear" class="ghost mini" style="color:#ef4444" title="Xoá toàn bộ danh sách">Xoá hết</button>
+                <button id="unknown-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div id="unknown-list" class="unknown-list"></div>
+        <div class="comments-popup-foot">Server tự ghi nhận mọi quà unknown trong phiên — danh sách giữ qua restart app.</div>
     </div>
 
     <!-- Floating Bình luận LIVE — popup -->
@@ -444,6 +734,8 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <script src="/games/thuytinh/game.js"></script>
+    <script src="/games/caro/game.js"></script>
+    <script src="/games/caro/caro-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

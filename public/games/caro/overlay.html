@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP Caro LIVE — OBS Overlay</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+    #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; }
+    #content {
+        position: absolute;
+        top: var(--y, 50%); left: var(--x, 50%);
+        transform: translate(-50%, -50%) scale(var(--scale, 1));
+        transform-origin: center center;
+        width: 1080px; height: 1920px;
+        background: transparent;
+        transition: top 0.25s ease, left 0.25s ease, transform 0.25s ease;
+    }
+    #content canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .debug-pill {
+        position: fixed; bottom: 8px; left: 8px;
+        background: rgba(0,0,0,0.5);
+        color: #fff; font: 11px/1.2 monospace;
+        padding: 4px 8px; border-radius: 6px;
+        z-index: 9999; opacity: 0.5;
+    }
+    .debug-pill.hidden { display: none; }
+
+    /* === Offline state (cùng pattern Hủ): khi app đóng → ẩn toàn bộ */
+    body.offline #content { display: none; }
+    body.offline #stage { background: transparent; }
+    body.offline .debug-pill { display: none !important; }
+</style>
+</head>
+<body>
+    <div id="stage">
+        <div id="content">
+            <canvas id="caro-canvas" width="1080" height="1920"></canvas>
+        </div>
+    </div>
+    <div class="debug-pill" id="debug">connecting…</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/games/caro/game.js"></script>
+    <script>
+    (function () {
+        const debugEl = document.getElementById('debug');
+        const content = document.getElementById('content');
+        const canvas = document.getElementById('caro-canvas');
+
+        // === QUAN TRỌNG: declare state vars TRƯỚC khi gọi fitScale() ===
+        // Trước đây bug TDZ — fitScale() đọc currentCfg trước khi let declared
+        // → ReferenceError → script crash → page blank trong OBS
+        let game = null;
+        let currentCfg = null;
+
+        // ===== Web Audio synth (overlay phát cùng âm với panel) =====
+        const SoundManager = {
+            ctx: null,
+            ensureCtx() {
+                if (this.ctx) return this.ctx;
+                try {
+                    const C = window.AudioContext || window.webkitAudioContext;
+                    if (C) this.ctx = new C();
+                } catch (e) {}
+                return this.ctx;
+            },
+            play(kind, side) {
+                if (!currentCfg?.audio?.enabled) return;
+                const ctx = this.ensureCtx(); if (!ctx) return;
+                if (ctx.state === 'suspended') ctx.resume();
+                const vol = Math.max(0, Math.min(1, (currentCfg.audio.volume ?? 50) / 100));
+                if (vol === 0) return;
+                const now = ctx.currentTime;
+                if (kind === 'place') {
+                    const osc = ctx.createOscillator(), gain = ctx.createGain();
+                    if (side === 'idol') { osc.frequency.value = 880; osc.type = 'sine'; }
+                    else { osc.frequency.value = 440; osc.type = 'triangle'; }
+                    gain.gain.setValueAtTime(0, now);
+                    gain.gain.linearRampToValueAtTime(0.25 * vol, now + 0.005);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.start(now); osc.stop(now + 0.18);
+                }
+            }
+        };
+
+        function applyDisplayCfg() {
+            if (!currentCfg || !currentCfg.display) return;
+            // Recompute scale = base-fit × user-scale
+            const w = window.innerWidth, h = window.innerHeight;
+            const base = Math.min(w / 1080, h / 1920);
+            const userScale = (currentCfg.display.scale || 100) / 100;
+            content.style.setProperty('--scale', String(base * userScale));
+            // Position
+            content.style.setProperty('--x', (currentCfg.display.xPercent ?? 50) + '%');
+            content.style.setProperty('--y', (currentCfg.display.yPercent ?? 50) + '%');
+        }
+
+        function fitScale() {
+            if (currentCfg && currentCfg.display) {
+                applyDisplayCfg();
+            } else {
+                const w = window.innerWidth, h = window.innerHeight;
+                const s = Math.min(w / 1080, h / 1920);
+                content.style.setProperty('--scale', String(s));
+            }
+        }
+        window.addEventListener('resize', fitScale);
+        fitScale();
+        setTimeout(() => debugEl.classList.add('hidden'), 4000);
+
+        function ensureGame(cfg) {
+            if (game) return;
+            currentCfg = cfg;
+            game = HpGame.caro.create({
+                canvas,
+                mirrorMode: true,
+                config: cfg || HpGame.caro.defaultConfig()
+            });
+            // Overlay: play sound khi engine fire 'sound' (qua loadState detect)
+            game.on('sound', (ev) => SoundManager.play(ev.kind, ev.side));
+        }
+
+        // ===== Offline pattern =====
+        let offlineTimer = null;
+        const OFFLINE_GRACE_MS = 3000;
+        function showOffline() {
+            document.body.classList.add('offline');
+            try { if (game) game.newGame(); } catch (e) {}
+        }
+        function hideOffline() { document.body.classList.remove('offline'); }
+        function scheduleOffline() {
+            clearTimeout(offlineTimer);
+            offlineTimer = setTimeout(showOffline, OFFLINE_GRACE_MS);
+        }
+        function cancelOffline() {
+            clearTimeout(offlineTimer); offlineTimer = null;
+            hideOffline();
+        }
+
+        const socket = io({
+            reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000
+        });
+
+        async function syncFromServer() {
+            let cfg = null;
+            try { cfg = await fetch('/api/games/caro/config').then(r => r.json()); }
+            catch (e) {}
+            if (!game) ensureGame(cfg);
+            else if (cfg) game.setConfig(cfg);
+            socket.emit('subscribe', 'overlay');
+        }
+
+        socket.on('connect', () => {
+            debugEl.textContent = 'connected';
+            debugEl.classList.remove('hidden');
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+            cancelOffline();
+            syncFromServer();
+        });
+
+        socket.on('disconnect', (reason) => {
+            debugEl.textContent = 'disconnected: ' + reason;
+            debugEl.classList.remove('hidden');
+            scheduleOffline();
+        });
+
+        // Initial load (trước khi socket connect)
+        fetch('/api/games/caro/config').then(r => r.json()).then(cfg => {
+            ensureGame(cfg);
+            applyDisplayCfg();
+        }).catch(() => {
+            ensureGame();
+            showOffline();
+        });
+
+        // Config push
+        socket.on('gameConfig', ({ gameId, config }) => {
+            if (gameId !== 'caro') return;
+            currentCfg = config;
+            if (!game) ensureGame(config); else game.setConfig(config);
+            applyDisplayCfg();
+        });
+
+        // State snapshot — authoritative từ App
+        socket.on('gameStateSnapshot', ({ gameId, state }) => {
+            if (gameId !== 'caro') return;
+            ensureGame();
+            if (state && game) game.loadState(state);
+        });
+
+        // Caro overlay không tự xử lý gift/comment — App là authoritative,
+        // App parse comment, place stone, rồi POST state → overlay nhận snapshot.
+    })();
+    </script>
+</body>
+</html>

@@ -72,7 +72,19 @@
                 slow:     { timeScale: 0.25, durationMs: 3000 },
                 crackJar: { durationSec: 5, count: 6, shatterAt: 3 },
                 stealJar: { durationSec: 8 },
-                combo:    { sequence: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5' }
+                combo:    { sequence: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5' },
+                // Hiệu ứng tạo hình: hút quà bên dưới → ghép thành hình/chữ giữa màn hình →
+                // giữ X giây + hiện tên user → rơi tự do. Cho phép NHIỀU quà cùng kích hoạt
+                // (trigger map sẽ chứa nhiều giftId cùng action='shape').
+                shape: {
+                    type: 'heart',          // 'heart' | 'star' | 'circle' | 'triangle' | 'diamond' | 'smile' | 'text'
+                    customText: '',         // dùng khi type === 'text' (tối đa ~16 ký tự, hỗ trợ tiếng Việt)
+                    sizePercent: 65,        // 20–95% — kích thước hình so với min(W, H)
+                    durationMs: 3000,       // thời gian giữ hình trước khi rơi
+                    showName: true,         // hiện tên user ở giữa hình
+                    nameSize: 64,           // cỡ chữ tên user (px) — 24..160
+                    color: '#ffd166'        // màu chữ tên user
+                }
             },
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
             panelPositions: {
@@ -149,6 +161,9 @@
         let worldWalls = [];    // floor + 2 side walls — LUÔN giữ, để quà stack ở đáy overlay
         // Compat: nhiều chỗ cũ tham chiếu tới `walls` cho mọi walls — alias
         let walls = [];
+        // fxTilt state — instance scope để buildJarWalls có thể reset khi rebuild
+        let tiltAnimating = false;
+        let currentTiltAngle = 0;
         const imgCache = new Map();
         let spawnQueue = [];
         let spawnTicker = null;
@@ -207,10 +222,18 @@
             worldWalls.push(makeWall(CANVAS_W / 2, CANVAS_H + 12, CANVAS_W + 200, 24));
             worldWalls.push(makeWall(-12, CANVAS_H / 2, 24, CANVAS_H + 200));
             worldWalls.push(makeWall(CANVAS_W + 12, CANVAS_H / 2, 24, CANVAS_H + 200));
+            // CEILING — chặn quà bay ra khỏi đỉnh overlay khi đảo trọng lực / lốc xoáy.
+            // Đặt ở y = -2000 (rất cao, KHÔNG cản spawn dù user kéo hũ lên rất cao).
+            // Bodies bay lên trong fxGravFlip/fxTornado sẽ chạm trần ở khoảng cách an toàn rồi
+            // bounce lại — KHÔNG bị mất khỏi world.
+            worldWalls.push(makeWall(CANVAS_W / 2, -2000, CANVAS_W + 200, 24));
             Composite.add(engine.world, worldWalls);
         }
         function buildJarWalls() {
             if (jarWalls.length) { Composite.remove(engine.world, jarWalls); jarWalls = []; }
+            // Reset tilt state — walls vừa rebuild ở angle = 0. Nếu đang có fxTilt chạy,
+            // applyTilt sau đó sẽ tự tính delta đúng từ 0.
+            currentTiltAngle = 0;
             const r = jarRect();
             const T = 14;
             const lx = r.x + r.w * SHAPE.bodyLeftX;
@@ -307,6 +330,7 @@
                 case 'stealJar': fxStealJar(); break;
                 case 'osin': triggerOsin(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
+                case 'shape': fxShape(userInfo); break;
             }
             // App broadcast cmd cho OBS replay cùng action (chỉ chạy ở authoritative mode)
             if (!mirrorMode) onTrigger(action, userInfo);
@@ -566,10 +590,76 @@
                 Body.setVelocity(b, { x: dx / d * 20 * k, y: (dy / d * 20 - 5) * k });
             });
         }
-        function fxTilt() {
-            const k = (config.effects?.tilt?.intensity ?? 1);
-            engine.gravity.x = (Math.random() < 0.5 ? -0.6 : 0.6) * k;
-            setTimeout(() => engine.gravity.x = 0, 4000);
+        // fxTilt: NGHIÊNG CẢ HŨ — không chỉ thay gravity mà rotate visual jar img + jar walls
+        // trong physics world quanh tâm hũ. Bodies bên trong nghiêng theo, trượt về phía thấp →
+        // cảm giác "chân thật" như đang ngả hũ thật.
+        // Pipeline:
+        //   1) Lưu state visual transform gốc của jar img.
+        //   2) Phase nghiêng (~700ms ease-out): rotate img qua CSS + rotate từng jar wall qua
+        //      Body.rotate quanh tâm hũ. Vì delta nhỏ qua mỗi frame, vận dụng Body.rotate(body,
+        //      delta, pivot) — xoay vị trí + góc trong 1 step.
+        //   3) Hold ở góc tilt 800ms (bodies trượt + va vào thành thấp).
+        //   4) Phase đứng lại (~700ms ease-in): rotate ngược về 0.
+        //   5) Cleanup: clear CSS transform.
+        // Lưu ý:
+        //   - jarStolen/spillInProgress → skip (jar đang animation khác).
+        //   - positionJar() trong lúc tilt sẽ rebuild walls → buildJarWalls reset currentTiltAngle
+        //     để applyTilt sau tính delta đúng từ 0.
+        async function fxTilt() {
+            if (tiltAnimating || jarStolen || spillInProgress) return;
+            const k = Math.max(0.2, Math.min(3, (config.effects?.tilt?.intensity ?? 1)));
+            // Góc nghiêng max ~18° * intensity. Hướng random trái/phải.
+            const maxAngle = 0.32 * k * (Math.random() < 0.5 ? -1 : 1);
+
+            tiltAnimating = true;
+            const r = jarRect();
+            const pivot = { x: r.cx, y: r.cy };
+
+            // Lưu CSS transform gốc để khôi phục cuối effect
+            const visualEls = [jarBottomEl, jarGlassEl].filter(Boolean);
+            const origTr = visualEls.map(el => el.style.transform || '');
+            visualEls.forEach((el) => {
+                el.style.transition = 'none';
+                el.style.transformOrigin = '50% 50%';
+            });
+
+            // Helper: đặt góc tilt tuyệt đối (tính delta so với currentTiltAngle)
+            const applyTilt = (theta) => {
+                const delta = theta - currentTiltAngle;
+                if (delta === 0) return;
+                // Rotate jar walls quanh pivot (xoay vị trí + góc body)
+                for (const w of jarWalls) {
+                    try { Body.rotate(w, delta, pivot); } catch (e) {}
+                }
+                currentTiltAngle = theta;
+                const deg = (theta * 180 / Math.PI).toFixed(2);
+                visualEls.forEach(el => { el.style.transform = `rotate(${deg}deg)`; });
+            };
+
+            // Phase 1: nghiêng tới maxAngle
+            await tween(t => {
+                const e = 1 - Math.pow(1 - t, 3);   // ease-out cubic
+                applyTilt(maxAngle * e);
+            }, 700);
+
+            // Phase 2: hold — bodies tự trượt do gravity vẫn y-down trong khi walls đang nghiêng
+            await wait(800);
+
+            // Phase 3: đứng dậy về 0
+            await tween(t => {
+                const e = t * t;   // ease-in quadratic
+                applyTilt(maxAngle * (1 - e));
+            }, 700);
+
+            // Đảm bảo về đúng 0 (tránh drift do float)
+            applyTilt(0);
+
+            // Restore transform CSS gốc
+            visualEls.forEach((el, i) => {
+                el.style.transition = '';
+                el.style.transform = origTr[i];
+            });
+            tiltAnimating = false;
         }
         function fxGravFlip() {
             const dur = (config.effects?.gravflip?.durationMs ?? 2200);
@@ -606,6 +696,399 @@
             const dur = (config.effects?.slow?.durationMs ?? 3000);
             engine.timing.timeScale = ts;
             setTimeout(() => engine.timing.timeScale = 1, dur);
+        }
+
+        // ===== Tạo hình quà (hút bodies → ghép hình/chữ → giữ → rơi tự do) =====
+        // Pipeline:
+        //   1) Pick các body trên màn, SẮP XẾP TĂNG DẦN THEO size — quà nhỏ vào trước
+        //      để bám sát outline, quà to dùng sau (đỡ phải hút nếu đủ quà nhỏ).
+        //   2) Sample N điểm chính xác trên outline (parametric) cho shape vector,
+        //      hoặc sample pixel cho text (canvas + Vietnamese-capable font).
+        //   3) Greedy match: gán mỗi body → target gần nhất, body nhỏ assign trước.
+        //   4) setStatic(true) → tween về target (~800ms).
+        //   5) Hold durationMs với pulse nhẹ + hiện tên user ở tâm.
+        //   6) setStatic(false) + velocity nhẹ → rơi tự do; tên fade ra.
+        let shapeBusy = false;
+
+        // Parametric outline points (đều dọc theo đường biên — không nhồi pixel)
+        // → Visual sạch hơn fill: bodies nhỏ ghép thành đường biên rõ ràng.
+        function pointsOnPolyline(verts, N, closed) {
+            // Lấy N điểm cách đều dọc theo polyline `verts`. closed=true → nối điểm cuối về đầu.
+            const segs = [];
+            const M = verts.length;
+            const last = closed ? M : (M - 1);
+            for (let i = 0; i < last; i++) {
+                const a = verts[i], b = verts[(i + 1) % M];
+                segs.push({ a, b, len: Math.hypot(b.x - a.x, b.y - a.y) });
+            }
+            const total = segs.reduce((s, e) => s + e.len, 0) || 1;
+            const out = [];
+            for (let i = 0; i < N; i++) {
+                let d = (i / N) * total;
+                let si = 0;
+                while (si < segs.length - 1 && d > segs[si].len) { d -= segs[si].len; si++; }
+                const t = d / segs[si].len;
+                out.push({
+                    x: segs[si].a.x + (segs[si].b.x - segs[si].a.x) * t,
+                    y: segs[si].a.y + (segs[si].b.y - segs[si].a.y) * t
+                });
+            }
+            return out;
+        }
+        function pointsOnArc(cx, cy, r, a0, a1, N) {
+            const out = [];
+            for (let i = 0; i < N; i++) {
+                const t = N === 1 ? 0.5 : (i / (N - 1));
+                const a = a0 + (a1 - a0) * t;
+                out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+            }
+            return out;
+        }
+        function pointsOnClosedCurve(fn, N) {
+            // fn(t in [0, 1)) → {x, y}. Đều theo tham số t.
+            const out = [];
+            for (let i = 0; i < N; i++) out.push(fn(i / N));
+            return out;
+        }
+
+        function generateShapePoints(N, sCfg) {
+            const type = sCfg.type || 'heart';
+            const customText = (sCfg.customText || '').trim();
+
+            // ===== Shape vector (parametric outline) — toạ độ chuẩn hoá [-0.5, 0.5] =====
+            if (type === 'heart') {
+                return pointsOnClosedCurve(u => {
+                    const t = u * Math.PI * 2;
+                    const x = 16 * Math.pow(Math.sin(t), 3);
+                    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+                    return { x: x / 34, y: y / 34 };
+                }, N);
+            }
+            if (type === 'circle') {
+                return pointsOnClosedCurve(u => {
+                    const t = u * Math.PI * 2;
+                    return { x: Math.cos(t) * 0.45, y: Math.sin(t) * 0.45 };
+                }, N);
+            }
+            if (type === 'star') {
+                const outerR = 0.46, innerR = outerR * 0.5;
+                const verts = [];
+                for (let i = 0; i < 10; i++) {
+                    const r = (i % 2 === 0) ? outerR : innerR;
+                    const a = -Math.PI / 2 + (i / 10) * Math.PI * 2;
+                    verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+                }
+                return pointsOnPolyline(verts, N, true);
+            }
+            if (type === 'triangle') {
+                const verts = [
+                    { x: 0,     y: -0.44 },
+                    { x: -0.46, y: 0.38 },
+                    { x: 0.46,  y: 0.38 }
+                ];
+                return pointsOnPolyline(verts, N, true);
+            }
+            if (type === 'diamond') {
+                const verts = [
+                    { x: 0,     y: -0.46 },
+                    { x: 0.46,  y: 0 },
+                    { x: 0,     y: 0.46 },
+                    { x: -0.46, y: 0 }
+                ];
+                return pointsOnPolyline(verts, N, true);
+            }
+            if (type === 'smile') {
+                // Phân bổ N điểm: ~55% mặt outline, ~10%/mắt, phần còn lại = miệng cười.
+                // → Đường nét rõ ràng (outline) thay vì fill cả đĩa mặt như bản cũ.
+                const faceN = Math.max(8, Math.round(N * 0.55));
+                const eyeN  = Math.max(3, Math.round(N * 0.10));
+                const mouthN = Math.max(4, N - faceN - eyeN * 2);
+                const pts = [];
+                // Face outline
+                for (let i = 0; i < faceN; i++) {
+                    const t = (i / faceN) * Math.PI * 2;
+                    pts.push({ x: Math.cos(t) * 0.46, y: Math.sin(t) * 0.46 });
+                }
+                // Left eye (small filled-ish ring)
+                for (let i = 0; i < eyeN; i++) {
+                    const t = (i / eyeN) * Math.PI * 2;
+                    pts.push({
+                        x: -0.17 + Math.cos(t) * 0.075,
+                        y: -0.11 + Math.sin(t) * 0.075
+                    });
+                }
+                // Right eye
+                for (let i = 0; i < eyeN; i++) {
+                    const t = (i / eyeN) * Math.PI * 2;
+                    pts.push({
+                        x: 0.17 + Math.cos(t) * 0.075,
+                        y: -0.11 + Math.sin(t) * 0.075
+                    });
+                }
+                // Smile mouth arc (từ 0.15π → 0.85π — cung cười nửa dưới)
+                const mouthArc = pointsOnArc(0, 0.08, 0.24,
+                    0.15 * Math.PI, 0.85 * Math.PI, mouthN);
+                pts.push(...mouthArc);
+                return pts.slice(0, N);
+            }
+
+            // ===== Text — render canvas + sample pixel (chỉ dùng cho text) =====
+            if (type === 'text') {
+                return sampleTextPoints(N, customText);
+            }
+
+            // Fallback: circle
+            return pointsOnClosedCurve(u => {
+                const t = u * Math.PI * 2;
+                return { x: Math.cos(t) * 0.45, y: Math.sin(t) * 0.45 };
+            }, N);
+        }
+
+        // Sample điểm pixel từ text bằng off-screen canvas.
+        // Stack font: ưu tiên font tích hợp Vietnamese diacritics tốt (Segoe UI, Tahoma,
+        // Be Vietnam Pro, Roboto). Auto-shrink font-size để fit ngang canvas.
+        function sampleTextPoints(N, customText) {
+            const txt = (customText || '♥').slice(0, 16);
+            const C = 800;   // độ phân giải cao cho dấu tiếng Việt sắc nét
+            const cv = document.createElement('canvas');
+            cv.width = cv.height = C;
+            const cx = cv.getContext('2d');
+            cx.fillStyle = '#000';
+            cx.textAlign = 'center';
+            cx.textBaseline = 'middle';
+            // Font stack hỗ trợ tiếng Việt — Tahoma/Segoe UI/Roboto đều render dấu tốt.
+            const fontFamily = '"Be Vietnam Pro", "Segoe UI", "Tahoma", "Roboto", "Arial Black", sans-serif';
+            // Auto-fit: chọn fontSize lớn nhất mà text vẫn vừa 90% canvas ngang/dọc.
+            let fontSize = Math.min(C * 0.75, (C * 1.5) / Math.max(1, txt.length));
+            cx.font = `900 ${fontSize}px ${fontFamily}`;
+            let m = cx.measureText(txt);
+            while (m.width > C * 0.88 && fontSize > 28) {
+                fontSize -= 8;
+                cx.font = `900 ${fontSize}px ${fontFamily}`;
+                m = cx.measureText(txt);
+            }
+            cx.font = `900 ${fontSize}px ${fontFamily}`;
+            cx.fillText(txt, C / 2, C / 2);
+
+            // Sample: step nhỏ (2px) để bắt được các nét mảnh + dấu tiếng Việt.
+            const data = cx.getImageData(0, 0, C, C).data;
+            const candidates = [];
+            const step = 2;
+            for (let y = 0; y < C; y += step) {
+                for (let x = 0; x < C; x += step) {
+                    const i = (y * C + x) * 4;
+                    if (data[i + 3] > 100) candidates.push({ x: (x - C / 2) / C, y: (y - C / 2) / C });
+                }
+            }
+            if (!candidates.length) return [];
+
+            // Stratified sample: chia candidates thành N nhóm theo index, lấy 1 phần tử ngẫu nhiên
+            // trong mỗi nhóm → phân bố đều khắp text, tránh cụm dày 1 chỗ.
+            if (candidates.length <= N) {
+                const r = [];
+                for (let i = 0; i < N; i++) {
+                    const base = candidates[i % candidates.length];
+                    r.push({
+                        x: base.x + (Math.random() - 0.5) * 0.004,
+                        y: base.y + (Math.random() - 0.5) * 0.004
+                    });
+                }
+                return r;
+            }
+            const r = [];
+            const grpSize = candidates.length / N;
+            for (let i = 0; i < N; i++) {
+                const start = Math.floor(i * grpSize);
+                const end = Math.floor((i + 1) * grpSize);
+                const pick = candidates[start + Math.floor(Math.random() * Math.max(1, end - start))];
+                r.push(pick);
+            }
+            return r;
+        }
+
+        // Ngưỡng tối thiểu để 1 shape trông "đủ rõ". Dưới mức này, outline đứt khúc/khó nhận ra.
+        // Số liệu chọn dựa trên độ phức tạp visual: smile cần nhiều nhất (mặt + 2 mắt + miệng),
+        // tam giác/kim cương cần ít nhất (chỉ 3-4 cạnh).
+        function minBodiesForShape(type, customText) {
+            switch (type) {
+                case 'heart':    return 24;
+                case 'star':     return 22;
+                case 'circle':   return 16;
+                case 'triangle': return 12;
+                case 'diamond':  return 12;
+                case 'smile':    return 30;
+                case 'text':
+                    // Mỗi ký tự ~8 quà để nét chữ rõ. Tiếng Việt có dấu cần thêm chút.
+                    return Math.max(12, Math.min(80, (customText || '').length * 8));
+                default:         return 16;
+            }
+        }
+        function shapeLabel(type) {
+            return ({
+                heart: 'Trái tim ❤️', star: 'Ngôi sao ⭐', circle: 'Tròn ⚪',
+                triangle: 'Tam giác 🔺', diamond: 'Kim cương 🔷', smile: 'Mặt cười 😊',
+                text: 'Chữ 🔤'
+            })[type] || 'Hình';
+        }
+
+        async function fxShape(userInfo) {
+            if (shapeBusy) return;
+            const sCfg = config.effects?.shape || {};
+            const sizePercent = Math.max(20, Math.min(95, sCfg.sizePercent ?? 65));
+            const durationMs = Math.max(500, sCfg.durationMs ?? 3000);
+            const showName = sCfg.showName !== false;
+            const color = sCfg.color || '#ffd166';
+            const type = sCfg.type || 'heart';
+
+            // Kiểm tra số lượng quà: nếu < ngưỡng tối thiểu, KHÔNG vẽ + báo cho Creator + viewer
+            // biết cần thêm bao nhiêu quà nữa.
+            const minN = minBodiesForShape(type, sCfg.customText);
+            const have = bodies.length;
+            if (have < minN) {
+                const need = minN - have;
+                showComboToast(
+                    `🎨 Cần thêm <b>${need}</b> quà nữa để vẽ hình <b>${shapeLabel(type)}</b> · đang có ${have}/${minN}`,
+                    'linear-gradient(135deg, #f59e0b, #ef4444)'
+                );
+                return;
+            }
+
+            shapeBusy = true;
+
+            // ƯU TIÊN QUÀ NHỎ: sort ASC theo body.gm.sz → quà nhỏ vào outline trước (sát biên),
+            // quà to dùng sau (nếu cần thêm điểm). Nếu đủ quà nhỏ thì quà to KHÔNG bị hút.
+            // Cap MAX_BODIES = 120 — đủ chi tiết cho mọi shape, tránh nặng vật lý.
+            const MAX_BODIES = 120;
+            const sortedAll = bodies.slice().sort((a, b) => {
+                const sa = (a.gm && a.gm.sz) || 9999;
+                const sb = (b.gm && b.gm.sz) || 9999;
+                return sa - sb;
+            });
+            let useBodies = sortedAll.slice(0, MAX_BODIES);
+            const N = useBodies.length;
+
+            // Sample N target points (normalized) → world coords
+            const points = generateShapePoints(N, sCfg);
+            if (!points.length) { shapeBusy = false; return; }
+            const ccx = CANVAS_W / 2;
+            const ccy = CANVAS_H * 0.42;   // hơi trên giữa cho cân thị giác (top-half visual)
+            const sz = Math.min(CANVAS_W, CANVAS_H * 0.55) * (sizePercent / 100);
+            const targets = points.map(p => ({ x: ccx + p.x * sz, y: ccy + p.y * sz }));
+
+            // Sắp xếp tối ưu hoá: gán body gần nhất → target gần nhất (greedy, không Hungarian
+            // chuẩn nhưng đủ tốt cho 120 phần tử và không thấy được khác biệt visual).
+            const animBodies = useBodies.map(b => ({
+                body: b,
+                sx: b.position.x, sy: b.position.y,
+                tx: 0, ty: 0,
+                wasStatic: b.isStatic
+            }));
+            const usedTargets = new Array(targets.length).fill(false);
+            // Greedy: với mỗi body, chọn target gần nhất chưa dùng
+            for (const ab of animBodies) {
+                let bestIdx = -1, bestD = Infinity;
+                for (let i = 0; i < targets.length; i++) {
+                    if (usedTargets[i]) continue;
+                    const dx = targets[i].x - ab.sx;
+                    const dy = targets[i].y - ab.sy;
+                    const d = dx * dx + dy * dy;
+                    if (d < bestD) { bestD = d; bestIdx = i; }
+                }
+                if (bestIdx >= 0) {
+                    ab.tx = targets[bestIdx].x;
+                    ab.ty = targets[bestIdx].y;
+                    usedTargets[bestIdx] = true;
+                }
+            }
+
+            // Phase 1: freeze + tween về target (~800ms ease-out)
+            for (const ab of animBodies) {
+                try { Body.setStatic(ab.body, true); } catch (e) {}
+                try { Body.setVelocity(ab.body, { x: 0, y: 0 }); } catch (e) {}
+            }
+            const PHASE1_MS = 800;
+            await tween(t => {
+                const e = 1 - Math.pow(1 - t, 3);
+                for (const ab of animBodies) {
+                    const nx = lerp(ab.sx, ab.tx, e);
+                    const ny = lerp(ab.sy, ab.ty, e);
+                    try { Body.setPosition(ab.body, { x: nx, y: ny }); } catch (err) {}
+                }
+            }, PHASE1_MS);
+
+            if (config.features.audio) audio.fanfare();
+            // Burst pháo hoa ngay khi shape hình thành cho long lanh
+            fxAnimations.push({
+                type: 'firework',
+                x: ccx, y: ccy, age: 0, life: 50,
+                color: 'hsl(' + Math.floor(Math.random() * 360) + ',90%,60%)'
+            });
+
+            // Phase 2: hiển thị tên + pulse
+            let nameEl = null;
+            if (showName && overlayLayer) {
+                nameEl = document.createElement('div');
+                nameEl.className = 'tt-shape-name';
+                const rawName = userInfo?.name || userInfo?.nickname || userInfo?.uniqueId || '';
+                nameEl.textContent = rawName;
+                nameEl.style.color = color;
+                const ns = Math.max(24, Math.min(200, sCfg.nameSize ?? 64));
+                nameEl.style.fontSize = ns + 'px';
+                nameEl.style.left = (ccx / CANVAS_W * 100) + '%';
+                nameEl.style.top = (ccy / CANVAS_H * 100) + '%';
+                overlayLayer.appendChild(nameEl);
+                requestAnimationFrame(() => nameEl.classList.add('show'));
+            }
+
+            // Pulse loop: nhịp thở nhẹ + xoay nhẹ — chạy độc lập trong durationMs
+            let pulseDone = false;
+            const pulseT0 = performance.now();
+            const pulseLoop = () => {
+                if (pulseDone) return;
+                const elapsed = performance.now() - pulseT0;
+                if (elapsed >= durationMs) return;
+                const phase = (elapsed / 1000) * Math.PI * 2;
+                for (const ab of animBodies) {
+                    const dx = ab.tx - ccx;
+                    const dy = ab.ty - ccy;
+                    const dist = Math.hypot(dx, dy);
+                    const wave = Math.sin(phase - dist * 0.02) * 3;
+                    const nrx = dist > 0 ? dx / dist : 0;
+                    const nry = dist > 0 ? dy / dist : 0;
+                    try {
+                        Body.setPosition(ab.body, {
+                            x: ab.tx + nrx * wave,
+                            y: ab.ty + nry * wave
+                        });
+                    } catch (e) {}
+                }
+                requestAnimationFrame(pulseLoop);
+            };
+            requestAnimationFrame(pulseLoop);
+
+            await wait(durationMs);
+            pulseDone = true;
+
+            // Phase 3: tan biến — fade tên, dynamic lại, drop với jitter
+            if (nameEl) {
+                nameEl.classList.remove('show');
+                nameEl.classList.add('fade');
+                setTimeout(() => nameEl.remove(), 1200);
+            }
+            for (const ab of animBodies) {
+                // Snap về target (tránh giật do pulse offset)
+                try { Body.setPosition(ab.body, { x: ab.tx, y: ab.ty }); } catch (e) {}
+                try { Body.setStatic(ab.body, ab.wasStatic === true); } catch (e) {}
+                try {
+                    Body.setVelocity(ab.body, {
+                        x: (Math.random() - 0.5) * 4,
+                        y: Math.random() * 1.5
+                    });
+                    Body.setAngularVelocity(ab.body, (Math.random() - 0.5) * 0.25);
+                } catch (e) {}
+            }
+            if (config.features.audio) audio.plop();
+            shapeBusy = false;
         }
 
         // ===== Nứt hũ (tích luỹ + vỡ tan khi đủ ngưỡng) =====
@@ -2220,7 +2703,7 @@
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow,
-            fxCrackJar, fxStealJar, fxCombo,
+            fxCrackJar, fxStealJar, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)
             getPoliceForce: () => Array.from(policeForce.values()),
