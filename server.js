@@ -87,9 +87,9 @@ const GAMES = {
     },
     pktiktok: {
         id: 'pktiktok',
-        name: 'PK TikTok — Hiệu ứng trận PK',
+        name: 'Hiệu ứng PK',
         description: 'Gán video/âm thanh cho từng phase trận PK TikTok (start, x2/x3, items, 10s cuối, thắng/thua).',
-        icon: '🎬',
+        icon: '🥊',
         overlayPath: '/overlay/pktiktok',
         defaultConfig: makeDefaultPkTiktokConfig()
     },
@@ -1035,13 +1035,32 @@ app.get('/api/games/:id/config', (req, res) => {
 app.post('/api/games/:id/config', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
+    const prevConfig = appConfig.games[g.id] || {};
+    const prevEnabled = prevConfig.enabled !== false;
     appConfig.games[g.id] = { ...appConfig.games[g.id], ...(req.body || {}) };
-    // VIP Welcome: chuẩn hoá lại schema sau merge — đảm bảo profile schema valid
     if (g.id === 'vipwelcome') {
         appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
     }
+    const newEnabled = appConfig.games[g.id].enabled !== false;
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
+    // Khi game vừa bị TẮT → gửi stop signal để overlay clear playback ngay lập tức
+    if (prevEnabled && !newEnabled) {
+        if (g.id === 'pktiktok') {
+            io.emit('pktiktok:stop', { ts: Date.now(), reason: 'gameDisabled' });
+        } else if (g.id === 'vipwelcome') {
+            vipWelcomeQueue = [];
+            if (vipWelcomeDrainTimer) { clearTimeout(vipWelcomeDrainTimer); vipWelcomeDrainTimer = null; }
+            io.emit('vipwelcome:stop', { ts: Date.now(), reason: 'gameDisabled' });
+            io.emit('vipwelcome:queue', { size: 0 });
+        }
+        // Generic event cho mọi game — overlay nào lắng nghe sẽ tự clear
+        io.emit('gameDisabled', { gameId: g.id, ts: Date.now() });
+        console.log(`[game-toggle] Game "${g.id}" disabled → emit stop signals`);
+    } else if (!prevEnabled && newEnabled) {
+        io.emit('gameEnabled', { gameId: g.id, ts: Date.now() });
+        console.log(`[game-toggle] Game "${g.id}" enabled`);
+    }
     res.json({ ok: true, config: appConfig.games[g.id] });
 });
 
