@@ -3,7 +3,7 @@
  * Quà tặng rơi vào hũ thủy tinh với vật lý Matter.js + nhiều tính năng tương tác.
  */
 (function (global) {
-    const { Engine, Runner, Bodies, Body, Composite } = global.Matter;
+    const { Engine, Runner, Bodies, Body, Composite, Events } = global.Matter;
 
     const CANVAS_W = 1080;
     const CANVAS_H = 1920;
@@ -370,15 +370,15 @@
 
         function buildWorldWalls() {
             if (worldWalls.length) return; // chỉ build 1 lần
-            // Floor sát đáy overlay → quà tràn ra sẽ stack ở đáy thay vì rơi mất
-            worldWalls.push(makeWall(CANVAS_W / 2, CANVAS_H + 12, CANVAS_W + 200, 24));
-            worldWalls.push(makeWall(-12, CANVAS_H / 2, 24, CANVAS_H + 200));
-            worldWalls.push(makeWall(CANVAS_W + 12, CANVAS_H / 2, 24, CANVAS_H + 200));
+            // Floor SÁT đáy canvas — TOP EDGE ở y = CANVAS_H. Thickness 400px → chống tunneling
+            // khi OBS browser source chạy ở 30fps (dt tăng → bodies di chuyển nhiều/tick).
+            // Tường mỏng 24px cũ → bodies vận tốc cao có thể xuyên qua → mất quà.
+            worldWalls.push(makeWall(CANVAS_W / 2, CANVAS_H + 200, CANVAS_W + 200, 400));
+            // Side walls: thick, span well beyond canvas
+            worldWalls.push(makeWall(-100, CANVAS_H / 2, 200, CANVAS_H + 400));
+            worldWalls.push(makeWall(CANVAS_W + 100, CANVAS_H / 2, 200, CANVAS_H + 400));
             // CEILING — chặn quà bay ra khỏi đỉnh overlay khi đảo trọng lực / lốc xoáy.
-            // Đặt ở y = -2000 (rất cao, KHÔNG cản spawn dù user kéo hũ lên rất cao).
-            // Bodies bay lên trong fxGravFlip/fxTornado sẽ chạm trần ở khoảng cách an toàn rồi
-            // bounce lại — KHÔNG bị mất khỏi world.
-            worldWalls.push(makeWall(CANVAS_W / 2, -2000, CANVAS_W + 200, 24));
+            worldWalls.push(makeWall(CANVAS_W / 2, -2100, CANVAS_W + 200, 200));
             Composite.add(engine.world, worldWalls);
         }
         function buildJarWalls() {
@@ -395,7 +395,10 @@
             const nlx = r.x + r.w * SHAPE.neckLeftX;
             const nrx = r.x + r.w * SHAPE.neckRightX;
             const nty = r.y + r.h * SHAPE.neckTopY;
-            jarWalls.push(makeWall(lx + (rx - lx) / 2, by, rx - lx + T, T * 2));
+            // Đáy hũ — TOP EDGE ở y=by (vị trí visual giữ nguyên), thickness 80px (vs cũ 28px).
+            // Chống tunneling khi body rơi nhanh trong OBS (30fps → dt cao → di chuyển nhiều/tick).
+            const FLOOR_T = 80;
+            jarWalls.push(makeWall(lx + (rx - lx) / 2, by + FLOOR_T / 2, rx - lx + T, FLOOR_T));
             const bh = by - sy;
             jarWalls.push(makeWall(lx, sy + bh / 2, T, bh));
             jarWalls.push(makeWall(rx, sy + bh / 2, T, bh));
@@ -3414,7 +3417,28 @@
         applyJarTheme();
         if (config.features.randomEvents) startRandomEvents();
         if (config.features.thiefAuto) startThiefAuto();
-        Runner.run(Runner.create(), engine);
+        // Runner FIXED delta — Matter.js default isFixed:false sẽ adapt dt theo real time.
+        // Khi OBS browser source giới hạn FPS (mặc định 30fps trong OBS), dt tăng từ 16.67ms → 33ms
+        // → bodies di chuyển GẤP ĐÔI mỗi tick → dễ tunneling qua tường (đáy hũ, sàn world).
+        // isFixed: true → mỗi tick luôn dt = 1000/60ms, bodies di chuyển ổn định.
+        // Trade-off: nếu OBS chậm → vật lý chạy slow-motion thay vì bị mất quà.
+        Runner.run(Runner.create({ isFixed: true, delta: 1000 / 60 }), engine);
+
+        // Safety net: cap max velocity sau mỗi tick để bodies không bao giờ đạt tốc độ tunneling.
+        // Đáy hũ FLOOR_T=80, max safe velocity = 80 / 2 = 40 px/tick → cap ở 35.
+        const MAX_BODY_V = 35;
+        Events.on(engine, 'afterUpdate', () => {
+            for (const b of bodies) {
+                const v = b.velocity;
+                if (Math.abs(v.x) > MAX_BODY_V || Math.abs(v.y) > MAX_BODY_V) {
+                    Body.setVelocity(b, {
+                        x: Math.max(-MAX_BODY_V, Math.min(MAX_BODY_V, v.x)),
+                        y: Math.max(-MAX_BODY_V, Math.min(MAX_BODY_V, v.y))
+                    });
+                }
+            }
+        });
+
         requestAnimationFrame(render);
         requestAnimationFrame(renderFx);
 
