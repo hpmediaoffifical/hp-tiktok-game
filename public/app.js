@@ -18,6 +18,7 @@
         { key: 'joinPolice', ico: '🚓', label: 'Gia nhập CS' },
         { key: 'osin',       ico: '🧹', label: 'Osin nhặt quà' },
         { key: 'ufo',        ico: '🛸', label: 'UFO hút 5-10 quà' },
+        { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'fireworks',  ico: '🎆', label: 'Pháo hoa' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
