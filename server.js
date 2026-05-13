@@ -654,6 +654,74 @@ function attachConnectionEvents(conn) {
             }
         } catch (e) { console.error('[vipwelcome] ROOM_USER process error:', e); }
     });
+
+    // ====== PK TikTok auto-bind ======
+    // Hook các event battle để emit 'pktiktok:autoTrigger' tự động khi PK match.
+    // BattleAction enum: 4=OPEN(start), 5=FINISH(end), 6=CUT_SHORT
+    // BattleTaskMessageType enum: 0=START(mission), 1=UPDATE, 2=SETTLE, 3=REWARD_SETTLE
+    function emitPkAutoTrigger(key, reason) {
+        const cfg = appConfig.games?.pktiktok;
+        if (!cfg || cfg.enabled === false || !cfg.autoBindPkDuo) return;
+        console.log(`[pktiktok] AUTO-TRIGGER → ${key} (reason: ${reason})`);
+        io.emit('pktiktok:autoTrigger', { key, reason, ts: Date.now() });
+    }
+
+    // PK timer state — schedule warn10s + auto-result if FINISH event không đến
+    let pkActive = false;
+    let pkStartTs = 0;
+    let pkTimers = [];
+    function clearPkTimers() {
+        for (const t of pkTimers) clearTimeout(t);
+        pkTimers = [];
+    }
+    function schedulePkPhase(key, delayMs, reason) {
+        pkTimers.push(setTimeout(() => emitPkAutoTrigger(key, reason), delayMs));
+    }
+
+    conn.on(WebcastEvent.LINK_MIC_BATTLE, (data) => {
+        const action = data?.battleConfig?.battleAction ?? data?.action ?? null;
+        const battleStatus = data?.battleStatus;
+        const currentRound = data?.currentRound;
+        console.log(`[pktiktok] LINK_MIC_BATTLE action=${action} status=${battleStatus} round=${currentRound}`);
+        if (action === 4 /* OPEN */) {
+            pkActive = true;
+            pkStartTs = Date.now();
+            clearPkTimers();
+            emitPkAutoTrigger('start', 'battle_open');
+            // Fallback timers: warn10s ở giây 110 (PK chuẩn 120s), nếu battle vẫn active
+            schedulePkPhase('warn10s', 110_000, 'fallback_timer_110s');
+        } else if (action === 5 /* FINISH */ || action === 6 /* CUT_SHORT */) {
+            pkActive = false;
+            clearPkTimers();
+            // Không có cách dễ xác định win/lose từ event này — emit cả 'win' cho host làm placeholder
+            // User có thể override bằng test manual
+            emitPkAutoTrigger('win', 'battle_finish (action=' + action + ')');
+        }
+    });
+    conn.on(WebcastEvent.LINK_MIC_BATTLE_TASK, (data) => {
+        const type = data?.battleTaskMessageType;
+        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type}`);
+        if (type === 0 /* START */) {
+            emitPkAutoTrigger('mission', 'task_start');
+        }
+    });
+    conn.on(WebcastEvent.LINK_MIC_BATTLE_PUNISH_FINISH, (data) => {
+        console.log(`[pktiktok] LINK_MIC_BATTLE_PUNISH_FINISH`);
+        pkActive = false;
+        clearPkTimers();
+    });
+    conn.on(WebcastEvent.LINK_MIC_ARMIES, (data) => {
+        // Armies update — chứa scores của 2 team. Có thể dùng để detect lead/behind
+        try {
+            const teams = data?.battleItems || data?.teams || [];
+            if (Array.isArray(teams) && teams.length >= 2) {
+                const t1 = Number(teams[0]?.totalUserCount || teams[0]?.totalScore || 0);
+                const t2 = Number(teams[1]?.totalUserCount || teams[1]?.totalScore || 0);
+                if (t1 > t2) emitPkAutoTrigger('lead', 'armies (host ahead)');
+                else if (t1 < t2) emitPkAutoTrigger('behind', 'armies (host behind)');
+            }
+        } catch (e) {}
+    });
 }
 
 // ====== Unknown gifts detector ======
