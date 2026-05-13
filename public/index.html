@@ -48,9 +48,12 @@
                     <span class="dot" id="dot"></span>
                     <span id="status-text">Chưa kết nối</span>
                 </div>
-                <div class="stats-row">
-                    <span id="stat-room"></span>
-                    <span id="stat-viewer"></span>
+                <!-- Stats grid — hiển thị khi đã kết nối -->
+                <div class="live-stats-grid" id="live-stats-grid" hidden>
+                    <div class="live-stat" title="Số người xem hiện tại"><span class="live-stat-ico">👀</span><span class="live-stat-val" id="lstat-viewer">0</span></div>
+                    <div class="live-stat" title="Tổng Kim Cương phiên này"><span class="live-stat-ico">💎</span><span class="live-stat-val" id="lstat-diamond">0</span></div>
+                    <div class="live-stat" title="Tổng follow mới phiên này"><span class="live-stat-ico">➕</span><span class="live-stat-val" id="lstat-follow">0</span></div>
+                    <div class="live-stat" title="Tổng share phiên này"><span class="live-stat-ico">📤</span><span class="live-stat-val" id="lstat-share">0</span></div>
                 </div>
             </section>
 

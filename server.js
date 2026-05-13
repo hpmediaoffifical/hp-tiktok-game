@@ -53,6 +53,7 @@ const GAMES = {
         icon: '🫙',
         overlayPath: '/overlay/thuytinh',
         defaultConfig: {
+            enabled: true,
             jar: { xPercent: 50, yPercent: 56, height: 1200 },
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
             physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
@@ -67,6 +68,7 @@ const GAMES = {
         icon: '🎯',
         overlayPath: '/overlay/caro',
         defaultConfig: {
+            enabled: true,
             board: { cols: 12, rows: 12, winLength: 5 },
             match: { bestOf: 3, idolFirst: true, alternateFirst: true },
             registration: { giftId: '', minCount: 1, autoCloseSeconds: 0 },
@@ -437,6 +439,30 @@ let connection = null;
 let currentUsername = null;
 let connecting = false;
 let currentRoomId = null;
+// Session stats — counters for connection card display
+let liveStats = {
+    viewerCount: 0,
+    totalDiamond: 0,
+    totalLikes: 0,
+    totalShares: 0,
+    totalFollows: 0,
+    followerCount: 0
+};
+function resetLiveStats() {
+    liveStats = { viewerCount: 0, totalDiamond: 0, totalLikes: 0, totalShares: 0, totalFollows: 0, followerCount: 0 };
+}
+// Broadcast stats với throttle để không spam socket
+let lastStatsEmit = 0;
+function emitLiveStatsThrottled() {
+    const now = Date.now();
+    if (now - lastStatsEmit < 500) return;
+    lastStatsEmit = now;
+    io.emit('liveStats', liveStats);
+}
+function emitLiveStatsImmediate() {
+    lastStatsEmit = Date.now();
+    io.emit('liveStats', liveStats);
+}
 
 function broadcast(type, payload) { io.emit(type, payload); }
 
@@ -524,11 +550,13 @@ function attachConnectionEvents(conn) {
         const level = Number(data?.user?.userHonor?.level) || 0;
         const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
         const verified = !!data?.user?.verified;
+        const likeCount = data?.likeCount || 1;
         rememberUserMapping(userId, uniqueId);
-        broadcast('like', { uniqueId, nickname, likeCount: data?.likeCount });
+        broadcast('like', { uniqueId, nickname, likeCount });
+        liveStats.totalLikes += likeCount; emitLiveStatsThrottled();
         // Fire 'join' fallback + dedicated 'like' trigger
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'like', verified, userId);
-        try { handleVipWelcomeEvent('like', { uniqueId, nickname, level, profilePicture, verified, likeCount: data?.likeCount }); } catch (e) {}
+        try { handleVipWelcomeEvent('like', { uniqueId, nickname, level, profilePicture, verified, likeCount }); } catch (e) {}
     });
     conn.on(WebcastEvent.SOCIAL, (data) => {
         const uniqueId = data?.user?.uniqueId;
@@ -541,7 +569,7 @@ function attachConnectionEvents(conn) {
         broadcast('social', { uniqueId, nickname, label: data?.label });
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'social', verified, userId);
     });
-    // FOLLOW event — connector emit khi user follow trong LIVE
+    // FOLLOW event
     conn.on(WebcastEvent.FOLLOW, (data) => {
         const uniqueId = data?.user?.uniqueId;
         const userId = data?.user?.userId;
@@ -550,11 +578,12 @@ function attachConnectionEvents(conn) {
         const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
         const verified = !!data?.user?.verified;
         rememberUserMapping(userId, uniqueId);
+        liveStats.totalFollows += 1; emitLiveStatsThrottled();
         console.log(`[vipwelcome] FOLLOW: @${uniqueId} "${nickname || ''}"`);
         try { handleVipWelcomeEvent('follow', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'follow', verified, userId);
     });
-    // SHARE event — connector emit khi user share LIVE
+    // SHARE event
     conn.on(WebcastEvent.SHARE, (data) => {
         const uniqueId = data?.user?.uniqueId;
         const userId = data?.user?.userId;
@@ -563,6 +592,7 @@ function attachConnectionEvents(conn) {
         const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
         const verified = !!data?.user?.verified;
         rememberUserMapping(userId, uniqueId);
+        liveStats.totalShares += 1; emitLiveStatsThrottled();
         console.log(`[vipwelcome] SHARE: @${uniqueId} "${nickname || ''}"`);
         try { handleVipWelcomeEvent('share', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'share', verified, userId);
@@ -581,7 +611,9 @@ function attachConnectionEvents(conn) {
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'envelope', verified, userId);
     });
     conn.on(WebcastEvent.ROOM_USER, (data) => {
-        broadcast('roomUser', { viewerCount: data?.viewerCount ?? data?.totalUser });
+        const v = data?.viewerCount ?? data?.totalUser;
+        broadcast('roomUser', { viewerCount: v });
+        if (typeof v === 'number') { liveStats.viewerCount = v; emitLiveStatsThrottled(); }
         try {
             const lists = [];
             if (Array.isArray(data?.ranksList)) lists.push(...data.ranksList);
@@ -673,21 +705,16 @@ function recordUnknownGift(g) {
     if (!id) return null;
     // Đã có trong sheet → skip
     if (giftMap[id]) return null;
-    // Thử fallback từ availableGifts của TikTok nếu event đến mà thiếu name/picture
-    // (xảy ra với streak gift hoặc khi giftDetails chưa flush) — tra cứu trong cache
-    // sẽ điền vào những field còn trống.
     const tt = lookupGiftFromTikTok(id);
     const resolvedName = g.giftName || tt?.name || '';
     const resolvedImage = g.giftPicture || tt?.image || '';
     const resolvedDiamond = parseInt(g.diamondCount, 10) || tt?.diamond || 0;
-    // Cần ít nhất 1 trong (name | picture) để hữu ích — tránh ghi entry rỗng hoàn toàn
     if (!resolvedName && !resolvedImage) return null;
     const now = Date.now();
     const prev = unknownGifts[id];
     if (prev) {
         prev.count = (prev.count || 0) + (parseInt(g.repeatCount, 10) || 1);
         prev.lastSeen = now;
-        // Update các field nếu lần này có thông tin tốt hơn
         if (!prev.name && resolvedName) prev.name = resolvedName;
         if (!prev.image && resolvedImage) prev.image = resolvedImage;
         if ((!prev.diamond || prev.diamond <= 0) && resolvedDiamond > 0) prev.diamond = resolvedDiamond;
@@ -703,9 +730,38 @@ function recordUnknownGift(g) {
         };
     }
     scheduleSaveUnknown();
-    // Emit realtime để App show badge ngay
     io.emit('unknownGift', { entry: unknownGifts[id], total: Object.keys(unknownGifts).length });
+    // Nếu vẫn thiếu image → schedule retry sau 1-2s (availableGifts có thể chưa load đủ
+    // khi event đầu tiên đến). Retry tối đa 3 lần với gap tăng dần.
+    if (!unknownGifts[id].image) {
+        scheduleGiftIconRetry(id);
+    }
     return unknownGifts[id];
+}
+
+// Retry lookup icon cho gift chưa có image — quét lại availableGifts sau khi connect ổn định
+const giftIconRetryAttempts = new Map();   // id → number of attempts
+function scheduleGiftIconRetry(id) {
+    const attempts = giftIconRetryAttempts.get(id) || 0;
+    if (attempts >= 5) return;   // bỏ cuộc sau 5 lần
+    giftIconRetryAttempts.set(id, attempts + 1);
+    const delay = 1500 + attempts * 1500;   // 1.5s, 3s, 4.5s, 6s, 7.5s
+    setTimeout(() => {
+        const entry = unknownGifts[id];
+        if (!entry || entry.image) return;   // đã có image hoặc bị xoá
+        const tt = lookupGiftFromTikTok(id);
+        if (tt?.image) {
+            entry.image = tt.image;
+            if (!entry.name && tt.name) entry.name = tt.name;
+            if ((!entry.diamond || entry.diamond <= 0) && tt.diamond > 0) entry.diamond = tt.diamond;
+            scheduleSaveUnknown();
+            io.emit('unknownGift', { entry, total: Object.keys(unknownGifts).length });
+            console.log(`[unknown-gifts] Retry ${attempts + 1}/5 thành công cho gift ${id}: ${tt.image}`);
+            giftIconRetryAttempts.delete(id);
+        } else {
+            scheduleGiftIconRetry(id);   // try again
+        }
+    }, delay);
 }
 
 // Quét toàn bộ unknownGifts hiện có, điền lại name/image/diamond từ availableGifts
@@ -747,6 +803,13 @@ function emitGift(g) {
     // Push to all game overlays
     io.to('overlay').emit('gameGift', enriched);
     io.to('preview').emit('gameGift', enriched);
+    // Track total diamond cho stats card
+    const diamond = Number(enriched.coinValue) || 0;
+    const repeat = Number(g.repeatCount) || 1;
+    if (diamond > 0) {
+        liveStats.totalDiamond += diamond * repeat;
+        emitLiveStatsThrottled();
+    }
     // VIP Welcome — kiểm tra rules khi user tặng quà
     try {
         handleVipWelcomeEvent('gift', {
@@ -768,8 +831,9 @@ async function connectToUser(username) {
     if (connection) { try { await connection.disconnect(); } catch (e) {} connection = null; }
     connecting = true;
     currentUsername = username.replace(/^@/, '').trim();
-    // Reset session-scoped state cho VIP Welcome (level tracker, seen users)
+    // Reset session-scoped state cho VIP Welcome + Live stats
     resetVipSession();
+    resetLiveStats();
     // Log VIP Welcome config — user xem để verify rules đã load đúng từ disk
     try {
         const vw = appConfig.games.vipwelcome;
@@ -802,6 +866,12 @@ async function connectToUser(username) {
         const hostLevel = Number(state?.roomInfo?.owner?.userHonor?.level) || 0;
         const hostPic = state?.roomInfo?.owner?.profilePicture?.url || '';
         const hostVerified = !!state?.roomInfo?.owner?.verified;
+        // Lấy followerCount của HOST từ roomInfo
+        const followerCount = Number(state?.roomInfo?.owner?.followInfo?.followerCount) || 0;
+        if (followerCount > 0) {
+            liveStats.followerCount = followerCount;
+            emitLiveStatsImmediate();
+        }
         setTimeout(() => {
             maybeFireFirstSeenJoin(currentUsername, hostNickname, hostLevel, hostPic, 'hostConnect', hostVerified);
         }, 300);
@@ -2114,6 +2184,7 @@ io.on('connection', (socket) => {
     // Default emits
     socket.emit('giftSheet', giftList);
     socket.emit('status', { connected: !!(connection && connection.isConnected), username: currentUsername, roomId: currentRoomId });
+    socket.emit('liveStats', liveStats);
 
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {

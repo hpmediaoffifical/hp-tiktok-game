@@ -87,8 +87,15 @@
         // License: handle qua biến cục bộ licStatusText/licMeta/btnLicLogout phía dưới
         dot: $('#dot'),
         statusText: $('#status-text'),
-        statRoom: $('#stat-room'),
-        statViewer: $('#stat-viewer'),
+        // Old stat refs (no longer rendered, kept defensively for backward compat in other code paths)
+        statRoom: { textContent: '' },
+        statViewer: { textContent: '' },
+        // New live stats grid
+        liveStatsGrid: $('#live-stats-grid'),
+        lstatViewer: $('#lstat-viewer'),
+        lstatDiamond: $('#lstat-diamond'),
+        lstatFollow: $('#lstat-follow'),
+        lstatShare: $('#lstat-share'),
         gameList: $('#game-list'),
         homeGrid: $('#home-grid'),
         giftCountHint: $('#gift-count-hint'),
@@ -255,12 +262,43 @@
             const div = document.createElement('div');
             div.className = 'game-item';
             div.dataset.id = g.id;
+            // Determine if game has 'enabled' field in its config (pktiktok + vipwelcome)
+            const cfg = g.config || {};
+            const hasEnabledField = ('enabled' in cfg);
+            const isEnabled = !hasEnabledField || cfg.enabled !== false;
             div.innerHTML = `<span class="ico">${g.icon}</span>
                 <div class="meta">
                     <div class="gn">${g.name}</div>
                     <div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>
-                </div>`;
-            div.addEventListener('click', () => openGame(g.id));
+                </div>
+                <button class="game-toggle ${isEnabled ? 'on' : 'off'}" data-game-toggle="${g.id}" title="${isEnabled ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT'} game chạy ngầm (overlay sẽ không phát hiệu ứng)">⏻</button>`;
+            // Click toàn thân (trừ toggle) → mở game
+            div.addEventListener('click', (e) => {
+                if (e.target.closest('[data-game-toggle]')) return;
+                openGame(g.id);
+            });
+            // Click toggle → bật/tắt game
+            div.querySelector('[data-game-toggle]')?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const btn = e.currentTarget;
+                const cur = !btn.classList.contains('off');   // currently on?
+                const next = !cur;
+                btn.classList.toggle('on', next);
+                btn.classList.toggle('off', !next);
+                btn.title = next ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT';
+                // POST update to server
+                try {
+                    await fetch(`/api/games/${g.id}/config`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next })
+                    });
+                    if (g.config) g.config.enabled = next;
+                } catch (err) {
+                    // revert
+                    btn.classList.toggle('on', !next);
+                    btn.classList.toggle('off', next);
+                }
+            });
             dom.gameList.appendChild(div);
         }
     }
@@ -1383,18 +1421,21 @@
         isLiveConnected = !!connected;
         liveUsername = username || '';
         if (connected) {
-            // Ẩn input, đổi nút thành dạng toggle disconnect
             if (dom.connRow) dom.connRow.style.display = 'none';
             dom.btnConnect.classList.remove('primary');
             dom.btnConnect.classList.add('secondary');
             dom.btnConnect.disabled = false;
             dom.btnConnect.innerHTML = `<span class="conn-dot"></span><span class="conn-name">@${escAttrInline(liveUsername)}</span><span class="conn-eject" title="Ngắt kết nối">⏻</span>`;
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = false;
         } else {
             if (dom.connRow) dom.connRow.style.display = '';
             dom.btnConnect.classList.add('primary');
             dom.btnConnect.classList.remove('secondary');
             dom.btnConnect.disabled = false;
             dom.btnConnect.textContent = 'Kết nối LIVE';
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = true;
+            // Reset stats display
+            ['lstatViewer','lstatDiamond','lstatFollow','lstatShare'].forEach(k => { if (dom[k]) dom[k].textContent = '0'; });
         }
     }
     function escAttrInline(s) { return String(s ?? '').replace(/[<>"]/g, ''); }
@@ -1838,7 +1879,21 @@
     socket.on('member', (m) => appendSystem(`👋 ${m.nickname || m.uniqueId} đã vào LIVE`));
     socket.on('social', (s) => appendSystem(`💗 ${s.nickname || s.uniqueId} ${s.label || ''}`));
     socket.on('roomUser', (r) => {
-        if (typeof r.viewerCount === 'number') dom.statViewer.textContent = `👥 ${r.viewerCount}`;
+        if (typeof r.viewerCount === 'number' && dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(r.viewerCount);
+    });
+    // Live stats — viewer, diamond, follow, share
+    function fmtNum(n) {
+        n = Number(n) || 0;
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return String(n);
+    }
+    socket.on('liveStats', (s) => {
+        if (!s) return;
+        if (dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(s.viewerCount);
+        if (dom.lstatDiamond) dom.lstatDiamond.textContent = fmtNum(s.totalDiamond);
+        if (dom.lstatFollow) dom.lstatFollow.textContent = fmtNum(s.totalFollows);
+        if (dom.lstatShare) dom.lstatShare.textContent = fmtNum(s.totalShares);
     });
 
     // ===== Bình luận popup toggle + badge =====

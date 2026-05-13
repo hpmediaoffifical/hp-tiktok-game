@@ -238,27 +238,125 @@ function buildTray() {
 //   Tier 5: app.exit(0) → main process exit chính thức
 //   Hard fallback: taskkill /F /T /PID → kill TREE (kể cả grandchildren) sau 1.5s
 // ============================================================
-function confirmQuit() {
-    // Modal confirm — block tới khi user chọn. Default button = "Huỷ" để Enter nhầm không thoát.
-    // Cancel ID = 1 → cả nút Cancel + ESC + X dialog đều coi như không thoát.
-    const parent = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
-    const choice = dialog.showMessageBoxSync(parent, {
-        type: 'question',
-        buttons: ['Thoát hẳn', 'Huỷ — giữ app chạy'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-        title: 'Xác nhận thoát',
-        message: 'Bạn có chắc muốn thoát HP Action LIVE?',
-        detail: 'Mọi OBS overlay đang kết nối sẽ ngừng nhận tín hiệu khi app thoát. Bấm "Huỷ" để giữ app chạy ngầm ở tray.'
+// Custom confirm popup styled cùng theme app — thay cho dialog.showMessageBoxSync xấu xí.
+// Sử dụng BrowserWindow frameless + transparent + IPC để communicate.
+function confirmQuitAsync() {
+    return new Promise((resolve) => {
+        let resolved = false;
+        const finish = (v) => { if (resolved) return; resolved = true; resolve(v); };
+        try {
+            const parent = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+            const win = new BrowserWindow({
+                width: 460, height: 280,
+                frame: false, transparent: true,
+                resizable: false, minimizable: false, maximizable: false,
+                alwaysOnTop: true, skipTaskbar: true,
+                parent, modal: !!parent,
+                show: false,
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    sandbox: false
+                }
+            });
+            const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+                html,body { margin: 0; padding: 0; height: 100%; background: transparent; font-family: 'Segoe UI', Roboto, sans-serif; overflow: hidden; user-select: none; -webkit-app-region: drag; }
+                .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+                .card {
+                    -webkit-app-region: drag;
+                    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    border-radius: 14px;
+                    padding: 22px 26px;
+                    width: 420px; max-width: 92vw;
+                    box-shadow: 0 22px 64px rgba(0,0,0,0.75), 0 0 0 1px rgba(239, 68, 68, 0.18);
+                    animation: pop 0.25s cubic-bezier(.34,1.56,.64,1);
+                }
+                @keyframes pop { from { transform: translateY(20px) scale(0.92); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+                .head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+                .ico {
+                    width: 44px; height: 44px; flex-shrink: 0;
+                    display: flex; align-items: center; justify-content: center;
+                    background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(255, 107, 61, 0.18));
+                    border-radius: 12px; font-size: 22px;
+                }
+                .title { font-size: 16px; font-weight: 800; color: #f3f5fa; }
+                .body { font-size: 13px; color: #d6dae6; line-height: 1.55; padding: 4px 0 16px; }
+                .body .hint { color: #8b93a8; font-size: 12px; }
+                .actions { display: flex; justify-content: flex-end; gap: 10px; -webkit-app-region: no-drag; }
+                button {
+                    -webkit-app-region: no-drag;
+                    padding: 9px 22px; font-size: 13px; font-weight: 700;
+                    border-radius: 8px; cursor: pointer;
+                    transition: transform 0.1s, box-shadow 0.15s;
+                    border: 1px solid transparent;
+                    font-family: inherit;
+                }
+                button:hover { transform: translateY(-1px); }
+                .cancel { background: rgba(255,255,255,0.07); color: #d6dae6; border-color: rgba(255,255,255,0.12); }
+                .cancel:hover { background: rgba(255,255,255,0.14); }
+                .ok { background: linear-gradient(135deg, #ef4444, #f97316); color: #fff; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); }
+                .ok:hover { box-shadow: 0 6px 20px rgba(239, 68, 68, 0.55); }
+            </style></head><body>
+                <div class="overlay">
+                    <div class="card">
+                        <div class="head">
+                            <div class="ico">⏻</div>
+                            <div class="title">Xác nhận thoát HP Action LIVE</div>
+                        </div>
+                        <div class="body">
+                            Bạn có chắc muốn thoát?<br>
+                            <span class="hint">Mọi OBS overlay đang kết nối sẽ ngừng nhận tín hiệu khi app thoát. Bấm "Giữ chạy ngầm" để app tiếp tục hoạt động ở tray.</span>
+                        </div>
+                        <div class="actions">
+                            <button id="cancel" class="cancel" autofocus>Giữ chạy ngầm</button>
+                            <button id="ok" class="ok">Thoát hẳn</button>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    const { ipcRenderer } = require('electron');
+                    document.getElementById('ok').addEventListener('click', () => ipcRenderer.send('hp-quit-confirm', true));
+                    document.getElementById('cancel').addEventListener('click', () => ipcRenderer.send('hp-quit-confirm', false));
+                    document.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape') ipcRenderer.send('hp-quit-confirm', false);
+                        else if (e.key === 'Enter') ipcRenderer.send('hp-quit-confirm', false);   // Enter default = huỷ
+                    });
+                    // Focus cancel để Enter mặc định = huỷ
+                    setTimeout(() => document.getElementById('cancel').focus(), 50);
+                </script>
+            </body></html>`;
+            win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+            win.once('ready-to-show', () => win.show());
+            const { ipcMain } = require('electron');
+            const handler = (_evt, result) => { try { win.close(); } catch (e) {} finish(!!result); };
+            ipcMain.once('hp-quit-confirm', handler);
+            win.on('closed', () => { ipcMain.removeListener('hp-quit-confirm', handler); finish(false); });
+        } catch (e) {
+            // Fallback dialog nếu BrowserWindow fail
+            const choice = dialog.showMessageBoxSync({
+                type: 'question', buttons: ['Thoát hẳn', 'Huỷ'], defaultId: 1, cancelId: 1,
+                title: 'Xác nhận thoát', message: 'Bạn có chắc muốn thoát HP Action LIVE?'
+            });
+            finish(choice === 0);
+        }
     });
-    return choice === 0;
 }
 
 function fullQuit(opts) {
     if (isQuitting) return;
     const skipConfirm = !!(opts && opts.skipConfirm);
-    if (!skipConfirm && !confirmQuit()) return;   // user huỷ → giữ app chạy
+    if (!skipConfirm) {
+        confirmQuitAsync().then((confirmed) => {
+            if (confirmed) actualFullQuit();
+        });
+        return;
+    }
+    actualFullQuit();
+}
+
+function actualFullQuit() {
+    if (isQuitting) return;
     isQuitting = true;
 
     // === Tier 1: Đóng Socket.IO (disconnect mọi OBS client) ===
