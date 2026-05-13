@@ -18,6 +18,21 @@
     let pendingSave = null;
     let currentTab = 'users';
 
+    // Các loại trigger TikTok event mà user-rule có thể chọn
+    const TRIGGER_DEFS = [
+        { id: 'join',     emoji: '🚪', label: 'Vào phòng' },
+        { id: 'like',     emoji: '❤️', label: 'Táp tim' },
+        { id: 'follow',   emoji: '➕', label: 'Follow LIVE' },
+        { id: 'share',    emoji: '📤', label: 'Share LIVE' },
+        { id: 'comment',  emoji: '💬', label: 'Comment' },
+        { id: 'envelope', emoji: '🧧', label: 'Gửi bao lì xì' },
+        { id: 'gift',     emoji: '🚀', label: 'Lên cấp (gift)' }
+    ];
+    function triggerLabel(id) {
+        const t = TRIGGER_DEFS.find(x => x.id === id);
+        return t ? `${t.emoji} ${t.label}` : id;
+    }
+
     // 12 phong cách lời chúc — phải khớp với class style-* trong overlay.html
     const LABEL_STYLE_DEFS = [
         { id: 'goldpink', label: 'Vàng - Hồng', emoji: '🌟' },
@@ -269,13 +284,75 @@
             render();
             flashOk(`Đã nhân bản → "${clone.name}"`);
         });
+        // Export profile to JSON file
+        $('#vw-btn-export-profile')?.addEventListener('click', () => {
+            const p = activeProfile(); if (!p) return;
+            // Snapshot — cloning để không expose id thực tế (sẽ regenerate khi import)
+            const exportObj = {
+                _hpExport: 'vipwelcome-profile',
+                _version: 1,
+                _exportedAt: new Date().toISOString(),
+                profile: JSON.parse(JSON.stringify(p))
+            };
+            // Strip ID — sẽ regenerate khi import
+            delete exportObj.profile.id;
+            for (const r of (exportObj.profile.userRules || [])) delete r.id;
+            const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            const safeName = (p.name || 'nhom').replace(/[^\w\-]+/g, '_').slice(0, 40);
+            a.download = `vipwelcome-${safeName}-${Date.now().toString(36)}.json`;
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+            flashOk(`Đã xuất nhóm "${p.name}" — file đang tải xuống`);
+        });
+        // Import profile from JSON
+        $('#vw-btn-import-profile')?.addEventListener('click', () => {
+            const inp = document.createElement('input');
+            inp.type = 'file'; inp.accept = 'application/json,.json'; inp.style.display = 'none';
+            document.body.appendChild(inp);
+            inp.onchange = async () => {
+                const f = inp.files?.[0]; inp.remove();
+                if (!f) return;
+                try {
+                    const txt = await f.text();
+                    const obj = JSON.parse(txt);
+                    if (!obj || obj._hpExport !== 'vipwelcome-profile' || !obj.profile) {
+                        flashWarn('File không phải dạng VIP Welcome profile hợp lệ');
+                        return;
+                    }
+                    const imported = obj.profile;
+                    // Regenerate IDs
+                    imported.id = window.HpGame.vipwelcome.newProfileId();
+                    imported.name = (imported.name || 'Nhóm import') + ' (import)';
+                    if (Array.isArray(imported.userRules)) {
+                        for (const r of imported.userRules) r.id = window.HpGame.vipwelcome.newRuleId();
+                    }
+                    cfg.profiles = cfg.profiles || [];
+                    cfg.profiles.push(imported);
+                    cfg.activeProfileId = imported.id;
+                    await persistConfig();
+                    render();
+                    flashOk(`Đã import nhóm "${imported.name}" — ${(imported.userRules || []).length} user rule`);
+                } catch (e) {
+                    flashWarn('Lỗi import: ' + e.message);
+                }
+            };
+            inp.click();
+        });
         $('#vw-btn-delete-profile')?.addEventListener('click', async () => {
             const p = activeProfile(); if (!p) return;
             if (cfg.profiles.length <= 1) {
                 flashWarn('Cần ít nhất 1 nhóm — không thể xoá nhóm cuối cùng');
                 return;
             }
-            if (!confirm(`Xoá nhóm "${p.name}"? Mọi rule + cài đặt trong nhóm này sẽ MẤT.`)) return;
+            const ok = await (window.hpConfirm ? window.hpConfirm({
+                icon: '🗑', tone: 'danger',
+                title: 'Xoá nhóm hồ sơ',
+                body: `Xoá nhóm <b>"${escapeHtml(p.name)}"</b>?<br><span style="color:#8b93a8">Mọi rule + cài đặt trong nhóm này sẽ MẤT vĩnh viễn.</span>`,
+                okLabel: 'Xoá nhóm', cancelLabel: 'Huỷ'
+            }) : Promise.resolve(confirm(`Xoá nhóm "${p.name}"?`)));
+            if (!ok) return;
             cfg.profiles = cfg.profiles.filter(x => x.id !== p.id);
             cfg.activeProfileId = cfg.profiles[0].id;
             await persistConfig();
@@ -450,6 +527,34 @@
         // Re-wire buttons mỗi lần render
         $('#vw-btn-add-user-rule')?.addEventListener('click', addUserRule, { once: true });
         $('#vw-btn-test-all')?.addEventListener('click', testAllRules, { once: true });
+        // Search filter — keep state across re-renders via input itself
+        const searchEl = $('#vw-rule-search');
+        if (searchEl && !searchEl._vwWired) {
+            searchEl._vwWired = true;
+            searchEl.addEventListener('input', () => applyRuleSearchFilter(searchEl.value));
+        }
+        if (searchEl?.value) applyRuleSearchFilter(searchEl.value);
+    }
+
+    function applyRuleSearchFilter(query) {
+        const q = String(query || '').toLowerCase().trim();
+        const cards = document.querySelectorAll('#vw-user-rules-list .vw-rule-card');
+        let hidden = 0;
+        cards.forEach(card => {
+            const ruleId = card.dataset.vwRule;
+            const p = activeProfile();
+            const rule = (p?.userRules || []).find(r => r.id === ruleId);
+            if (!rule) return;
+            const haystack = (
+                (rule.uniqueId || '') + ' ' +
+                (rule.message || '') + ' ' +
+                (rule.mediaName || '') + ' ' +
+                (rule.trigger || '')
+            ).toLowerCase();
+            const match = !q || haystack.includes(q);
+            card.style.display = match ? '' : 'none';
+            if (!match) hidden++;
+        });
     }
 
     async function testAllRules() {
@@ -484,19 +589,22 @@
         const hasFile = !!r.mediaUrl;
         const fileName = r.mediaName || (r.mediaUrl ? r.mediaUrl.split('/').pop() : '');
         const typeBadge = hasFile ? (r.mediaType === 'video' ? '🎞 VIDEO' : (r.mediaType === 'audio' ? '🔊 ÂM' : '📄')) : '';
+        const triggerDef = TRIGGER_DEFS.find(t => t.id === r.trigger) || TRIGGER_DEFS[0];
+        const ruleStyleOptions = ['<option value="">— Theo phong cách nhóm —</option>']
+            .concat(LABEL_STYLE_DEFS.map(s => `<option value="${s.id}" ${r.labelStyle === s.id ? 'selected' : ''}>${s.emoji} ${escapeHtml(s.label)}</option>`));
         return `<div class="vw-rule-card${r.enabled === false ? ' disabled' : ''}${hasFile ? ' has-file' : ''}" data-vw-rule="${r.id}">
             <div class="vw-rule-status" data-vw-rule-status="${r.id}">
                 <span class="vw-rule-status-text">⏳ Đang chờ user...</span>
                 <span class="vw-rule-fire-count" data-vw-rule-firecount="${r.id}" title="Số lần fire trong phiên này" hidden>🔥 0</span>
             </div>
             <div class="vw-rule-head">
-                <span class="vw-rule-emoji">${r.trigger === 'gift' ? '🚀' : '🚪'}</span>
+                <span class="vw-rule-emoji">${triggerDef.emoji}</span>
                 <input type="text" class="vw-rule-uid" placeholder="@tiktok_id" data-vw-uid value="${escapeHtml(r.uniqueId || '')}" />
                 <select data-vw-trigger class="vw-rule-trigger">
-                    <option value="join" ${r.trigger === 'join' ? 'selected' : ''}>🚪 Vào phòng</option>
-                    <option value="gift" ${r.trigger === 'gift' ? 'selected' : ''}>🚀 Lên cấp</option>
+                    ${TRIGGER_DEFS.map(t => `<option value="${t.id}" ${r.trigger === t.id ? 'selected' : ''}>${t.emoji} ${escapeHtml(t.label)}</option>`).join('')}
                 </select>
                 <label class="vw-rule-toggle" title="Bật / Tắt rule"><input type="checkbox" data-vw-toggle ${r.enabled === false ? '' : 'checked'} /></label>
+                <button class="ghost mini" data-vw-clone title="Sao chép rule này">📋</button>
                 <button class="ghost mini danger" data-vw-delete title="Xoá rule">🗑</button>
             </div>
             <div class="vw-rule-file" title="${escapeHtml(fileName)}">
@@ -513,6 +621,13 @@
             <div class="vw-rule-row">
                 <label class="vw-inline vw-msg-row">💬 Lời chúc:
                     <input type="text" placeholder="VD: Chào {nickname} đã ghé phòng!" data-vw-message value="${escapeHtml(r.message || '')}" />
+                </label>
+            </div>
+            <div class="vw-rule-row">
+                <label class="vw-inline">🎨 Phong cách
+                    <select data-vw-rule-style>
+                        ${ruleStyleOptions.join('')}
+                    </select>
                 </label>
             </div>
             <div class="vw-rule-actions">
@@ -556,14 +671,39 @@
                 card.classList.toggle('disabled', !r.enabled);
                 schedulePersist();
             });
-            card.querySelector('[data-vw-delete]')?.addEventListener('click', () => {
+            card.querySelector('[data-vw-delete]')?.addEventListener('click', async () => {
                 const r = getRule(); if (!r) return;
-                if (!confirm(`Xoá rule cho @${r.uniqueId || '(chưa đặt ID)'}?`)) return;
+                const ok = await (window.hpConfirm ? window.hpConfirm({
+                    icon: '🗑', tone: 'danger',
+                    title: 'Xoá rule',
+                    body: `Xoá rule cho <b>@${escapeHtml(r.uniqueId || '(chưa đặt ID)')}</b>?<br><span style="color:#8b93a8">Hành động này không thể hoàn tác.</span>`,
+                    okLabel: 'Xoá', cancelLabel: 'Huỷ'
+                }) : Promise.resolve(confirm(`Xoá rule cho @${r.uniqueId || '(chưa đặt ID)'}?`)));
+                if (!ok) return;
                 const p = activeProfile(); if (!p) return;
                 p.userRules = (p.userRules || []).filter(x => x.id !== ruleId);
                 renderUserRulesTab();
                 renderProfileChips();
                 persistConfig();
+            });
+            // Sao chép rule
+            card.querySelector('[data-vw-clone]')?.addEventListener('click', () => {
+                const r = getRule(); if (!r) return;
+                const p = activeProfile(); if (!p) return;
+                const clone = JSON.parse(JSON.stringify(r));
+                clone.id = window.HpGame.vipwelcome.newRuleId();
+                clone.uniqueId = '';   // đợi user điền ID mới
+                p.userRules.push(clone);
+                renderUserRulesTab();
+                renderProfileChips();
+                persistConfig();
+                flashOk('Đã sao chép — điền TikTok ID mới cho bản sao');
+            });
+            // Sub-style per rule (override profile default)
+            card.querySelector('[data-vw-rule-style]')?.addEventListener('change', (e) => {
+                const r = getRule(); if (!r) return;
+                r.labelStyle = e.target.value || '';
+                schedulePersist();
             });
             card.querySelector('[data-vw-pick]')?.addEventListener('click', () => pickFileForRule(ruleId));
             card.querySelector('[data-vw-clear-file]')?.addEventListener('click', () => {
@@ -793,6 +933,7 @@
                     <span id="vw-set-y-v">${d.yPercent ?? 50}</span>
                 </label>
                 <label class="vw-inline"><input type="checkbox" id="vw-set-showtext" ${d.showText !== false ? 'checked' : ''} /> Hiện lời chúc trên overlay</label>
+                <label class="vw-inline"><input type="checkbox" id="vw-set-showavatar" ${d.showAvatar !== false ? 'checked' : ''} /> 👤 Hiện avatar user (tròn, cạnh lời chúc)</label>
                 <label class="vw-inline">Vị trí text
                     <select id="vw-set-textpos">
                         <option value="top" ${d.textPosition === 'top' ? 'selected' : ''}>Trên</option>
@@ -829,6 +970,7 @@
         wireRange('vw-set-x', 'xPercent');
         wireRange('vw-set-y', 'yPercent');
         $('#vw-set-showtext')?.addEventListener('change', (e) => { cfg.display.showText = !!e.target.checked; schedulePersist(); });
+        $('#vw-set-showavatar')?.addEventListener('change', (e) => { cfg.display.showAvatar = !!e.target.checked; schedulePersist(); });
         $('#vw-set-textpos')?.addEventListener('change', (e) => { cfg.display.textPosition = e.target.value; schedulePersist(); });
         $('#vw-set-qmax')?.addEventListener('input', (e) => { cfg.queue.maxLen = Math.max(1, parseInt(e.target.value, 10) || 20); schedulePersist(); });
         $('#vw-set-cooldown')?.addEventListener('input', (e) => { cfg.queue.perUserCooldownSec = Math.max(0, parseInt(e.target.value, 10) || 0); schedulePersist(); });

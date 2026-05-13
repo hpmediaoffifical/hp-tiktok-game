@@ -34,12 +34,23 @@
         color: #fff; font-size: 32px; font-weight: 900; letter-spacing: 0.6px;
         text-shadow: 0 3px 10px rgba(0,0,0,0.65);
         box-shadow: 0 12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
-        white-space: nowrap; max-width: 92%;
-        overflow: hidden; text-overflow: ellipsis;
+        max-width: 92%;
         display: none;
         font-family: 'Segoe UI', 'Roboto', sans-serif;
+        align-items: center; gap: 14px;
     }
-    #label.show { display: block; animation: labelIn 360ms cubic-bezier(.34,1.56,.64,1); }
+    #label.show { display: flex; animation: labelIn 360ms cubic-bezier(.34,1.56,.64,1); }
+    #avatar {
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        border: 3px solid rgba(255,255,255,0.8);
+        object-fit: cover;
+        flex-shrink: 0;
+        background: #1a1a1a;
+        display: none;
+    }
+    #avatar.show { display: block; }
+    #label-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     #label.pos-top    { top: 96px; }
     #label.pos-middle { top: 50%; transform: translate(-50%, -50%); }
     #label.pos-bottom { bottom: 96px; }
@@ -154,7 +165,10 @@
         <div id="content">
             <video id="player" playsinline></video>
             <audio id="audioOnly"></audio>
-            <div id="label" class="pos-bottom style-goldpink"></div>
+            <div id="label" class="pos-bottom style-goldpink">
+                <img id="avatar" alt="" />
+                <span id="label-text"></span>
+            </div>
         </div>
     </div>
     <div class="debug-pill" id="debug">connecting…</div>
@@ -167,6 +181,9 @@
         const player = document.getElementById('player');
         const audioOnly = document.getElementById('audioOnly');
         const labelEl = document.getElementById('label');
+        const labelTextEl = document.getElementById('label-text');
+        const avatarEl = document.getElementById('avatar');
+        let pendingStyleOverride = '';
 
         let currentCfg = null;
         let labelTimer = null;
@@ -211,15 +228,24 @@
             labelEl.classList.remove('show');
             clearTimeout(labelTimer); labelTimer = null;
         }
-        // Apply style class fresh từ currentCfg — gọi mỗi lần show để tránh race với gameConfig
-        function applyLabelStyle() {
+        // Apply style — ưu tiên override từ payload (rule-level), fallback currentCfg
+        function applyLabelStyle(overrideStyle) {
             for (const s of LABEL_STYLES) labelEl.classList.remove('style-' + s);
-            const style = currentCfg?.display?.labelStyle || 'goldpink';
+            const style = overrideStyle || currentCfg?.display?.labelStyle || 'goldpink';
             labelEl.classList.add('style-' + (LABEL_STYLES.includes(style) ? style : 'goldpink'));
         }
-        function showLabel(text, durationMs) {
-            applyLabelStyle();
-            labelEl.textContent = text;
+        function showLabel(text, durationMs, opts) {
+            applyLabelStyle(opts?.styleOverride);
+            // Avatar — set src nếu có + showAvatar enabled từ config
+            const showAvatar = currentCfg?.display?.showAvatar !== false;
+            if (showAvatar && opts?.avatarUrl) {
+                avatarEl.src = opts.avatarUrl;
+                avatarEl.classList.add('show');
+            } else {
+                avatarEl.classList.remove('show');
+                avatarEl.src = '';
+            }
+            labelTextEl.textContent = text;
             labelEl.classList.remove('show');
             void labelEl.offsetWidth;
             labelEl.classList.add('show');
@@ -233,7 +259,10 @@
             const vol = Math.max(0, Math.min(1, (p.volume ?? 100) / 100));
             // Show label nếu config showText và payload có message
             if (currentCfg?.display?.showText !== false && p.message) {
-                showLabel(p.message);
+                showLabel(p.message, undefined, {
+                    styleOverride: p.labelStyle || '',
+                    avatarUrl: p.user?.profilePicture || ''
+                });
             }
             if (isVideo) {
                 clearAudio();

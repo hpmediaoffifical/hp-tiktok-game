@@ -580,6 +580,8 @@
                                     <button id="vw-btn-new-profile" class="primary small" title="Tạo nhóm hồ sơ mới">➕ Tạo nhóm</button>
                                     <button id="vw-btn-rename-profile" class="ghost small" title="Đổi tên nhóm đang chọn">✏ Đổi tên</button>
                                     <button id="vw-btn-clone-profile" class="ghost small" title="Sao chép nhóm đang chọn">📋 Nhân bản</button>
+                                    <button id="vw-btn-export-profile" class="ghost small" title="Tải nhóm đang chọn xuống file JSON (backup hoặc share)">📥 Export</button>
+                                    <button id="vw-btn-import-profile" class="ghost small" title="Import nhóm hồ sơ từ file JSON">📤 Import</button>
                                     <button id="vw-btn-delete-profile" class="danger small" title="Xoá nhóm đang chọn">🗑 Xoá</button>
                                 </div>
                             </div>
@@ -593,7 +595,8 @@
                             <!-- TAB: User cụ thể -->
                             <div class="tab-pane vw-pane active" data-vw-pane="users">
                                 <div class="vw-pane-head">
-                                    <div class="vw-pane-hint">Cài hiệu ứng riêng cho từng TikTok ID. Mỗi rule trigger khi user "🚪 Vào phòng" (lần đầu xuất hiện) hoặc "🚀 Lên cấp" (level TikTok tăng).</div>
+                                    <div class="vw-pane-hint">Cài hiệu ứng riêng cho từng TikTok ID — 7 trigger: Vào phòng / Táp tim / Follow / Share / Comment / Bao lì xì / Lên cấp.</div>
+                                    <input type="text" id="vw-rule-search" class="vw-search-input" placeholder="🔍 Tìm rule theo ID / lời chúc..." />
                                     <button id="vw-btn-test-all" class="ghost small" title="Test toàn bộ rule trong nhóm hiện tại theo thứ tự — verify media + overlay hoạt động">🧪 Test toàn nhóm</button>
                                     <button id="vw-btn-add-user-rule" class="primary small">➕ Thêm user</button>
                                 </div>

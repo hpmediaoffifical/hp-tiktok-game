@@ -60,7 +60,7 @@
             activeProfileId: p.id,
             profiles: [p],
             queue: { maxLen: 20, perUserCooldownSec: 60, perItemMinMs: 200, rejoinThresholdSec: 60 },
-            display: { scale: 100, xPercent: 50, yPercent: 50, showText: true, textPosition: 'bottom', labelStyle: 'goldpink' }
+            display: { scale: 100, xPercent: 50, yPercent: 50, showText: true, textPosition: 'bottom', labelStyle: 'goldpink', showAvatar: true }
         };
     }
 

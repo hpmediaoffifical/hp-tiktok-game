@@ -173,7 +173,8 @@ function makeDefaultVipWelcomeConfig() {
             scale: 100, xPercent: 50, yPercent: 50,
             showText: true,
             textPosition: 'bottom',
-            labelStyle: 'goldpink'        // goldpink|royal|neon|fire|luxury|pastel|emerald|ocean|vietnam|rainbow|glass|cyber
+            labelStyle: 'goldpink',
+            showAvatar: true             // hiện avatar tròn của user (lấy từ profilePicture TikTok)
         }
     };
 }
@@ -464,16 +465,18 @@ function attachConnectionEvents(conn) {
         const level = Number(data?.user?.userHonor?.level) || 0;
         const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
         const verified = !!data?.user?.verified;
+        const comment = data?.comment;
         rememberUserMapping(userId, uniqueId);
         broadcast('chat', {
             uniqueId, nickname,
             userId,
             profilePicture,
-            comment: data?.comment,
+            comment,
             createTime: Date.now()
         });
-        // First-seen JOIN fallback — workaround cho TikTok MEMBER throttling
+        // First-seen JOIN fallback + dedicated 'comment' trigger
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'chat', verified, userId);
+        try { handleVipWelcomeEvent('comment', { uniqueId, nickname, level, profilePicture, verified, comment }); } catch (e) {}
     });
 
     conn.on(WebcastEvent.GIFT, (data) => {
@@ -523,7 +526,9 @@ function attachConnectionEvents(conn) {
         const verified = !!data?.user?.verified;
         rememberUserMapping(userId, uniqueId);
         broadcast('like', { uniqueId, nickname, likeCount: data?.likeCount });
+        // Fire 'join' fallback + dedicated 'like' trigger
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'like', verified, userId);
+        try { handleVipWelcomeEvent('like', { uniqueId, nickname, level, profilePicture, verified, likeCount: data?.likeCount }); } catch (e) {}
     });
     conn.on(WebcastEvent.SOCIAL, (data) => {
         const uniqueId = data?.user?.uniqueId;
@@ -535,6 +540,45 @@ function attachConnectionEvents(conn) {
         rememberUserMapping(userId, uniqueId);
         broadcast('social', { uniqueId, nickname, label: data?.label });
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'social', verified, userId);
+    });
+    // FOLLOW event — connector emit khi user follow trong LIVE
+    conn.on(WebcastEvent.FOLLOW, (data) => {
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        console.log(`[vipwelcome] FOLLOW: @${uniqueId} "${nickname || ''}"`);
+        try { handleVipWelcomeEvent('follow', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'follow', verified, userId);
+    });
+    // SHARE event — connector emit khi user share LIVE
+    conn.on(WebcastEvent.SHARE, (data) => {
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        console.log(`[vipwelcome] SHARE: @${uniqueId} "${nickname || ''}"`);
+        try { handleVipWelcomeEvent('share', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'share', verified, userId);
+    });
+    // ENVELOPE event — TikTok bao lì xì
+    conn.on(WebcastEvent.ENVELOPE, (data) => {
+        const uniqueId = data?.user?.uniqueId || data?.envelopeInfo?.user?.uniqueId;
+        const userId = data?.user?.userId || data?.envelopeInfo?.user?.userId;
+        const nickname = data?.user?.nickname || data?.envelopeInfo?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        console.log(`[vipwelcome] ENVELOPE (bao lì xì): @${uniqueId}`);
+        try { handleVipWelcomeEvent('envelope', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'envelope', verified, userId);
     });
     conn.on(WebcastEvent.ROOM_USER, (data) => {
         broadcast('roomUser', { viewerCount: data?.viewerCount ?? data?.totalUser });
@@ -1746,13 +1790,14 @@ function enqueueVipWelcomePayload(payload, priority) {
 
 function buildVipPayload({ source, ruleId, ruleLabel, eventType, media, message, user, gift }) {
     return {
-        source,                 // 'userRule' | 'globalJoin' | 'globalGift' | 'manual'
+        source,
         ruleId: ruleId || '',
         ruleLabel: ruleLabel || '',
-        eventType,              // 'join' | 'gift'
+        eventType,
         mediaUrl: media.mediaUrl,
         mediaType: media.mediaType || guessMediaType(media.mediaUrl),
         volume: media.volume == null ? 100 : media.volume,
+        labelStyle: media.labelStyle || '',   // rule-level override → overlay applyLabelStyle ưu tiên
         message: message || '',
         user: user || null,
         gift: gift || null,
@@ -1795,7 +1840,9 @@ function checkAndEnqueueVip(opts) {
     const message = renderVipMessage(messageTemplate, ctx);
     // User-specific rule (chỉ định TikTok ID) = PRIORITY → drain trước global
     const priority = source === 'userRule';
-    enqueueVipWelcomePayload(buildVipPayload({ source, ruleId, ruleLabel, eventType, media, message, user, gift }), priority);
+    // Forward rule's labelStyle override (nếu có) qua media object → buildVipPayload
+    const mediaWithStyle = { ...media, labelStyle: media.labelStyle || '' };
+    enqueueVipWelcomePayload(buildVipPayload({ source, ruleId, ruleLabel, eventType, media: mediaWithStyle, message, user, gift }), priority);
 }
 
 function handleVipWelcomeEvent(eventType, evt) {

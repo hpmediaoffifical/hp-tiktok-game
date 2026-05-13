@@ -3309,7 +3309,15 @@ body.game-caro #caught-popup {
 .vw-pane-head {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 6px 4px;
+    flex-wrap: wrap;
 }
+.vw-search-input {
+    flex: 0 1 220px; min-width: 140px;
+    padding: 5px 10px; font-size: 12px;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+}
+.vw-search-input:focus { outline: none; border-color: #ffb800; }
 .vw-pane-hint {
     font-size: 12px; color: #8b93a8; line-height: 1.4;
     flex: 0 0 auto;   /* default: không stretch */
