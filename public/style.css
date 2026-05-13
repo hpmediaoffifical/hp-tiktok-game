@@ -505,14 +505,11 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     max-width: 100%;
 }
 .quick-test-card .qt-action {
-    position: absolute; top: 3px; right: 3px;
-    font-size: 20px;
+    position: absolute; top: 2px; right: 4px;
+    font-size: 22px;
     line-height: 1;
-    background: linear-gradient(135deg, #ff6b3d, #ec4899);
-    border-radius: 6px;
-    padding: 4px 6px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-    border: 1px solid rgba(255,255,255,0.2);
+    /* Không nền — chỉ emoji + shadow để nổi trên ảnh quà */
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)) drop-shadow(0 0 4px rgba(0,0,0,0.5));
     z-index: 2;
 }
 .quick-test-empty {
