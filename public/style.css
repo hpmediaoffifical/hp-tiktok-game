@@ -505,13 +505,15 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     max-width: 100%;
 }
 .quick-test-card .qt-action {
-    position: absolute; top: 2px; right: 2px;
-    font-size: 12px;
-    background: rgba(255,107,61,0.9);
-    color: #fff;
-    border-radius: 4px;
-    padding: 1px 4px;
+    position: absolute; top: 3px; right: 3px;
+    font-size: 20px;
     line-height: 1;
+    background: linear-gradient(135deg, #ff6b3d, #ec4899);
+    border-radius: 6px;
+    padding: 4px 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.2);
+    z-index: 2;
 }
 .quick-test-empty {
     font-size: 11px; color: #6b7390;

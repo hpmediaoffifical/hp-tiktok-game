@@ -813,7 +813,9 @@
             name.textContent = g.name || `ID ${giftId}`;
             const actBadge = document.createElement('div');
             actBadge.className = 'qt-action';
+            // Hiển thị icon to + tooltip text khi hover
             actBadge.textContent = ef?.ico || '?';
+            actBadge.title = ef?.label || action;
             card.appendChild(actBadge);
             card.appendChild(img);
             card.appendChild(name);
