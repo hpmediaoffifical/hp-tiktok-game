@@ -180,6 +180,68 @@
         dom.commentsEl.scrollTop = dom.commentsEl.scrollHeight;
     }
 
+    function escHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // hpConfirm — modal styled theo theme app, thay thế cho window.confirm() xấu xí.
+    // tone: 'normal' | 'danger' (default 'normal')
+    function hpConfirm({ icon, title, body, okLabel, cancelLabel, tone }) {
+        return new Promise((resolve) => {
+            let overlay = document.getElementById('hp-confirm-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'hp-confirm-overlay';
+                overlay.className = 'hp-confirm-overlay';
+                overlay.innerHTML = `
+                    <div class="hp-confirm-card">
+                        <div class="hp-confirm-head">
+                            <div class="hp-confirm-icon" id="hp-confirm-icon"></div>
+                            <div class="hp-confirm-title" id="hp-confirm-title"></div>
+                        </div>
+                        <div class="hp-confirm-body" id="hp-confirm-body"></div>
+                        <div class="hp-confirm-actions">
+                            <button class="hp-confirm-btn cancel" id="hp-confirm-cancel"></button>
+                            <button class="hp-confirm-btn ok" id="hp-confirm-ok"></button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            }
+            const card = overlay.querySelector('.hp-confirm-card');
+            card.classList.toggle('tone-danger', tone === 'danger');
+            overlay.querySelector('#hp-confirm-icon').textContent = icon || '?';
+            overlay.querySelector('#hp-confirm-title').textContent = title || 'Xác nhận';
+            overlay.querySelector('#hp-confirm-body').innerHTML = body || '';
+            const okBtn = overlay.querySelector('#hp-confirm-ok');
+            const cancelBtn = overlay.querySelector('#hp-confirm-cancel');
+            okBtn.textContent = okLabel || 'OK';
+            cancelBtn.textContent = cancelLabel || 'Huỷ';
+            overlay.classList.add('show');
+            setTimeout(() => cancelBtn.focus(), 30);
+            function cleanup(val) {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onKey);
+                overlay.removeEventListener('click', onBackdrop);
+                resolve(val);
+            }
+            function onOk() { cleanup(true); }
+            function onCancel() { cleanup(false); }
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+                else if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+            }
+            function onBackdrop(e) { if (e.target === overlay) onCancel(); }
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            overlay.addEventListener('click', onBackdrop);
+        });
+    }
+    // Expose để các module khác dùng
+    window.hpConfirm = hpConfirm;
+
     // ===== Games =====
     async function loadGames() {
         const res = await fetch('/api/games');
@@ -226,7 +288,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -236,6 +298,15 @@
         if (gameId === 'thuytinh') openThuytinh(game);
         else if (gameId === 'caro') openCaro(game);
         else if (gameId === 'pktiktok') openPkTiktok(game);
+        else if (gameId === 'vipwelcome') openVipWelcome(game);
+    }
+
+    function openVipWelcome(game) {
+        if (window.HpVipWelcomePanel && typeof window.HpVipWelcomePanel.open === 'function') {
+            window.HpVipWelcomePanel.open(socket);
+        } else {
+            console.error('[vipwelcome] HpVipWelcomePanel chưa load');
+        }
     }
 
     function openCaro(game) {
@@ -1317,7 +1388,7 @@
             dom.btnConnect.classList.remove('primary');
             dom.btnConnect.classList.add('secondary');
             dom.btnConnect.disabled = false;
-            dom.btnConnect.innerHTML = `<span style="color:#22c55e">●</span> @${escAttrInline(liveUsername)} · Bấm để ngắt`;
+            dom.btnConnect.innerHTML = `<span class="conn-dot"></span><span class="conn-name">@${escAttrInline(liveUsername)}</span><span class="conn-eject" title="Ngắt kết nối">⏻</span>`;
         } else {
             if (dom.connRow) dom.connRow.style.display = '';
             dom.btnConnect.classList.add('primary');
@@ -1364,7 +1435,14 @@
         }
     }
     async function doDisconnect() {
-        const ok = window.confirm(`Ngắt kết nối khỏi @${liveUsername}?`);
+        const ok = await hpConfirm({
+            icon: '⏻',
+            title: 'Ngắt kết nối TikTok LIVE',
+            body: `Bạn có chắc muốn ngắt kết nối khỏi <b>@${escHtml(liveUsername)}</b>?<br><span style="color:#8b93a8">OBS overlay sẽ ngừng nhận sự kiện cho đến khi kết nối lại.</span>`,
+            okLabel: 'Ngắt kết nối',
+            cancelLabel: 'Giữ kết nối',
+            tone: 'danger'
+        });
         if (!ok) return;
         dom.btnConnect.disabled = true;
         await fetch('/api/disconnect', { method: 'POST' });

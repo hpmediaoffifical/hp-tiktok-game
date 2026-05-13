@@ -238,8 +238,27 @@ function buildTray() {
 //   Tier 5: app.exit(0) → main process exit chính thức
 //   Hard fallback: taskkill /F /T /PID → kill TREE (kể cả grandchildren) sau 1.5s
 // ============================================================
-function fullQuit() {
+function confirmQuit() {
+    // Modal confirm — block tới khi user chọn. Default button = "Huỷ" để Enter nhầm không thoát.
+    // Cancel ID = 1 → cả nút Cancel + ESC + X dialog đều coi như không thoát.
+    const parent = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+    const choice = dialog.showMessageBoxSync(parent, {
+        type: 'question',
+        buttons: ['Thoát hẳn', 'Huỷ — giữ app chạy'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'Xác nhận thoát',
+        message: 'Bạn có chắc muốn thoát HP Action LIVE?',
+        detail: 'Mọi OBS overlay đang kết nối sẽ ngừng nhận tín hiệu khi app thoát. Bấm "Huỷ" để giữ app chạy ngầm ở tray.'
+    });
+    return choice === 0;
+}
+
+function fullQuit(opts) {
     if (isQuitting) return;
+    const skipConfirm = !!(opts && opts.skipConfirm);
+    if (!skipConfirm && !confirmQuit()) return;   // user huỷ → giữ app chạy
     isQuitting = true;
 
     // === Tier 1: Đóng Socket.IO (disconnect mọi OBS client) ===
@@ -310,7 +329,7 @@ app.whenReady().then(async () => {
         await waitForServerReady();
     } catch (e) {
         dialog.showErrorBox('Server không phản hồi', 'Không thể kết nối tới ' + APP_URL);
-        fullQuit();
+        fullQuit({ skipConfirm: true });
         return;
     }
     createMainWindow();
@@ -330,5 +349,6 @@ app.on('activate', () => {
 });
 
 // Kéo signal ctrl+c / kill từ terminal về fullQuit để cleanup đầy đủ
-process.on('SIGINT', fullQuit);
-process.on('SIGTERM', fullQuit);
+// SIGINT/SIGTERM = user dứt khoát muốn thoát (ctrl+c terminal, OS shutdown) → bỏ qua confirm dialog
+process.on('SIGINT', () => fullQuit({ skipConfirm: true }));
+process.on('SIGTERM', () => fullQuit({ skipConfirm: true }));

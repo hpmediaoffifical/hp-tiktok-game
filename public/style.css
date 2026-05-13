@@ -181,6 +181,93 @@ input, button { font-family: inherit; }
     color: #e6e8ee; font-size: 13px; padding: 6px 0;
 }
 
+/* Connected state button — username + eject icon, no redundant text */
+#btn-connect.secondary {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 9px 12px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(34, 197, 94, 0.06));
+    border: 1px solid rgba(34, 197, 94, 0.45);
+    color: #d6f5e0; font-weight: 700;
+}
+#btn-connect.secondary:hover {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(239, 68, 68, 0.08));
+    border-color: rgba(239, 68, 68, 0.55); color: #ffe1e1;
+}
+#btn-connect.secondary:hover .conn-dot { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
+#btn-connect.secondary:hover .conn-eject { color: #ef4444; }
+.conn-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+    flex-shrink: 0; animation: connPulse 2s ease-in-out infinite;
+}
+@keyframes connPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.conn-name { flex: 1; text-align: left; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-eject { font-size: 14px; color: #8b93a8; transition: color 0.15s; flex-shrink: 0; }
+
+/* hpConfirm — modal styled thay thế window.confirm() */
+.hp-confirm-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center;
+    z-index: 11000;
+}
+.hp-confirm-overlay.show { display: flex; animation: hpcFade 0.18s ease-out; }
+@keyframes hpcFade { from { opacity: 0; } to { opacity: 1; } }
+.hp-confirm-card {
+    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+    border: 1px solid rgba(124, 58, 237, 0.35);
+    border-radius: 14px;
+    padding: 22px 26px;
+    width: 420px; max-width: 92vw;
+    box-shadow: 0 22px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(124, 58, 237, 0.18);
+    animation: hpcSlide 0.25s cubic-bezier(.34,1.56,.64,1);
+}
+.hp-confirm-card.tone-danger {
+    border-color: rgba(239, 68, 68, 0.4);
+    box-shadow: 0 22px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(239, 68, 68, 0.22);
+}
+@keyframes hpcSlide { from { transform: translateY(20px) scale(0.92); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+.hp-confirm-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.hp-confirm-icon {
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(255, 45, 85, 0.15));
+    border-radius: 12px;
+    font-size: 22px; flex-shrink: 0;
+}
+.tone-danger .hp-confirm-icon { background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(255, 107, 61, 0.18)); }
+.hp-confirm-title { font-size: 16px; font-weight: 800; color: #f3f5fa; letter-spacing: 0.2px; }
+.hp-confirm-body { font-size: 13px; color: #d6dae6; line-height: 1.55; padding: 4px 0 8px; }
+.hp-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.hp-confirm-btn {
+    padding: 9px 22px; font-size: 13px; font-weight: 700;
+    border-radius: 8px; cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.15s;
+    border: 1px solid transparent;
+}
+.hp-confirm-btn:hover { transform: translateY(-1px); }
+.hp-confirm-btn.cancel {
+    background: rgba(255, 255, 255, 0.07);
+    color: #d6dae6;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+.hp-confirm-btn.cancel:hover { background: rgba(255, 255, 255, 0.12); }
+.hp-confirm-btn.ok {
+    background: linear-gradient(135deg, #7c3aed, #3b82f6);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
+}
+.hp-confirm-btn.ok:hover { box-shadow: 0 6px 20px rgba(124, 58, 237, 0.5); }
+.tone-danger .hp-confirm-btn.ok {
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+}
+.tone-danger .hp-confirm-btn.ok:hover { box-shadow: 0 6px 20px rgba(239, 68, 68, 0.55); }
+
 .text-input {
     background: #0f1218; border: 1px solid #1f2533; border-radius: 8px;
     color: #e6e8ee; padding: 7px 10px; font-size: 12px; outline: none;
@@ -3091,6 +3178,429 @@ body.game-caro #caught-popup {
     margin-bottom: 2px; background: rgba(255, 255, 255, 0.02);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ============================================================
+   VIP Welcome — Chào mừng VIP & cấp độ tặng quà
+   ============================================================ */
+.vipwelcome-body { grid-template-columns: 1fr; gap: 10px; }
+.vipwelcome-card {
+    display: flex; flex-direction: column;
+    padding: 10px;
+    min-height: 0; overflow: hidden;
+    flex: 1;
+}
+
+/* Profile bar — chọn nhóm hồ sơ */
+.vw-profile-bar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+    padding: 8px 10px; margin-bottom: 8px;
+    background: linear-gradient(135deg, rgba(255, 184, 0, 0.08), rgba(124, 58, 237, 0.06));
+    border: 1px solid rgba(255, 184, 0, 0.2); border-radius: 8px;
+}
+.vw-profile-bar-title { font-size: 12px; font-weight: 800; color: #ffd166; letter-spacing: 0.4px; flex-shrink: 0; }
+.vw-profile-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 200px; }
+.vw-profile-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(0,0,0,0.35);
+    border: 1.5px solid rgba(255,255,255,0.12);
+    cursor: pointer; user-select: none;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s, box-shadow 0.15s;
+    position: relative;
+}
+.vw-profile-chip:hover {
+    border-color: rgba(255, 184, 0, 0.55); transform: translateY(-1px);
+    background: rgba(255, 184, 0, 0.08);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+.vw-profile-chip:active { transform: translateY(0); }
+/* Label toggle khu vực checkbox — visually distinct + larger hit area để dễ click */
+.vw-profile-chip .vw-profile-toggle {
+    padding: 4px; margin: -4px 0 -4px -4px;
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.vw-profile-chip .vw-profile-toggle:hover { background: rgba(255, 255, 255, 0.08); }
+.vw-profile-chip.active {
+    border-color: #ffb800;
+    background: linear-gradient(135deg, rgba(255, 184, 0, 0.18), rgba(124, 58, 237, 0.12));
+    box-shadow: 0 0 0 1px rgba(255, 184, 0, 0.35);
+}
+.vw-profile-chip.on .vw-profile-name { color: #fff; }
+.vw-profile-chip.off { opacity: 0.55; }
+.vw-profile-chip.off .vw-profile-name { color: #8b93a8; }
+.vw-profile-toggle { display: inline-flex; align-items: center; cursor: pointer; }
+.vw-profile-toggle input { width: 14px; height: 14px; accent-color: #4ad07a; cursor: pointer; }
+.vw-profile-name { font-size: 13px; font-weight: 700; }
+.vw-profile-count {
+    font-size: 10px; font-weight: 800; color: #ffd166;
+    padding: 1px 6px; border-radius: 999px;
+    background: rgba(255, 184, 0, 0.15);
+}
+.vw-profile-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Collapse toggle for profile bar */
+.vw-profile-collapse-btn {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    padding: 0;
+    background: rgba(255, 184, 0, 0.18);
+    color: #ffd166;
+    border: 1px solid rgba(255, 184, 0, 0.35);
+    border-radius: 6px;
+    font-size: 11px; font-weight: 800;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.vw-profile-collapse-btn:hover { background: rgba(255, 184, 0, 0.3); }
+.vw-profile-active-name {
+    flex: 1; padding: 4px 8px;
+    font-size: 12px; font-weight: 700; color: #ffd166;
+    font-style: italic;
+}
+.vw-profile-bar.collapsed { padding: 6px 10px; }
+.vw-profile-bar.collapsed .vw-profile-chips,
+.vw-profile-bar.collapsed .vw-profile-actions { display: none; }
+.vw-profile-bar.collapsed .vw-profile-bar-title { font-size: 11px; opacity: 0.7; }
+
+/* Custom prompt modal (replace native window.prompt — Electron blocks it) */
+.vw-prompt-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(3px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 10000;
+}
+.vw-prompt-overlay.show { display: flex; animation: vwFadeIn 0.18s ease-out; }
+@keyframes vwFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.vw-prompt-card {
+    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+    border: 1px solid rgba(255, 184, 0, 0.3);
+    border-radius: 12px;
+    padding: 20px 24px;
+    width: 380px; max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 184, 0, 0.1);
+    animation: vwSlideIn 0.22s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes vwSlideIn { from { transform: translateY(20px) scale(0.92); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+.vw-prompt-title { font-size: 14px; font-weight: 800; color: #f3f5fa; margin-bottom: 12px; }
+.vw-prompt-input {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 12px; font-size: 14px;
+    background: rgba(0, 0, 0, 0.4);
+    color: #fff;
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    outline: none;
+}
+.vw-prompt-input:focus { border-color: #ffb800; box-shadow: 0 0 0 2px rgba(255, 184, 0, 0.2); }
+.vw-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.vw-prompt-actions button { padding: 7px 18px; font-weight: 700; }
+.vw-tabs { margin-bottom: 8px; }
+.vw-pane {
+    flex: 1; min-height: 0;
+    display: none; flex-direction: column; gap: 8px;
+    overflow-y: auto;
+    padding: 4px 8px 12px 2px;
+}
+.vw-pane.active { display: flex; }
+
+.vw-pane-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 6px 4px;
+}
+.vw-pane-hint {
+    font-size: 12px; color: #8b93a8; line-height: 1.4;
+    flex: 0 0 auto;   /* default: không stretch */
+}
+/* Khi nằm trong head (row) thì stretch để đẩy button sang phải */
+.vw-pane-head .vw-pane-hint { flex: 1 1 auto; }
+.vw-empty {
+    padding: 24px; text-align: center; color: #667085; font-size: 12px;
+    border: 1.5px dashed rgba(255, 255, 255, 0.1); border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+}
+.vw-note {
+    padding: 9px 12px; margin: 4px 0 10px;
+    font-size: 11.5px; line-height: 1.55; color: #d6dae6;
+    background: rgba(255, 184, 0, 0.06);
+    border: 1px solid rgba(255, 184, 0, 0.25);
+    border-left: 3px solid #ffb800;
+    border-radius: 6px;
+}
+.vw-note b { color: #ffd166; }
+
+/* Rule card (per-user + global use chung style) */
+.vw-rule-card, .vw-global-card {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px 12px;
+    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+    border: 1.5px solid #2c303d; border-radius: 10px;
+    margin-bottom: 8px;
+}
+.vw-rule-card.has-file, .vw-global-card.has-file { border-color: #b88a3a; background: linear-gradient(155deg, #2a241a 0%, #181b25 100%); }
+.vw-rule-card.disabled, .vw-global-card.disabled { opacity: 0.55; }
+.vw-rule-card.drag-over { border-color: #ffb800; border-style: dashed; background: rgba(255, 184, 0, 0.08); }
+
+/* Status indicator trên rule card — countdown / ready */
+.vw-rule-status {
+    padding: 5px 10px; margin: -4px -6px 4px -6px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #8b93a8;
+    display: flex; align-items: center; gap: 8px;
+}
+.vw-rule-status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vw-rule-fire-count {
+    flex-shrink: 0;
+    padding: 2px 8px; border-radius: 999px;
+    background: rgba(255, 107, 61, 0.18);
+    color: #ff9d6e;
+    font-weight: 800; font-size: 10.5px;
+    border: 1px solid rgba(255, 107, 61, 0.3);
+}
+.vw-rule-status.status-idle { background: rgba(139, 147, 168, 0.1); color: #8b93a8; }
+.vw-rule-status.status-fired {
+    background: rgba(255, 184, 0, 0.12); color: #ffd166;
+    border: 1px solid rgba(255, 184, 0, 0.25);
+}
+.vw-rule-status.status-inroom {
+    background: rgba(138, 214, 255, 0.1); color: #8ad6ff;
+    border: 1px solid rgba(138, 214, 255, 0.25);
+}
+.vw-rule-status.status-ready {
+    background: rgba(77, 208, 122, 0.15); color: #6fdc8c;
+    border: 1px solid rgba(77, 208, 122, 0.4);
+    animation: vwPulse 1.5s ease-in-out infinite;
+}
+@keyframes vwPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(77, 208, 122, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(77, 208, 122, 0); }
+}
+
+.vw-rule-head, .vw-global-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.vw-rule-emoji, .vw-global-emoji { font-size: 20px; flex-shrink: 0; }
+.vw-rule-uid {
+    flex: 1; min-width: 140px;
+    padding: 5px 10px; font-size: 13px; font-weight: 700;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+}
+.vw-rule-uid:focus { outline: none; border-color: #ffb800; }
+.vw-rule-trigger {
+    padding: 4px 8px; font-size: 12px; font-weight: 700;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+    cursor: pointer;
+}
+.vw-rule-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #d6dae6; font-weight: 600; cursor: pointer; }
+.vw-rule-toggle input { width: 16px; height: 16px; accent-color: #4ad07a; cursor: pointer; }
+
+.vw-global-title { flex: 1; font-size: 14px; font-weight: 800; color: #f3f5fa; }
+
+.vw-rule-file {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 28px; padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1.5px dashed rgba(255, 255, 255, 0.12); border-radius: 6px;
+    font-size: 12px; color: #aeb6c7;
+}
+.vw-rule-card.has-file .vw-rule-file, .vw-global-card.has-file .vw-rule-file {
+    border-style: solid; border-color: rgba(255, 184, 0, 0.35); background: rgba(255, 184, 0, 0.08);
+}
+.vw-file-badge {
+    flex-shrink: 0; padding: 1px 6px; border-radius: 4px;
+    background: rgba(138, 214, 255, 0.18); color: #8ad6ff;
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
+}
+.vw-file-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d6dae6; font-size: 11px; }
+.vw-file-empty { color: #667085; font-style: italic; font-size: 11px; }
+
+.vw-rule-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+    padding: 2px 0;
+}
+.vw-inline {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #c8cdd9;
+}
+.vw-inline input[type="range"] { width: 80px; accent-color: #ffb800; height: 4px; }
+.vw-inline input[type="number"] {
+    width: 70px; padding: 3px 6px; font-size: 12px; font-weight: 700;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 5px;
+}
+.vw-inline input[type="text"] {
+    flex: 1; min-width: 160px; padding: 5px 8px; font-size: 12px;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 5px;
+}
+.vw-inline select {
+    padding: 4px 6px; font-size: 12px;
+    background: rgba(0,0,0,0.35); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 5px;
+}
+.vw-msg-row { width: 100%; flex: 1; }
+
+.vw-rule-actions {
+    display: flex; gap: 6px; padding-top: 4px;
+}
+.vw-rule-actions button { flex: 0 0 auto; }
+
+.vw-hint {
+    font-size: 11px; color: #667085; font-style: italic;
+    padding: 4px 0 2px;
+}
+
+/* Settings pane */
+.vw-setting-block {
+    padding: 12px 14px; margin-bottom: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px;
+    display: flex; flex-direction: column; gap: 8px;
+}
+
+/* Style picker grid for label/banner phong cách */
+.vw-style-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+}
+.vw-style-swatch {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px; border-radius: 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.vw-style-swatch:hover { transform: translateY(-2px); border-color: rgba(255, 184, 0, 0.4); }
+.vw-style-swatch.active {
+    border-color: #ffb800;
+    box-shadow: 0 0 0 1px rgba(255, 184, 0, 0.35), 0 8px 20px rgba(0,0,0,0.4);
+    background: rgba(255, 184, 0, 0.06);
+}
+.vw-style-name {
+    font-size: 11px; font-weight: 700; color: #d6dae6; text-align: center;
+    letter-spacing: 0.3px;
+}
+.vw-style-preview {
+    padding: 10px 14px; border-radius: 999px;
+    color: #fff; font-size: 13px; font-weight: 800; letter-spacing: 0.3px;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+}
+/* Mirror các style từ overlay.html — preview giống y hệt */
+.style-preview-goldpink { background: linear-gradient(135deg, rgba(255, 184, 0, 0.96), rgba(255, 45, 85, 0.96)); }
+.style-preview-royal {
+    background: linear-gradient(135deg, #4a148c, #7c3aed);
+    border: 2px solid #ffd700;
+    box-shadow: 0 6px 16px rgba(124, 58, 237, 0.45), 0 0 14px rgba(255, 215, 0, 0.3);
+}
+.style-preview-neon {
+    background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.9), 0 0 14px rgba(6, 182, 212, 0.5);
+    box-shadow: 0 0 14px rgba(6, 182, 212, 0.5);
+}
+.style-preview-fire {
+    background: linear-gradient(135deg, #dc2626, #f97316, #fbbf24);
+    text-shadow: 0 2px 6px rgba(220, 38, 38, 0.7);
+}
+.style-preview-luxury {
+    background: linear-gradient(135deg, #0a0a0a, #262626);
+    color: #ffd700;
+    border: 1.5px solid #ffd700;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+}
+.style-preview-pastel {
+    background: linear-gradient(135deg, #fbcfe8, #c4b5fd);
+    color: #4c1d95; text-shadow: none;
+}
+.style-preview-emerald {
+    background: linear-gradient(135deg, #047857, #10b981);
+}
+.style-preview-ocean {
+    background: linear-gradient(135deg, #1e3a8a, #2563eb, #06b6d4);
+}
+.style-preview-vietnam {
+    background: linear-gradient(135deg, #da251d, #ff0000);
+    color: #ffff00; border: 2px solid #ffff00;
+}
+.style-preview-rainbow {
+    background: linear-gradient(90deg, #ff0080, #ff8c00, #ffd700, #00c853, #00b8d4, #7c3aed, #ff0080);
+    background-size: 400% 100%;
+    animation: rainbowShiftP 5s linear infinite;
+}
+@keyframes rainbowShiftP {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 400% 50%; }
+}
+.style-preview-glass {
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.style-preview-cyber {
+    background: linear-gradient(135deg, #0f172a, #1e1b4b);
+    color: #00ffff;
+    text-shadow: 0 0 6px #00ffff, 0 0 12px rgba(0, 255, 255, 0.5);
+    border: 1.5px solid #00ffff;
+    box-shadow: 0 0 14px rgba(0, 255, 255, 0.4);
+}
+.vw-setting-title {
+    font-size: 13px; font-weight: 800; color: #f3f5fa;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 4px;
+}
+
+/* Queue pane */
+.vw-queue-block { margin-bottom: 12px; }
+.vw-block-title {
+    font-size: 12px; font-weight: 800; color: #f3f5fa;
+    padding: 4px 0; margin-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.vw-queue-list {
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 240px; overflow-y: auto;
+}
+.vw-queue-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px;
+    background: rgba(255, 184, 0, 0.06);
+    border-left: 3px solid #ffb800;
+    font-size: 12px; color: #d6dae6;
+}
+.vw-q-idx { font-weight: 800; color: #ffb800; min-width: 28px; }
+.vw-q-user { font-weight: 700; color: #fff; }
+.vw-q-meta { color: #8b93a8; font-size: 11px; }
+.vw-q-rule { margin-left: auto; color: #667085; font-size: 11px; font-style: italic; }
+
+.vw-log {
+    display: flex; flex-direction: column;
+    max-height: 280px; overflow-y: auto;
+    padding: 6px; background: rgba(0,0,0,0.3); border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 11px; line-height: 1.6; color: #c8cdd9;
+}
+.vw-log-line {
+    padding: 3px 6px; border-radius: 3px;
+    border-left: 2px solid rgba(255, 184, 0, 0.4);
+    margin-bottom: 2px; background: rgba(255, 255, 255, 0.02);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vw-log-cooldown { border-left-color: rgba(138, 214, 255, 0.4); color: #8b93a8; }
+.vw-log-drop { border-left-color: rgba(255, 45, 85, 0.5); color: #ff8da6; }
+
+/* User rule list scroll */
+.vw-user-rules-list { display: flex; flex-direction: column; }
 
 /* ============================================================
    SIDEBAR — toggle thu/mở manual (toàn cục, không chỉ pktiktok)

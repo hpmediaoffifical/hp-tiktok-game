@@ -551,6 +551,100 @@
                 </div>
             </section>
 
+            <!-- ============ GAME VIEW: VIP Welcome ============ -->
+            <section id="view-vipwelcome" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="vipwelcome-title">🎊 Chào Mừng VIP</h2>
+                        <div class="game-sub">Phát video/âm thanh khi user vào phòng LIVE hoặc tặng quà — theo TikTok ID hoặc theo cấp độ.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <input id="vipwelcome-overlay-url" type="text" readonly hidden />
+                        <label class="pktiktok-switch" title="Bật / Tắt toàn bộ game"><input id="vipwelcome-enabled" type="checkbox" checked /><span>Bật</span></label>
+                        <button id="vipwelcome-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
+                        <button id="vipwelcome-btn-reload" class="ghost small" title="Buộc OBS browser source reload — dùng khi đổi style mà overlay vẫn hiện cũ (do cache)">🔄 Reload overlay</button>
+                        <button id="vipwelcome-btn-stop" class="danger small" title="Dừng phát + xoá hàng đợi ngay">⏹ DỪNG</button>
+                    </div>
+                </header>
+
+                <div class="game-body vipwelcome-body">
+                    <div class="col col-left vipwelcome-left">
+                        <div class="card vipwelcome-card">
+                            <!-- Profile picker — chọn nhóm hồ sơ đang edit, bật/tắt từng nhóm -->
+                            <div class="vw-profile-bar" id="vw-profile-bar">
+                                <button id="vw-profile-collapse" class="vw-profile-collapse-btn" title="Thu gọn / Mở rộng thanh nhóm">▼</button>
+                                <div class="vw-profile-bar-title">📁 Nhóm hồ sơ</div>
+                                <div class="vw-profile-active-name" id="vw-profile-active-name" hidden></div>
+                                <div class="vw-profile-chips" id="vw-profile-chips"></div>
+                                <div class="vw-profile-actions">
+                                    <button id="vw-btn-new-profile" class="primary small" title="Tạo nhóm hồ sơ mới">➕ Tạo nhóm</button>
+                                    <button id="vw-btn-rename-profile" class="ghost small" title="Đổi tên nhóm đang chọn">✏ Đổi tên</button>
+                                    <button id="vw-btn-clone-profile" class="ghost small" title="Sao chép nhóm đang chọn">📋 Nhân bản</button>
+                                    <button id="vw-btn-delete-profile" class="danger small" title="Xoá nhóm đang chọn">🗑 Xoá</button>
+                                </div>
+                            </div>
+                            <div class="card-tabs vw-tabs">
+                                <button class="tab vw-tab active" data-vw-tab="users">👤 Người chỉ định</button>
+                                <button class="tab vw-tab" data-vw-tab="global">🌐 Tất cả user</button>
+                                <button class="tab vw-tab" data-vw-tab="settings">⚙ Cài đặt</button>
+                                <button class="tab vw-tab" data-vw-tab="queue">📜 Hàng đợi (<span id="vipwelcome-queue-size">0</span>)</button>
+                            </div>
+
+                            <!-- TAB: User cụ thể -->
+                            <div class="tab-pane vw-pane active" data-vw-pane="users">
+                                <div class="vw-pane-head">
+                                    <div class="vw-pane-hint">Cài hiệu ứng riêng cho từng TikTok ID. Mỗi rule trigger khi user "🚪 Vào phòng" (lần đầu xuất hiện) hoặc "🚀 Lên cấp" (level TikTok tăng).</div>
+                                    <button id="vw-btn-test-all" class="ghost small" title="Test toàn bộ rule trong nhóm hiện tại theo thứ tự — verify media + overlay hoạt động">🧪 Test toàn nhóm</button>
+                                    <button id="vw-btn-add-user-rule" class="primary small">➕ Thêm user</button>
+                                </div>
+                                <div class="vw-note">
+                                    <b>📡 Cách phát hiện user vào phòng (theo thứ tự ưu tiên):</b>
+                                    <br>① <b>Top contributors list</b> (~30s/lần, TỰ ĐỘNG) — bắt được user top trong phòng KHÔNG cần tương tác. Đây là cách CHÍNH.
+                                    <br>② <b>Member event</b> — TikTok tự gửi cho viewer "đáng kể" vào phòng.
+                                    <br>③ <b>❤️ Táp tim / Comment / Follow</b> — fallback nếu user không trong top: chỉ cần táp 1 cái tim → fire ngay.
+                                    <br><b>🔁 Vào lại phòng:</b> sau khi user vắng mặt <b>30 giây</b> (không có signal), nếu họ quay lại sẽ fire effect LẠI. Ở liên tục trong phòng → KHÔNG re-fire (tránh spam).
+                                    <br><b>⚠ Giới hạn TikTok:</b> User level rất thấp + lurk hoàn toàn + không trong top → không phát hiện được (giới hạn protobuf TikTok).
+                                </div>
+                                <div id="vw-user-rules-list" class="vw-user-rules-list"></div>
+                            </div>
+
+                            <!-- TAB: Tất cả user -->
+                            <div class="tab-pane vw-pane" data-vw-pane="global">
+                                <div class="vw-pane-hint">Trigger cho BẤT KỲ user nào trong phòng LIVE. Đặt Min Level đủ cao để tránh spam.</div>
+                                <div id="vw-global-join-card"></div>
+                                <div id="vw-global-gift-card"></div>
+                            </div>
+
+                            <!-- TAB: Settings -->
+                            <div class="tab-pane vw-pane" data-vw-pane="settings">
+                                <div id="vw-settings-pane"></div>
+                            </div>
+
+                            <!-- TAB: Queue -->
+                            <div class="tab-pane vw-pane" data-vw-pane="queue">
+                                <div class="vw-pane-head">
+                                    <div class="vw-pane-hint">Server quản lý hàng đợi — overlay nhận từng item theo nhịp <code>perItemMinMs</code>.</div>
+                                    <div>
+                                        <button id="vipwelcome-btn-clear-queue" class="ghost small" title="Chỉ xoá các item đang đợi phát">🗑 Xoá hàng đợi</button>
+                                        <button id="vipwelcome-btn-clear-log" class="ghost small" title="Xoá toàn bộ log để giảm spam">🧹 Xoá log</button>
+                                        <button id="vipwelcome-btn-reset-cooldown" class="ghost small" title="Reset cooldown để test lại user/rule trong vòng 60s">↺ Reset cooldown</button>
+                                        <button id="vipwelcome-btn-reset-session" class="ghost small" title="Reset toàn bộ session state (level tracker, first-seen, userId cache, cooldown). Test lại từ đầu mà không cần reconnect LIVE.">🔄 Reset phiên</button>
+                                    </div>
+                                </div>
+                                <div class="vw-queue-block">
+                                    <div class="vw-block-title">⏳ Đang chờ</div>
+                                    <div id="vw-queue-list" class="vw-queue-list"></div>
+                                </div>
+                                <div class="vw-queue-block">
+                                    <div class="vw-block-title">📜 Log gần nhất</div>
+                                    <div id="vw-log" class="vw-log"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ============ GAME VIEW: PK TikTok ============ -->
             <section id="view-pktiktok" class="view game-view">
                 <header class="game-header">
@@ -775,6 +869,8 @@
     <script src="/games/caro/caro-panel.js"></script>
     <script src="/games/pktiktok/game.js"></script>
     <script src="/games/pktiktok/pktiktok-panel.js"></script>
+    <script src="/games/vipwelcome/game.js"></script>
+    <script src="/games/vipwelcome/vipwelcome-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

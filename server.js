@@ -90,6 +90,14 @@ const GAMES = {
         icon: '🎬',
         overlayPath: '/overlay/pktiktok',
         defaultConfig: makeDefaultPkTiktokConfig()
+    },
+    vipwelcome: {
+        id: 'vipwelcome',
+        name: 'Chào Mừng VIP',
+        description: 'Phát video/âm thanh khi user vào phòng LIVE hoặc khi user tặng quà — theo TikTok ID hoặc theo cấp độ.',
+        icon: '🎊',
+        overlayPath: '/overlay/vipwelcome',
+        defaultConfig: makeDefaultVipWelcomeConfig()
     }
 };
 
@@ -121,6 +129,108 @@ function makeDefaultPkTiktokConfig() {
     };
 }
 
+// VIP Welcome — default config: nhiều "Nhóm hồ sơ" (profiles) — mỗi nhóm có tên + bật/tắt riêng.
+// Nhiều người chia chung máy có thể tạo nhóm riêng. Khi nhiều nhóm cùng "Bật" — server gộp rule từ
+// tất cả nhóm enabled (mỗi nhóm độc lập cooldown qua ruleId namespacing 'p:<profileId>:...').
+function makeDefaultVipWelcomeProfile(name) {
+    return {
+        id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: name || 'Nhóm mặc định',
+        enabled: true,
+        userRules: [],          // [{ id, uniqueId, trigger, mediaUrl, mediaName, mediaType, volume, message, minLevel, minDiamond, enabled }]
+        globalJoin: {
+            enabled: false,
+            mediaUrl: '', mediaName: '', mediaType: '',
+            volume: 100,
+            message: 'Chào mừng {nickname} (cấp {level}) đã ghé phòng!',
+            minLevel: 30,
+            requireVerified: false    // Chỉ phát cho TikTok có tích xanh
+        },
+        globalGift: {
+            enabled: false,
+            mediaUrl: '', mediaName: '', mediaType: '',
+            volume: 100,
+            message: 'Chúc mừng {nickname} vừa lên cấp {level}!',
+            minLevel: 30,
+            requireVerified: false
+        }
+    };
+}
+
+function makeDefaultVipWelcomeConfig() {
+    const def = makeDefaultVipWelcomeProfile('Nhóm mặc định');
+    return {
+        enabled: true,
+        activeProfileId: def.id,           // panel đang edit profile nào
+        profiles: [def],
+        queue: {
+            maxLen: 20,
+            perUserCooldownSec: 60,
+            perItemMinMs: 200,           // 200ms — overlay tự queue + play serial nên không cần pace cao
+            rejoinThresholdSec: 60        // 60s — vắng mặt N giây = coi như rời phòng → re-fire khi vào lại
+        },
+        display: {
+            scale: 100, xPercent: 50, yPercent: 50,
+            showText: true,
+            textPosition: 'bottom',
+            labelStyle: 'goldpink'        // goldpink|royal|neon|fire|luxury|pastel|emerald|ocean|vietnam|rainbow|glass|cyber
+        }
+    };
+}
+
+// Migrate config cũ (single-profile) sang multi-profile schema.
+// Config v1 (cũ): { enabled, userRules, globalJoin, globalGift, queue, display }
+// Config v2 (mới): { enabled, activeProfileId, profiles: [...], queue, display }
+function migrateVipWelcomeConfig(cfg) {
+    if (!cfg) return makeDefaultVipWelcomeConfig();
+    if (Array.isArray(cfg.profiles) && cfg.profiles.length > 0) {
+        // Đã ở schema mới — đảm bảo có activeProfileId hợp lệ + dọn field minDiamond cũ
+        const ids = cfg.profiles.map(p => p.id);
+        if (!cfg.activeProfileId || !ids.includes(cfg.activeProfileId)) {
+            cfg.activeProfileId = cfg.profiles[0].id;
+        }
+        // Strip legacy minDiamond + minLevel khỏi user rules (user yêu cầu chỉ định ID = không cần level filter)
+        for (const p of cfg.profiles) {
+            if (Array.isArray(p.userRules)) {
+                p.userRules = p.userRules.map(r => {
+                    const { minDiamond, minLevel, ...rest } = r || {};
+                    return rest;
+                });
+            }
+            if (p.globalGift && 'minDiamond' in p.globalGift) {
+                const { minDiamond, ...rest } = p.globalGift;
+                p.globalGift = rest;
+            }
+        }
+        // Auto-update perItemMinMs từ default cũ (2500) sang default mới (200) — user không
+        // chủ động customize sẽ được nâng cấp tốc độ tự động.
+        if (cfg.queue && cfg.queue.perItemMinMs === 2500) {
+            cfg.queue.perItemMinMs = 200;
+        }
+        return cfg;
+    }
+    // Có rules ở top-level → wrap thành 1 profile "Mặc định"
+    const def = makeDefaultVipWelcomeProfile('Nhóm mặc định');
+    if (Array.isArray(cfg.userRules)) {
+        def.userRules = cfg.userRules.map(r => {
+            const { minDiamond, minLevel, ...rest } = r || {};   // strip legacy minDiamond + minLevel
+            return rest;
+        });
+    }
+    if (cfg.globalJoin) def.globalJoin = { ...def.globalJoin, ...cfg.globalJoin };
+    if (cfg.globalGift) {
+        const { minDiamond, ...rest } = cfg.globalGift;
+        def.globalGift = { ...def.globalGift, ...rest };
+    }
+    const out = makeDefaultVipWelcomeConfig();
+    out.enabled = cfg.enabled !== false;
+    out.profiles = [def];
+    out.activeProfileId = def.id;
+    if (cfg.queue) out.queue = { ...out.queue, ...cfg.queue };
+    if (cfg.display) out.display = { ...out.display, ...cfg.display };
+    return out;
+}
+
 // ====== App config / persistence ======
 function loadAppConfig() {
     try {
@@ -136,6 +246,10 @@ function saveAppConfig() {
 const appConfig = loadAppConfig();
 for (const gId of Object.keys(GAMES)) {
     if (!appConfig.games[gId]) appConfig.games[gId] = { ...GAMES[gId].defaultConfig };
+}
+// Migrate vipwelcome config từ schema cũ (single profile) sang multi-profile.
+if (appConfig.games.vipwelcome) {
+    appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
 }
 saveAppConfig();
 
@@ -344,24 +458,35 @@ function attachConnectionEvents(conn) {
     });
 
     conn.on(WebcastEvent.CHAT, (data) => {
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
         broadcast('chat', {
-            uniqueId: data?.user?.uniqueId,
-            nickname: data?.user?.nickname,
-            userId: data?.user?.userId,
-            profilePicture: data?.user?.profilePicture?.url || data?.user?.profilePictureUrl,
+            uniqueId, nickname,
+            userId,
+            profilePicture,
             comment: data?.comment,
             createTime: Date.now()
         });
+        // First-seen JOIN fallback — workaround cho TikTok MEMBER throttling
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'chat', verified, userId);
     });
 
     conn.on(WebcastEvent.GIFT, (data) => {
         const giftType = data?.giftDetails?.giftType ?? data?.gift?.gift_type ?? data?.giftType;
         const isStreak = giftType === 1;
         if (isStreak && !data?.repeatEnd) return;
+        rememberUserMapping(data?.user?.userId, data?.user?.uniqueId);
         emitGift({
             uniqueId: data?.user?.uniqueId,
             nickname: data?.user?.nickname,
             userId: data?.user?.userId,
+            level: Number(data?.user?.userHonor?.level) || 0,
+            verified: !!data?.user?.verified,
             profilePicture: data?.user?.profilePicture?.url || data?.user?.profilePictureUrl,
             giftId: String(data?.giftId ?? data?.gift?.gift_id ?? data?.giftDetails?.giftId ?? ''),
             giftName: data?.giftDetails?.giftName || data?.gift?.name || data?.giftName,
@@ -373,16 +498,85 @@ function attachConnectionEvents(conn) {
     });
 
     conn.on(WebcastEvent.MEMBER, (data) => {
-        broadcast('member', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname });
+        // TikTok đôi khi strip user.uniqueId → fallback userId (numeric) + actionDescription
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId || data?.userId;   // MemberMessage có userId riêng
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        const action = data?.action;     // 1=JOINED, 3=SUBSCRIBED
+        const actionDesc = data?.actionDescription || '';
+        rememberUserMapping(userId, uniqueId);
+        broadcast('member', { uniqueId, nickname, level, verified });
+        // Verbose log — dump tất cả field hữu ích để user thấy TikTok gửi gì
+        console.log(`[vipwelcome] MEMBER event raw: uniqueId="${uniqueId || ''}" userId="${userId || ''}" nickname="${nickname || ''}" level=${level} verified=${verified} action=${action} desc="${actionDesc}"`);
+        // Primary join path — fire (resolve uniqueId từ cache nếu thiếu)
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'member', verified, userId);
     });
     conn.on(WebcastEvent.LIKE, (data) => {
-        broadcast('like', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname, likeCount: data?.likeCount });
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        broadcast('like', { uniqueId, nickname, likeCount: data?.likeCount });
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'like', verified, userId);
     });
     conn.on(WebcastEvent.SOCIAL, (data) => {
-        broadcast('social', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname, label: data?.label });
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        broadcast('social', { uniqueId, nickname, label: data?.label });
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'social', verified, userId);
     });
     conn.on(WebcastEvent.ROOM_USER, (data) => {
         broadcast('roomUser', { viewerCount: data?.viewerCount ?? data?.totalUser });
+        try {
+            const lists = [];
+            if (Array.isArray(data?.ranksList)) lists.push(...data.ranksList);
+            if (Array.isArray(data?.seatsList)) lists.push(...data.seatsList);
+            // Build set uniqueId trong seq hiện tại
+            const currentSeqSet = new Set();
+            const contributorMeta = [];   // giữ thông tin user để fire
+            for (const contributor of lists) {
+                const u = contributor?.user;
+                if (!u) continue;
+                const uniqueId = u.uniqueId;
+                const userId = u.userId;
+                rememberUserMapping(userId, uniqueId);
+                if (uniqueId) {
+                    currentSeqSet.add(String(uniqueId).toLowerCase());
+                }
+                contributorMeta.push({ user: u, uniqueId, userId });
+            }
+            // Detect DROP-OUT: user trong seq trước nhưng KHÔNG trong seq này → đánh dấu leftSeq
+            for (const uid of vipSessionInLatestSeq) {
+                if (!currentSeqSet.has(uid)) {
+                    vipSessionLeftSeqAt.set(uid, Date.now());
+                    console.log(`[vipwelcome] Seq DROP-OUT: @${uid} đã rời top contributors — chờ rejoin`);
+                }
+            }
+            // Update seq snapshot
+            vipSessionInLatestSeq = currentSeqSet;
+            // Fire (firstTime hoặc rejoin) cho từng user
+            for (const meta of contributorMeta) {
+                const u = meta.user;
+                const level = Number(u.userHonor?.level) || 0;
+                const profilePicture = u.profilePicture?.url || u.profilePictureUrl;
+                const verified = !!u.verified;
+                maybeFireFirstSeenJoin(meta.uniqueId, u.nickname, level, profilePicture, 'roomUserSeq', verified, meta.userId);
+            }
+            if (lists.length > 0) {
+                console.log(`[vipwelcome] ROOM_USER seq: viewer=${data?.viewerCount}, contributors=${lists.length}, seqSize=${currentSeqSet.size}`);
+            }
+        } catch (e) { console.error('[vipwelcome] ROOM_USER process error:', e); }
     });
 }
 
@@ -509,6 +703,20 @@ function emitGift(g) {
     // Push to all game overlays
     io.to('overlay').emit('gameGift', enriched);
     io.to('preview').emit('gameGift', enriched);
+    // VIP Welcome — kiểm tra rules khi user tặng quà
+    try {
+        handleVipWelcomeEvent('gift', {
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            level: Number(g.level) || 0,
+            verified: !!g.verified,
+            profilePicture: g.profilePicture || enriched.image,
+            giftName: enriched.giftName || g.giftName,
+            giftPicture: enriched.image,
+            diamondCount: enriched.coinValue || 0,
+            repeatCount: g.repeatCount || 1
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 async function connectToUser(username) {
@@ -516,6 +724,26 @@ async function connectToUser(username) {
     if (connection) { try { await connection.disconnect(); } catch (e) {} connection = null; }
     connecting = true;
     currentUsername = username.replace(/^@/, '').trim();
+    // Reset session-scoped state cho VIP Welcome (level tracker, seen users)
+    resetVipSession();
+    // Log VIP Welcome config — user xem để verify rules đã load đúng từ disk
+    try {
+        const vw = appConfig.games.vipwelcome;
+        if (vw) {
+            const enabledProfiles = (vw.profiles || []).filter(p => p.enabled);
+            console.log(`[vipwelcome] === Config snapshot khi connect LIVE ===`);
+            console.log(`[vipwelcome]   master enabled: ${vw.enabled !== false}`);
+            console.log(`[vipwelcome]   profiles total: ${(vw.profiles || []).length}, enabled: ${enabledProfiles.length}`);
+            for (const p of (vw.profiles || [])) {
+                const flag = p.enabled ? '✓ ON ' : '✗ off';
+                console.log(`[vipwelcome]   ${flag} "${p.name}" — userRules: ${(p.userRules || []).length}, globalJoin: ${p.globalJoin?.enabled ? 'ON' : 'off'}, globalGift: ${p.globalGift?.enabled ? 'ON' : 'off'}`);
+                for (const r of (p.userRules || [])) {
+                    console.log(`[vipwelcome]     → rule: @${r.uniqueId} (${r.trigger}) ${r.enabled === false ? '[disabled]' : '[active]'} media=${r.mediaUrl ? 'YES' : 'no'}`);
+                }
+            }
+            console.log(`[vipwelcome] === end snapshot ===`);
+        }
+    } catch (e) {}
     try {
         connection = new TikTokLiveConnection(currentUsername, {
             processInitialData: false,
@@ -525,6 +753,14 @@ async function connectToUser(username) {
         attachConnectionEvents(connection);
         const state = await connection.connect();
         currentRoomId = state?.roomId;
+        // Synthetic "host vào phòng" event — TikTok không fire MEMBER cho HOST tự kết nối live của mình.
+        const hostNickname = state?.roomInfo?.owner?.nickname || state?.roomInfo?.owner?.uniqueId || currentUsername;
+        const hostLevel = Number(state?.roomInfo?.owner?.userHonor?.level) || 0;
+        const hostPic = state?.roomInfo?.owner?.profilePicture?.url || '';
+        const hostVerified = !!state?.roomInfo?.owner?.verified;
+        setTimeout(() => {
+            maybeFireFirstSeenJoin(currentUsername, hostNickname, hostLevel, hostPic, 'hostConnect', hostVerified);
+        }, 300);
         // Sau khi connect → connection.availableGifts có sẵn metadata cho mọi gift trong room.
         // Quét lại các unknown entry cũ thiếu icon/name → điền từ TikTok metadata cache.
         // Chạy sau 500ms để chắc availableGifts đã fully load.
@@ -686,6 +922,10 @@ app.post('/api/games/:id/config', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     appConfig.games[g.id] = { ...appConfig.games[g.id], ...(req.body || {}) };
+    // VIP Welcome: chuẩn hoá lại schema sau merge — đảm bảo profile schema valid
+    if (g.id === 'vipwelcome') {
+        appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
+    }
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
     res.json({ ok: true, config: appConfig.games[g.id] });
@@ -1158,6 +1398,9 @@ app.get('/overlay/caro', (req, res) => {
 app.get('/overlay/pktiktok', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'games', 'pktiktok', 'overlay.html'));
 });
+app.get('/overlay/vipwelcome', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'vipwelcome', 'overlay.html'));
+});
 
 // ============================================================
 // PK TikTok — upload / asset serve / trigger broadcast
@@ -1233,6 +1476,587 @@ app.post('/api/games/pktiktok/trigger', (req, res) => {
         return res.json({ ok: true });
     }
     return res.status(400).json({ ok: false, error: 'unknown_type' });
+});
+
+// ============================================================
+// VIP WELCOME — upload / asset / trigger broadcast / queue manager
+// ============================================================
+// Cấu trúc tương tự pktiktok: assets folder riêng + route serve.
+const VIPWELCOME_ASSETS_DIR = path.join(DATA_DIR, 'vipwelcome-assets');
+if (!fs.existsSync(VIPWELCOME_ASSETS_DIR)) fs.mkdirSync(VIPWELCOME_ASSETS_DIR, { recursive: true });
+const VIPWELCOME_ALLOWED_EXTS = ['mp4', 'webm', 'mp3', 'wav', 'ogg', 'm4a'];
+
+app.post('/api/games/vipwelcome/upload',
+    express.raw({ limit: '30mb', type: () => true }),
+    (req, res) => {
+        const ext = String(req.query.ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        if (!VIPWELCOME_ALLOWED_EXTS.includes(ext)) {
+            return res.status(400).json({ ok: false, error: 'invalid_ext' });
+        }
+        if (!req.body || !req.body.length) {
+            return res.status(400).json({ ok: false, error: 'empty_body' });
+        }
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const filename = `${id}.${ext}`;
+        try {
+            fs.writeFileSync(path.join(VIPWELCOME_ASSETS_DIR, filename), req.body);
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: 'write_failed: ' + e.message });
+        }
+        res.json({ ok: true, filename, url: `/api/games/vipwelcome/asset/${filename}` });
+    }
+);
+
+app.get('/api/games/vipwelcome/asset/:fn', (req, res) => {
+    const safe = String(req.params.fn).replace(/[^a-z0-9._-]/gi, '');
+    if (!safe || safe.includes('..')) return res.sendStatus(400);
+    const p = path.join(VIPWELCOME_ASSETS_DIR, safe);
+    if (!fs.existsSync(p)) return res.sendStatus(404);
+    res.sendFile(p);
+});
+
+// ===== VIP Welcome queue + per-user cooldown =====
+// Tracking khi nào (uniqueId, ruleId) được phép trigger lại — chống spam cùng 1 user.
+const vipWelcomeCooldown = new Map();   // key="uid|ruleId" → tsExpire
+let vipWelcomeQueue = [];                // [{ payload, ts }]
+let vipWelcomeLastEmitTs = 0;            // mốc emit gần nhất (rate-limit perItemMinMs)
+let vipWelcomeDrainTimer = null;
+let vipWelcomeRecentLog = [];            // 50 entry gần nhất cho panel hiển thị
+
+// === Session-scoped state ===
+let vipSessionLastLevel = new Map();    // uniqueId(lower) → last seen level
+let vipSessionSeen = new Set();         // uniqueId(lower) — đã từng có event trong session này
+// REJOIN logic: 2 mech song song
+// (1) Time-based: lastSeenAt → nếu now - lastSeen > threshold → user vắng mặt đủ lâu → rejoin
+// (2) Seq drop-out: track danh sách user trong ROOM_USER seq gần nhất. Khi user vào seq lần này
+//     nhưng KHÔNG trong seq trước = re-entered. Mạnh hơn time-based — fire ngay không cần đợi threshold.
+let vipSessionLastFireAt = new Map();   // uniqueId(lower) → ts fire cuối cùng
+let vipSessionLastSeenAt = new Map();   // uniqueId(lower) → ts signal cuối cùng (any event)
+let vipSessionInLatestSeq = new Set();  // uniqueId(lower) — currently in most recent ROOM_USER seq
+let vipSessionLeftSeqAt = new Map();    // uniqueId(lower) → ts khi drop khỏi seq (chờ rejoin)
+// === userId ↔ uniqueId cache ===
+let vipSessionUserIdToUid = new Map();  // userId(string) → uniqueId
+let vipSessionUidToUserId = new Map();  // uniqueId(lower) → userId
+// Fire counter per ruleId — chỉ count session, reset khi resetSession/reconnect
+let vipSessionRuleFireCount = new Map();   // ruleId (vd "user:r1abc") → count
+
+const DEFAULT_REJOIN_THRESHOLD_SEC = 60;
+
+function getRejoinThresholdMs() {
+    const cfg = appConfig.games.vipwelcome || {};
+    return Math.max(5, cfg.queue?.rejoinThresholdSec || DEFAULT_REJOIN_THRESHOLD_SEC) * 1000;
+}
+
+function resetVipSession() {
+    vipSessionLastLevel.clear();
+    vipSessionSeen.clear();
+    vipSessionLastFireAt.clear();
+    vipSessionLastSeenAt.clear();
+    vipSessionInLatestSeq.clear();
+    vipSessionLeftSeqAt.clear();
+    vipSessionUserIdToUid.clear();
+    vipSessionUidToUserId.clear();
+    vipSessionRuleFireCount.clear();
+}
+
+// Ghi nhớ mapping userId ↔ uniqueId từ bất kỳ event nào có cả 2 field
+function rememberUserMapping(userId, uniqueId) {
+    if (!userId || !uniqueId) return;
+    const uid = String(uniqueId);
+    const id = String(userId);
+    if (!vipSessionUserIdToUid.has(id)) {
+        vipSessionUserIdToUid.set(id, uid);
+        vipSessionUidToUserId.set(uid.toLowerCase(), id);
+        console.log(`[vipwelcome] Cache userId↔uniqueId: ${id} ↔ @${uid}`);
+    }
+}
+
+// Thử resolve uniqueId khi event chỉ có userId (vd: MEMBER event đôi khi thiếu uniqueId)
+function resolveUniqueIdFromUserId(userId) {
+    if (!userId) return null;
+    return vipSessionUserIdToUid.get(String(userId)) || null;
+}
+
+// Fire 'join' với 3 nhánh:
+// (A) Lần đầu trong phiên → fire
+// (B) Drop-out seq → trở lại (mạnh) → fire ngay bypass threshold
+// (C) Time-based: vắng mặt > rejoinThresholdSec → fire
+function maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, source, verified, userId) {
+    if (!uniqueId && userId) {
+        const resolved = resolveUniqueIdFromUserId(userId);
+        if (resolved) {
+            console.log(`[vipwelcome] Resolved uniqueId từ userId ${userId} → @${resolved} (source=${source})`);
+            uniqueId = resolved;
+        }
+    }
+    if (!uniqueId) {
+        console.log(`[vipwelcome] ⚠ JOIN skip: thiếu uniqueId (source=${source}, userId="${userId || ''}", nickname="${nickname || ''}").`);
+        return;
+    }
+    const k = String(uniqueId).toLowerCase();
+    const now = Date.now();
+    const thresholdMs = getRejoinThresholdMs();
+    const lastFire = vipSessionLastFireAt.get(k);
+    const lastSeen = vipSessionLastSeenAt.get(k);
+    const leftSeqAt = vipSessionLeftSeqAt.get(k);
+
+    const isFirstTime = !lastFire;
+    const sinceLastSeen = lastSeen ? now - lastSeen : Infinity;
+    const isRejoinByTime = lastFire && sinceLastSeen > thresholdMs;
+    const isRejoinByDropOut = lastFire && leftSeqAt;   // user từng drop khỏi seq, giờ trở lại
+
+    // Luôn update lastSeenAt
+    vipSessionLastSeenAt.set(k, now);
+
+    if (!isFirstTime && !isRejoinByTime && !isRejoinByDropOut) {
+        return;   // user vẫn đang trong phòng — không fire lại
+    }
+
+    // Clear drop-out marker khi fire
+    if (leftSeqAt) vipSessionLeftSeqAt.delete(k);
+    vipSessionLastFireAt.set(k, now);
+
+    const note = isRejoinByDropOut
+        ? `(REJOIN qua seq drop-and-return — bypass threshold)`
+        : isRejoinByTime
+        ? `(REJOIN sau ${Math.round(sinceLastSeen / 1000)}s vắng mặt — threshold ${thresholdMs / 1000}s)`
+        : '(lần đầu trong phiên)';
+    console.log(`[vipwelcome] JOIN fired (source=${source}): @${uniqueId} "${nickname || ''}" (cấp ${level || 0}, verified=${!!verified}) ${note}`);
+    try {
+        handleVipWelcomeEvent('join', {
+            uniqueId, nickname,
+            level: Number(level) || 0,
+            profilePicture: profilePicture || '',
+            verified: !!verified
+        });
+    } catch (e) { console.error('[vipwelcome] join handler error:', e); }
+}
+
+function pruneVipCooldown() {
+    const now = Date.now();
+    for (const [k, ts] of vipWelcomeCooldown) {
+        if (ts <= now) vipWelcomeCooldown.delete(k);
+    }
+}
+
+function vipWelcomeMatchesUserRule(rule, ctx) {
+    // Trả về { matched, reason } để caller có thể log lý do không match (debug)
+    if (!rule || rule.enabled === false) return { matched: false, reason: 'rule_disabled' };
+    if (!rule.mediaUrl) return { matched: false, reason: 'no_media' };
+    if (rule.trigger !== ctx.eventType) return { matched: false, reason: `trigger_mismatch (rule=${rule.trigger}, event=${ctx.eventType})` };
+    const targetId = String(rule.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+    if (!targetId) return { matched: false, reason: 'rule_uniqueId_empty' };
+    const userId = String(ctx.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+    if (userId !== targetId) return { matched: false, reason: `uniqueId_mismatch (rule="${targetId}" vs event="${userId}")` };
+    // User chỉ định: BỎ filter cấp độ + kim cương — đã chỉ định ID rồi nên không cần lọc thêm.
+    return { matched: true, reason: 'ok' };
+}
+
+function renderVipMessage(template, ctx) {
+    if (!template) return '';
+    return String(template)
+        .replace(/\{nickname\}/g, ctx.nickname || ctx.uniqueId || 'User')
+        .replace(/\{uniqueId\}/g, ctx.uniqueId || '')
+        .replace(/\{level\}/g, String(ctx.level || 0))
+        .replace(/\{gift\}/g, ctx.giftName || '')
+        .replace(/\{count\}/g, String(ctx.repeatCount || 1))
+        .replace(/\{verified\}/g, ctx.verified ? '✓' : '');
+}
+
+function pushVipWelcomeLog(entry) {
+    vipWelcomeRecentLog.unshift(entry);
+    if (vipWelcomeRecentLog.length > 50) vipWelcomeRecentLog.length = 50;
+    io.emit('vipwelcome:log', entry);
+}
+
+function scheduleVipDrain() {
+    if (vipWelcomeDrainTimer) return;
+    const cfg = appConfig.games.vipwelcome || {};
+    // KHÔNG còn floor 500ms — user có thể set 0 nếu muốn emit tức thì.
+    // Overlay đã có queue nội bộ + play serial → server không cần pace cao.
+    const minGap = Math.max(0, (cfg.queue?.perItemMinMs) ?? 200);
+    const delay = Math.max(0, vipWelcomeLastEmitTs + minGap - Date.now());
+    vipWelcomeDrainTimer = setTimeout(() => {
+        vipWelcomeDrainTimer = null;
+        drainVipQueueOne();
+    }, delay);
+}
+
+function drainVipQueueOne() {
+    if (vipWelcomeQueue.length === 0) return;
+    const item = vipWelcomeQueue.shift();
+    vipWelcomeLastEmitTs = Date.now();
+    // Verify asset file exists nếu URL là local asset — log warning nếu thiếu
+    let mediaExists = true;
+    const u = String(item.payload.mediaUrl || '');
+    const assetMatch = u.match(/^\/api\/games\/vipwelcome\/asset\/(.+)$/);
+    if (assetMatch) {
+        const filePath = path.join(VIPWELCOME_ASSETS_DIR, assetMatch[1]);
+        mediaExists = fs.existsSync(filePath);
+        if (!mediaExists) {
+            console.log(`[vipwelcome] ⚠ MEDIA FILE MISSING khi drain: ${filePath} — overlay sẽ không phát được. Tải lại file vào rule "${item.payload.ruleLabel}".`);
+        }
+    }
+    // Verbose drain log
+    console.log(`[vipwelcome] 🎬 DRAIN → overlay: rule="${item.payload.ruleLabel}" user=@${item.payload.user?.uniqueId || '?'} mediaUrl=${item.payload.mediaUrl} type=${item.payload.mediaType} (file ok: ${mediaExists})`);
+    // Count fire per rule (chỉ khi media tồn tại — coi như đã thật sự phát)
+    if (mediaExists && item.payload.ruleId) {
+        vipSessionRuleFireCount.set(item.payload.ruleId, (vipSessionRuleFireCount.get(item.payload.ruleId) || 0) + 1);
+    }
+    io.emit('vipwelcome:play', item.payload);
+    io.emit('vipwelcome:queue', { size: vipWelcomeQueue.length });
+    pushVipWelcomeLog({
+        ts: Date.now(),
+        kind: mediaExists ? 'play' : 'mediaMissing',
+        ruleLabel: item.payload.ruleLabel || item.payload.source || '',
+        eventType: item.payload.eventType,
+        uniqueId: item.payload.user?.uniqueId,
+        nickname: item.payload.user?.nickname,
+        level: item.payload.user?.level || 0,
+        mediaUrl: item.payload.mediaUrl
+    });
+    if (vipWelcomeQueue.length > 0) scheduleVipDrain();
+}
+
+function enqueueVipWelcomePayload(payload, priority) {
+    const cfg = appConfig.games.vipwelcome || {};
+    const maxLen = Math.max(1, cfg.queue?.maxLen || 20);
+    if (priority) {
+        // User-specific rule: PUSH TO FRONT để drain trước global → user VIP nhận hiệu ứng tức thì
+        vipWelcomeQueue.unshift({ payload, ts: Date.now(), priority: true });
+        // Vượt limit: drop từ ĐUÔI (giữ priority items ở đầu)
+        while (vipWelcomeQueue.length > maxLen) {
+            const dropped = vipWelcomeQueue.pop();
+            pushVipWelcomeLog({ ts: Date.now(), kind: 'drop', ruleLabel: `Queue đầy (priority) → drop ${dropped.payload.ruleLabel}`, dropped: 1 });
+        }
+    } else {
+        vipWelcomeQueue.push({ payload, ts: Date.now() });
+        // Drop từ ĐẦU nhưng SKIP priority items
+        while (vipWelcomeQueue.length > maxLen) {
+            // Tìm item non-priority đầu tiên để drop
+            const idx = vipWelcomeQueue.findIndex(it => !it.priority);
+            if (idx === -1) break;   // toàn priority — không drop
+            vipWelcomeQueue.splice(idx, 1);
+            pushVipWelcomeLog({ ts: Date.now(), kind: 'drop', ruleLabel: `Queue đầy (${maxLen})`, dropped: 1 });
+        }
+    }
+    io.emit('vipwelcome:queue', { size: vipWelcomeQueue.length });
+    scheduleVipDrain();
+}
+
+function buildVipPayload({ source, ruleId, ruleLabel, eventType, media, message, user, gift }) {
+    return {
+        source,                 // 'userRule' | 'globalJoin' | 'globalGift' | 'manual'
+        ruleId: ruleId || '',
+        ruleLabel: ruleLabel || '',
+        eventType,              // 'join' | 'gift'
+        mediaUrl: media.mediaUrl,
+        mediaType: media.mediaType || guessMediaType(media.mediaUrl),
+        volume: media.volume == null ? 100 : media.volume,
+        message: message || '',
+        user: user || null,
+        gift: gift || null,
+        ts: Date.now()
+    };
+}
+
+function guessMediaType(url) {
+    const u = String(url || '').toLowerCase();
+    if (/\.(mp4|webm|mov)(\?|$)/.test(u)) return 'video';
+    if (/\.(mp3|wav|ogg|m4a|flac)(\?|$)/.test(u)) return 'audio';
+    return '';
+}
+
+function checkAndEnqueueVip(opts) {
+    const { ruleId, source, ruleLabel, eventType, media, messageTemplate, user, gift } = opts;
+    if (!media || !media.mediaUrl) return;
+    // Cooldown CHỈ áp dụng cho gift/Lên cấp (chống spam tặng quà liên tục).
+    // Với 'join': KHÔNG dùng cooldown ở đây — vì maybeFireFirstSeenJoin đã có
+    // rejoin threshold (30s) làm gatekeeper. User vào lại sau 30s phải fire lại.
+    const cfg = appConfig.games.vipwelcome || {};
+    if (eventType !== 'join') {
+        const cooldownMs = Math.max(0, (cfg.queue?.perUserCooldownSec || 60) * 1000);
+        if (cooldownMs > 0 && user?.uniqueId) {
+            const k = (user.uniqueId || '').toLowerCase() + '|' + ruleId;
+            const exp = vipWelcomeCooldown.get(k);
+            if (exp && exp > Date.now()) {
+                pushVipWelcomeLog({
+                    ts: Date.now(), kind: 'cooldown',
+                    ruleLabel, eventType,
+                    uniqueId: user.uniqueId, nickname: user.nickname,
+                    level: user.level || 0
+                });
+                return;
+            }
+            vipWelcomeCooldown.set(k, Date.now() + cooldownMs);
+        }
+    }
+    const ctx = { ...user, giftName: gift?.giftName, diamondCount: gift?.diamondCount, repeatCount: gift?.repeatCount };
+    const message = renderVipMessage(messageTemplate, ctx);
+    // User-specific rule (chỉ định TikTok ID) = PRIORITY → drain trước global
+    const priority = source === 'userRule';
+    enqueueVipWelcomePayload(buildVipPayload({ source, ruleId, ruleLabel, eventType, media, message, user, gift }), priority);
+}
+
+function handleVipWelcomeEvent(eventType, evt) {
+    const cfg = appConfig.games.vipwelcome;
+    if (!cfg || cfg.enabled === false) return;
+    pruneVipCooldown();
+    const userInfo = {
+        uniqueId: evt.uniqueId, nickname: evt.nickname,
+        level: evt.level || 0, profilePicture: evt.profilePicture,
+        verified: !!evt.verified
+    };
+    const giftInfo = eventType === 'gift' ? {
+        giftName: evt.giftName, giftPicture: evt.giftPicture,
+        diamondCount: evt.diamondCount || 0, repeatCount: evt.repeatCount || 1
+    } : null;
+
+    // === LEVEL-UP DETECTION cho gift event ===
+    // Chỉ fire "Lên cấp" khi level user thật sự TĂNG so với lần thấy trước trong session này.
+    // Lần đầu thấy user trong session = treat as level-up tới level hiện tại.
+    let leveledUp = false;
+    if (eventType === 'gift' && evt.uniqueId) {
+        const k = String(evt.uniqueId).toLowerCase();
+        const prev = vipSessionLastLevel.has(k) ? vipSessionLastLevel.get(k) : -1;
+        const curr = userInfo.level || 0;
+        if (prev < 0 || curr > prev) {
+            leveledUp = true;
+            console.log(`[vipwelcome] LEVEL-UP detected: @${evt.uniqueId} ${prev < 0 ? '(lần đầu thấy)' : prev} → ${curr}`);
+        }
+        if (curr > prev) vipSessionLastLevel.set(k, curr);
+    }
+    if (evt.uniqueId) vipSessionSeen.add(String(evt.uniqueId).toLowerCase());
+
+    // Iterate qua TẤT CẢ profiles có enabled=true — nhiều người dùng chung máy có thể bật nhóm
+    // của mình song song. Mỗi profile namespace ruleId riêng để cooldown không đè chéo.
+    for (const profile of (cfg.profiles || [])) {
+        if (profile.enabled === false) continue;
+        const pfx = 'p:' + profile.id + ':';
+        const profileLabel = profile.name || 'Nhóm';
+        // 1. User-specific rules trong profile này
+        //    - Nếu trigger='join': fire khi user chỉ định vào phòng
+        //    - Nếu trigger='gift' (Lên cấp): fire khi user chỉ định lên cấp
+        for (const rule of (profile.userRules || [])) {
+            const m = vipWelcomeMatchesUserRule(rule, { eventType, ...evt });
+            if (!m.matched) {
+                // Debug log — chỉ log khi rule có uniqueId khớp một phần (cùng người target) để
+                // tránh spam log với mọi rule khác. Cụ thể: chỉ log nếu eventType khớp + rule có
+                // ID + ID rule và event đều có chữ trùng (cùng tên cơ sở).
+                const ruleUid = String(rule.uniqueId || '').toLowerCase().replace(/^@/, '');
+                const evtUid = String(evt.uniqueId || '').toLowerCase().replace(/^@/, '');
+                if (rule.trigger === eventType && ruleUid && evtUid && (ruleUid === evtUid || ruleUid.includes(evtUid) || evtUid.includes(ruleUid))) {
+                    console.log(`[vipwelcome] User rule SKIP for @${evt.uniqueId}: ${m.reason}  (rule="${profileLabel}/@${rule.uniqueId}" trigger=${rule.trigger})`);
+                }
+                continue;
+            }
+            // Với trigger 'gift', user-specific chỉ fire khi thật sự lên cấp
+            if (rule.trigger === 'gift' && !leveledUp) {
+                console.log(`[vipwelcome] User rule SKIP (gift no level-up) for @${evt.uniqueId}`);
+                continue;
+            }
+            console.log(`[vipwelcome] User rule MATCH for @${evt.uniqueId}: rule="${profileLabel}/@${rule.uniqueId}" trigger=${rule.trigger}`);
+            checkAndEnqueueVip({
+                ruleId: pfx + 'user:' + rule.id,
+                source: 'userRule',
+                ruleLabel: `[${profileLabel}] @${rule.uniqueId}`,
+                eventType,
+                media: rule,
+                messageTemplate: rule.message,
+                user: userInfo,
+                gift: giftInfo
+            });
+        }
+        // 2. Global rule (toàn bộ user) — có thể filter theo verified (tích xanh)
+        if (eventType === 'join') {
+            const g = profile.globalJoin;
+            if (g && g.enabled && g.mediaUrl
+                && (userInfo.level || 0) >= (g.minLevel || 0)
+                && (!g.requireVerified || userInfo.verified)) {
+                checkAndEnqueueVip({
+                    ruleId: pfx + 'global:join',
+                    source: 'globalJoin',
+                    ruleLabel: `[${profileLabel}] Tất cả user${g.requireVerified ? ' ✓' : ''} (Vào phòng)`,
+                    eventType: 'join',
+                    media: g,
+                    messageTemplate: g.message,
+                    user: userInfo
+                });
+            }
+        } else if (eventType === 'gift') {
+            const g = profile.globalGift;
+            // Global "Lên cấp": chỉ fire khi user thật sự lên cấp + level >= minLevel + (optional verified)
+            if (g && g.enabled && g.mediaUrl
+                && leveledUp
+                && (userInfo.level || 0) >= (g.minLevel || 0)
+                && (!g.requireVerified || userInfo.verified)) {
+                checkAndEnqueueVip({
+                    ruleId: pfx + 'global:gift',
+                    source: 'globalGift',
+                    ruleLabel: `[${profileLabel}] Tất cả user${g.requireVerified ? ' ✓' : ''} (Lên cấp)`,
+                    eventType: 'gift',
+                    media: g,
+                    messageTemplate: g.message,
+                    user: userInfo,
+                    gift: giftInfo
+                });
+            }
+        }
+    }
+}
+
+// Trigger API — panel gọi để test 1 rule (manual / test-all / stop / clear queue).
+app.post('/api/games/vipwelcome/trigger', (req, res) => {
+    const cfg = appConfig.games.vipwelcome;
+    if (!cfg) return res.status(404).json({ ok: false, error: 'vipwelcome config missing' });
+    const { type, payload } = req.body || {};
+    if (type === 'test') {
+        // payload: { profileId, ruleType:'user'|'globalJoin'|'globalGift', ruleId? }
+        // profileId default = activeProfileId nếu không truyền
+        const profileId = payload?.profileId || cfg.activeProfileId;
+        const profile = (cfg.profiles || []).find(p => p.id === profileId);
+        if (!profile) return res.json({ ok: false, error: 'profile_not_found' });
+        const profileLabel = profile.name || 'Nhóm';
+        let media = null, ruleLabel = '', eventType = 'join', messageTemplate = '';
+        if (payload?.ruleType === 'user') {
+            const rule = (profile.userRules || []).find(r => r.id === payload.ruleId);
+            if (!rule) return res.json({ ok: false, error: 'rule_not_found' });
+            if (!rule.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = rule; ruleLabel = `[${profileLabel}] @${rule.uniqueId}`;
+            eventType = rule.trigger || 'join';
+            messageTemplate = rule.message;
+        } else if (payload?.ruleType === 'globalJoin') {
+            if (!profile.globalJoin?.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = profile.globalJoin; ruleLabel = `[${profileLabel}] Test: Global Join`;
+            eventType = 'join';
+            messageTemplate = profile.globalJoin.message;
+        } else if (payload?.ruleType === 'globalGift') {
+            if (!profile.globalGift?.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = profile.globalGift; ruleLabel = `[${profileLabel}] Test: Global Gift`;
+            eventType = 'gift';
+            messageTemplate = profile.globalGift.message;
+        } else {
+            return res.json({ ok: false, error: 'unknown_ruleType' });
+        }
+        const fakeUser = {
+            uniqueId: payload?.uniqueId || 'tester',
+            nickname: payload?.nickname || 'Người Thử',
+            level: payload?.level || 99,
+            verified: !!payload?.verified,
+            profilePicture: ''
+        };
+        const fakeGift = eventType === 'gift' ? {
+            giftName: payload?.giftName || 'Quà thử', giftPicture: '',
+            repeatCount: 1
+        } : null;
+        const message = renderVipMessage(messageTemplate, { ...fakeUser, giftName: fakeGift?.giftName });
+        enqueueVipWelcomePayload(buildVipPayload({
+            source: 'manual', ruleId: payload?.ruleId || '', ruleLabel,
+            eventType, media, message, user: fakeUser, gift: fakeGift
+        }));
+        return res.json({ ok: true });
+    }
+    if (type === 'stop') {
+        vipWelcomeQueue = [];
+        if (vipWelcomeDrainTimer) { clearTimeout(vipWelcomeDrainTimer); vipWelcomeDrainTimer = null; }
+        io.emit('vipwelcome:stop', { ts: Date.now() });
+        io.emit('vipwelcome:queue', { size: 0 });
+        return res.json({ ok: true });
+    }
+    if (type === 'clearQueue') {
+        vipWelcomeQueue = [];
+        io.emit('vipwelcome:queue', { size: 0 });
+        return res.json({ ok: true });
+    }
+    if (type === 'resetCooldown') {
+        vipWelcomeCooldown.clear();
+        return res.json({ ok: true });
+    }
+    if (type === 'clearLog') {
+        vipWelcomeRecentLog = [];
+        io.emit('vipwelcome:logCleared', { ts: Date.now() });
+        return res.json({ ok: true });
+    }
+    if (type === 'resetSession') {
+        resetVipSession();
+        vipWelcomeCooldown.clear();
+        return res.json({ ok: true });
+    }
+    if (type === 'reloadOverlay') {
+        // Force overlay reload (giải quyết cache OBS browser source khi update)
+        io.emit('vipwelcome:reload', { ts: Date.now() });
+        return res.json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown_type' });
+});
+
+// Status per user-rule: cho UI hiển thị "đã fire / sẵn sàng / countdown"
+app.get('/api/games/vipwelcome/user-status', (req, res) => {
+    const cfg = appConfig.games.vipwelcome || {};
+    const thresholdMs = getRejoinThresholdMs();
+    const now = Date.now();
+    const out = {};
+    for (const profile of (cfg.profiles || [])) {
+        for (const rule of (profile.userRules || [])) {
+            const uid = String(rule.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+            if (!uid) continue;
+            const lastFire = vipSessionLastFireAt.get(uid);
+            const lastSeen = vipSessionLastSeenAt.get(uid);
+            const inSeq = vipSessionInLatestSeq.has(uid);
+            const leftSeqAt = vipSessionLeftSeqAt.get(uid);
+            // Tính eligibility cho rejoin
+            let status = 'idle';
+            let secondsSinceFire = null;
+            let secondsSinceSeen = null;
+            let secondsUntilRejoinEligible = null;
+            let readyForRejoin = false;
+            if (lastFire) {
+                secondsSinceFire = Math.round((now - lastFire) / 1000);
+                if (lastSeen) secondsSinceSeen = Math.round((now - lastSeen) / 1000);
+                readyForRejoin = !!leftSeqAt || (lastSeen && (now - lastSeen) > thresholdMs);
+                if (readyForRejoin) {
+                    status = 'readyForRejoin';
+                } else if (lastSeen) {
+                    secondsUntilRejoinEligible = Math.max(0, Math.round((lastSeen + thresholdMs - now) / 1000));
+                    status = 'inRoom';
+                } else {
+                    status = 'fired';
+                }
+            }
+            // Fire count cho rule này — namespace "p:<profileId>:user:<ruleId>"
+            const fireCountKey = 'p:' + profile.id + ':user:' + rule.id;
+            const fireCount = vipSessionRuleFireCount.get(fireCountKey) || 0;
+            out[rule.id] = {
+                uniqueId: rule.uniqueId,
+                profileId: profile.id,
+                profileName: profile.name,
+                status,
+                inSeq,
+                droppedOutOfSeq: !!leftSeqAt,
+                secondsSinceFire,
+                secondsSinceSeen,
+                secondsUntilRejoinEligible,
+                thresholdSec: thresholdMs / 1000,
+                fireCount
+            };
+        }
+    }
+    res.json({ now, statuses: out });
+});
+
+app.get('/api/games/vipwelcome/queue', (req, res) => {
+    res.json({
+        size: vipWelcomeQueue.length,
+        items: vipWelcomeQueue.map(it => ({
+            ruleLabel: it.payload.ruleLabel,
+            eventType: it.payload.eventType,
+            uniqueId: it.payload.user?.uniqueId,
+            nickname: it.payload.user?.nickname,
+            level: it.payload.user?.level || 0,
+            ts: it.ts
+        })),
+        recent: vipWelcomeRecentLog
+    });
 });
 
 // Default index
