@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP VIP Welcome — OBS Overlay</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+    #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; pointer-events: none; }
+    #content {
+        position: absolute;
+        top: var(--y, 50%); left: var(--x, 50%);
+        transform: translate(-50%, -50%) scale(var(--scale, 1));
+        transform-origin: center center;
+        width: 1080px; height: 1920px;
+        background: transparent;
+        display: flex; align-items: center; justify-content: center;
+    }
+    #player {
+        max-width: 100%; max-height: 100%;
+        object-fit: contain;
+        display: none;
+        filter: drop-shadow(0 0 60px rgba(0,0,0,0.5));
+    }
+    #player.show { display: block; animation: fxIn 260ms ease-out; }
+    @keyframes fxIn {
+        from { opacity: 0; transform: scale(0.82); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    /* Message label — base styles. Style variant áp dụng qua class style-* */
+    #label {
+        position: absolute; left: 50%; transform: translateX(-50%);
+        padding: 14px 32px; border-radius: 999px;
+        color: #fff; font-size: 32px; font-weight: 900; letter-spacing: 0.6px;
+        text-shadow: 0 3px 10px rgba(0,0,0,0.65);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
+        max-width: 92%;
+        display: none;
+        font-family: 'Segoe UI', 'Roboto', sans-serif;
+        align-items: center; gap: 14px;
+    }
+    #label.show { display: flex; animation: labelIn 360ms cubic-bezier(.34,1.56,.64,1); }
+    #avatar {
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        border: 3px solid rgba(255,255,255,0.8);
+        object-fit: cover;
+        flex-shrink: 0;
+        background: #1a1a1a;
+        display: none;
+    }
+    #avatar.show { display: block; }
+    #label-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #label.pos-top    { top: 96px; }
+    #label.pos-middle { top: 50%; transform: translate(-50%, -50%); }
+    #label.pos-bottom { bottom: 96px; }
+    @keyframes labelIn {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.85); }
+        to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    }
+    /* === 10 style variants — chọn từ Cài đặt === */
+    /* 1. Gold-Pink (mặc định) */
+    #label.style-goldpink {
+        background: linear-gradient(135deg, rgba(255, 184, 0, 0.96), rgba(255, 45, 85, 0.96));
+    }
+    /* 2. Royal — tím hoàng gia + viền vàng */
+    #label.style-royal {
+        background: linear-gradient(135deg, #4a148c, #7c3aed);
+        border: 2px solid #ffd700;
+        box-shadow: 0 12px 32px rgba(124, 58, 237, 0.55), 0 0 25px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+    }
+    /* 3. Neon Cyan — xanh neon phát sáng */
+    #label.style-neon {
+        background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+        color: #fff;
+        text-shadow: 0 0 12px rgba(6, 182, 212, 0.9), 0 0 24px rgba(6, 182, 212, 0.6);
+        box-shadow: 0 0 24px rgba(6, 182, 212, 0.6), 0 12px 32px rgba(0,0,0,0.45);
+        border: 1.5px solid rgba(255, 255, 255, 0.5);
+    }
+    /* 4. Fire — đỏ cam lửa */
+    #label.style-fire {
+        background: linear-gradient(135deg, #dc2626, #f97316, #fbbf24);
+        text-shadow: 0 2px 8px rgba(220, 38, 38, 0.8), 0 0 16px rgba(251, 191, 36, 0.6);
+        box-shadow: 0 12px 32px rgba(220, 38, 38, 0.5), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    /* 5. Luxury — đen sang trọng + chữ vàng */
+    #label.style-luxury {
+        background: linear-gradient(135deg, #0a0a0a, #262626);
+        color: #ffd700;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        border: 1.5px solid #ffd700;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.7), 0 0 16px rgba(255, 215, 0, 0.3);
+    }
+    /* 6. Pastel — nhẹ nhàng pink-purple */
+    #label.style-pastel {
+        background: linear-gradient(135deg, #fbcfe8, #c4b5fd);
+        color: #4c1d95;
+        text-shadow: none;
+        box-shadow: 0 8px 24px rgba(196, 181, 253, 0.5);
+    }
+    /* 7. Emerald — xanh ngọc sang */
+    #label.style-emerald {
+        background: linear-gradient(135deg, #047857, #10b981);
+        text-shadow: 0 2px 8px rgba(4, 120, 87, 0.6);
+        box-shadow: 0 12px 32px rgba(16, 185, 129, 0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+    }
+    /* 8. Ocean — xanh biển sâu */
+    #label.style-ocean {
+        background: linear-gradient(135deg, #1e3a8a, #2563eb, #06b6d4);
+        text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+        box-shadow: 0 12px 32px rgba(37, 99, 235, 0.5);
+    }
+    /* 9. Vietnam — đỏ vàng cờ Việt Nam */
+    #label.style-vietnam {
+        background: linear-gradient(135deg, #da251d, #ff0000);
+        color: #ffff00;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.7);
+        border: 2px solid #ffff00;
+        box-shadow: 0 12px 32px rgba(218, 37, 29, 0.6), 0 0 18px rgba(255, 255, 0, 0.4);
+    }
+    /* 10. Rainbow — gradient cầu vồng động */
+    #label.style-rainbow {
+        background: linear-gradient(90deg, #ff0080, #ff8c00, #ffd700, #00c853, #00b8d4, #7c3aed, #ff0080);
+        background-size: 400% 100%;
+        animation: rainbowShift 4s linear infinite;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.85);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    #label.style-rainbow.show { animation: labelIn 360ms cubic-bezier(.34,1.56,.64,1), rainbowShift 4s linear infinite; }
+    @keyframes rainbowShift {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 400% 50%; }
+    }
+    /* 11. Glass — kính mờ minimalist */
+    #label.style-glass {
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: #fff;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    /* 12. Cyber — xanh tím cyber-punk */
+    #label.style-cyber {
+        background: linear-gradient(135deg, #0f172a, #1e1b4b);
+        color: #00ffff;
+        text-shadow: 0 0 8px #00ffff, 0 0 16px rgba(0, 255, 255, 0.6), 0 0 4px #ff00ff;
+        border: 1.5px solid #00ffff;
+        box-shadow: 0 0 24px rgba(0, 255, 255, 0.5), 0 0 40px rgba(255, 0, 255, 0.3), inset 0 0 12px rgba(0, 255, 255, 0.2);
+    }
+    .debug-pill {
+        position: fixed; bottom: 8px; left: 8px;
+        background: rgba(0,0,0,0.5); color: #fff;
+        font: 11px/1.2 monospace; padding: 4px 8px; border-radius: 6px;
+        z-index: 9999; opacity: 0.6;
+    }
+    .debug-pill.hidden { display: none; }
+    body.offline #content { display: none; }
+    body.offline .debug-pill { display: none !important; }
+</style>
+</head>
+<body>
+    <div id="stage">
+        <div id="content">
+            <video id="player" playsinline></video>
+            <audio id="audioOnly"></audio>
+            <div id="label" class="pos-bottom style-goldpink">
+                <img id="avatar" alt="" />
+                <span id="label-text"></span>
+            </div>
+        </div>
+    </div>
+    <div class="debug-pill" id="debug">connecting…</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    (function () {
+        const debugEl = document.getElementById('debug');
+        const content = document.getElementById('content');
+        const player = document.getElementById('player');
+        const audioOnly = document.getElementById('audioOnly');
+        const labelEl = document.getElementById('label');
+        const labelTextEl = document.getElementById('label-text');
+        const avatarEl = document.getElementById('avatar');
+        let pendingStyleOverride = '';
+
+        let currentCfg = null;
+        let labelTimer = null;
+        const queue = [];
+        let playing = false;
+
+        const LABEL_STYLES = ['goldpink','royal','neon','fire','luxury','pastel','emerald','ocean','vietnam','rainbow','glass','cyber'];
+        function applyDisplay() {
+            if (!currentCfg || !currentCfg.display) return;
+            const w = window.innerWidth, h = window.innerHeight;
+            const base = Math.min(w / 1080, h / 1920);
+            const userScale = (currentCfg.display.scale || 100) / 100;
+            content.style.setProperty('--scale', String(base * userScale));
+            content.style.setProperty('--x', (currentCfg.display.xPercent ?? 50) + '%');
+            content.style.setProperty('--y', (currentCfg.display.yPercent ?? 50) + '%');
+            // Label position
+            labelEl.classList.remove('pos-top', 'pos-middle', 'pos-bottom');
+            const pos = currentCfg.display.textPosition || 'bottom';
+            labelEl.classList.add(pos === 'top' ? 'pos-top' : pos === 'middle' ? 'pos-middle' : 'pos-bottom');
+            // Label style — strip mọi style-* hiện có rồi apply style mới
+            for (const s of LABEL_STYLES) labelEl.classList.remove('style-' + s);
+            const style = currentCfg.display.labelStyle || 'goldpink';
+            labelEl.classList.add('style-' + (LABEL_STYLES.includes(style) ? style : 'goldpink'));
+        }
+        function fitNoCfg() {
+            const w = window.innerWidth, h = window.innerHeight;
+            const s = Math.min(w / 1080, h / 1920);
+            content.style.setProperty('--scale', String(s));
+        }
+        window.addEventListener('resize', () => currentCfg ? applyDisplay() : fitNoCfg());
+        fitNoCfg();
+        setTimeout(() => debugEl.classList.add('hidden'), 4000);
+
+        function clearPlayer() {
+            try { player.pause(); player.removeAttribute('src'); player.load(); } catch (e) {}
+            player.classList.remove('show');
+        }
+        function clearAudio() {
+            try { audioOnly.pause(); audioOnly.removeAttribute('src'); audioOnly.load(); } catch (e) {}
+        }
+        function hideLabel() {
+            labelEl.classList.remove('show');
+            clearTimeout(labelTimer); labelTimer = null;
+        }
+        // Apply style — ưu tiên override từ payload (rule-level), fallback currentCfg
+        function applyLabelStyle(overrideStyle) {
+            for (const s of LABEL_STYLES) labelEl.classList.remove('style-' + s);
+            const style = overrideStyle || currentCfg?.display?.labelStyle || 'goldpink';
+            labelEl.classList.add('style-' + (LABEL_STYLES.includes(style) ? style : 'goldpink'));
+        }
+        function showLabel(text, durationMs, opts) {
+            applyLabelStyle(opts?.styleOverride);
+            // Avatar — set src nếu có + showAvatar enabled từ config
+            const showAvatar = currentCfg?.display?.showAvatar !== false;
+            if (showAvatar && opts?.avatarUrl) {
+                avatarEl.src = opts.avatarUrl;
+                avatarEl.classList.add('show');
+            } else {
+                avatarEl.classList.remove('show');
+                avatarEl.src = '';
+            }
+            labelTextEl.textContent = text;
+            labelEl.classList.remove('show');
+            void labelEl.offsetWidth;
+            labelEl.classList.add('show');
+            clearTimeout(labelTimer);
+            labelTimer = setTimeout(hideLabel, durationMs || 3500);
+        }
+
+        function playMedia(p) {
+            if (!p || !p.mediaUrl) { playing = false; advanceQueue(); return; }
+            const isVideo = (p.mediaType === 'video') || /\.(mp4|webm|mov)(\?|$)/i.test(p.mediaUrl);
+            const vol = Math.max(0, Math.min(1, (p.volume ?? 100) / 100));
+            // Show label nếu config showText và payload có message
+            if (currentCfg?.display?.showText !== false && p.message) {
+                showLabel(p.message, undefined, {
+                    styleOverride: p.labelStyle || '',
+                    avatarUrl: p.user?.profilePicture || ''
+                });
+            }
+            if (isVideo) {
+                clearAudio();
+                player.src = p.mediaUrl;
+                player.volume = vol;
+                player.classList.add('show');
+                player.play().catch(() => {
+                    player.muted = true;
+                    player.play().catch(() => {});
+                });
+                player.muted = false;
+                player.onended = () => { clearPlayer(); playing = false; advanceQueue(); };
+                player.onerror = () => { clearPlayer(); playing = false; advanceQueue(); };
+            } else {
+                clearPlayer();
+                audioOnly.src = p.mediaUrl;
+                audioOnly.volume = vol;
+                audioOnly.play().catch(() => {});
+                audioOnly.onended = () => { playing = false; advanceQueue(); };
+                audioOnly.onerror = () => { playing = false; advanceQueue(); };
+            }
+        }
+
+        function advanceQueue() {
+            if (queue.length === 0) return;
+            const next = queue.shift();
+            playing = true;
+            playMedia(next);
+        }
+        function fire(payload) {
+            if (!payload || !payload.mediaUrl) return;
+            queue.push(payload);
+            if (!playing) advanceQueue();
+        }
+
+        let offlineTimer = null;
+        const OFFLINE_GRACE_MS = 3000;
+        function showOffline() {
+            document.body.classList.add('offline');
+            clearPlayer(); clearAudio(); hideLabel();
+            queue.length = 0; playing = false;
+        }
+        function hideOffline() { document.body.classList.remove('offline'); }
+        function scheduleOffline() {
+            clearTimeout(offlineTimer);
+            offlineTimer = setTimeout(showOffline, OFFLINE_GRACE_MS);
+        }
+        function cancelOffline() {
+            clearTimeout(offlineTimer); offlineTimer = null;
+            hideOffline();
+        }
+
+        const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
+
+        async function syncFromServer() {
+            try {
+                const r = await fetch('/api/games/vipwelcome/config');
+                currentCfg = await r.json();
+                applyDisplay();
+            } catch (e) {}
+            socket.emit('subscribe', 'overlay');
+        }
+
+        socket.on('connect', () => {
+            debugEl.textContent = 'connected';
+            debugEl.classList.remove('hidden');
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+            cancelOffline();
+            syncFromServer();
+        });
+        socket.on('disconnect', (reason) => {
+            debugEl.textContent = 'disconnected: ' + reason;
+            debugEl.classList.remove('hidden');
+            scheduleOffline();
+        });
+
+        socket.on('gameConfig', ({ gameId, config }) => {
+            if (gameId !== 'vipwelcome') return;
+            currentCfg = config;
+            applyDisplay();
+        });
+
+        socket.on('vipwelcome:play', (payload) => { fire(payload); });
+        socket.on('vipwelcome:stop', () => {
+            queue.length = 0;
+            clearPlayer(); clearAudio(); hideLabel();
+            playing = false;
+        });
+        // Force reload — gửi từ app sau khi user đổi setting để OBS browser source cập nhật
+        socket.on('vipwelcome:reload', () => {
+            try { location.reload(true); } catch (e) { location.reload(); }
+        });
+
+        fetch('/api/games/vipwelcome/config').then(r => r.json()).then(cfg => {
+            currentCfg = cfg; applyDisplay();
+        }).catch(() => { showOffline(); });
+    })();
+    </script>
+</body>
+</html>

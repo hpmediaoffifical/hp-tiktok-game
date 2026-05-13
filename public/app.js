@@ -89,8 +89,15 @@
         // License: handle qua biến cục bộ licStatusText/licMeta/btnLicLogout phía dưới
         dot: $('#dot'),
         statusText: $('#status-text'),
-        statRoom: $('#stat-room'),
-        statViewer: $('#stat-viewer'),
+        // Old stat refs (no longer rendered, kept defensively for backward compat in other code paths)
+        statRoom: { textContent: '' },
+        statViewer: { textContent: '' },
+        // New live stats grid
+        liveStatsGrid: $('#live-stats-grid'),
+        lstatViewer: $('#lstat-viewer'),
+        lstatDiamond: $('#lstat-diamond'),
+        lstatFollow: $('#lstat-follow'),
+        lstatShare: $('#lstat-share'),
         gameList: $('#game-list'),
         homeGrid: $('#home-grid'),
         giftCountHint: $('#gift-count-hint'),
@@ -190,6 +197,68 @@
         dom.commentsEl.scrollTop = dom.commentsEl.scrollHeight;
     }
 
+    function escHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // hpConfirm — modal styled theo theme app, thay thế cho window.confirm() xấu xí.
+    // tone: 'normal' | 'danger' (default 'normal')
+    function hpConfirm({ icon, title, body, okLabel, cancelLabel, tone }) {
+        return new Promise((resolve) => {
+            let overlay = document.getElementById('hp-confirm-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'hp-confirm-overlay';
+                overlay.className = 'hp-confirm-overlay';
+                overlay.innerHTML = `
+                    <div class="hp-confirm-card">
+                        <div class="hp-confirm-head">
+                            <div class="hp-confirm-icon" id="hp-confirm-icon"></div>
+                            <div class="hp-confirm-title" id="hp-confirm-title"></div>
+                        </div>
+                        <div class="hp-confirm-body" id="hp-confirm-body"></div>
+                        <div class="hp-confirm-actions">
+                            <button class="hp-confirm-btn cancel" id="hp-confirm-cancel"></button>
+                            <button class="hp-confirm-btn ok" id="hp-confirm-ok"></button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            }
+            const card = overlay.querySelector('.hp-confirm-card');
+            card.classList.toggle('tone-danger', tone === 'danger');
+            overlay.querySelector('#hp-confirm-icon').textContent = icon || '?';
+            overlay.querySelector('#hp-confirm-title').textContent = title || 'Xác nhận';
+            overlay.querySelector('#hp-confirm-body').innerHTML = body || '';
+            const okBtn = overlay.querySelector('#hp-confirm-ok');
+            const cancelBtn = overlay.querySelector('#hp-confirm-cancel');
+            okBtn.textContent = okLabel || 'OK';
+            cancelBtn.textContent = cancelLabel || 'Huỷ';
+            overlay.classList.add('show');
+            setTimeout(() => cancelBtn.focus(), 30);
+            function cleanup(val) {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onKey);
+                overlay.removeEventListener('click', onBackdrop);
+                resolve(val);
+            }
+            function onOk() { cleanup(true); }
+            function onCancel() { cleanup(false); }
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+                else if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+            }
+            function onBackdrop(e) { if (e.target === overlay) onCancel(); }
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            overlay.addEventListener('click', onBackdrop);
+        });
+    }
+    // Expose để các module khác dùng
+    window.hpConfirm = hpConfirm;
+
     // ===== Games =====
     async function loadGames() {
         const res = await fetch('/api/games');
@@ -203,12 +272,43 @@
             const div = document.createElement('div');
             div.className = 'game-item';
             div.dataset.id = g.id;
+            // Determine if game has 'enabled' field in its config (pktiktok + vipwelcome)
+            const cfg = g.config || {};
+            const hasEnabledField = ('enabled' in cfg);
+            const isEnabled = !hasEnabledField || cfg.enabled !== false;
             div.innerHTML = `<span class="ico">${g.icon}</span>
                 <div class="meta">
                     <div class="gn">${g.name}</div>
                     <div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>
-                </div>`;
-            div.addEventListener('click', () => openGame(g.id));
+                </div>
+                <button class="game-toggle ${isEnabled ? 'on' : 'off'}" data-game-toggle="${g.id}" title="${isEnabled ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT'} game chạy ngầm (overlay sẽ không phát hiệu ứng)">⏻</button>`;
+            // Click toàn thân (trừ toggle) → mở game
+            div.addEventListener('click', (e) => {
+                if (e.target.closest('[data-game-toggle]')) return;
+                openGame(g.id);
+            });
+            // Click toggle → bật/tắt game
+            div.querySelector('[data-game-toggle]')?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const btn = e.currentTarget;
+                const cur = !btn.classList.contains('off');   // currently on?
+                const next = !cur;
+                btn.classList.toggle('on', next);
+                btn.classList.toggle('off', !next);
+                btn.title = next ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT';
+                // POST update to server
+                try {
+                    await fetch(`/api/games/${g.id}/config`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next })
+                    });
+                    if (g.config) g.config.enabled = next;
+                } catch (err) {
+                    // revert
+                    btn.classList.toggle('on', !next);
+                    btn.classList.toggle('off', next);
+                }
+            });
             dom.gameList.appendChild(div);
         }
     }
@@ -236,7 +336,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -246,6 +346,15 @@
         if (gameId === 'thuytinh') openThuytinh(game);
         else if (gameId === 'caro') openCaro(game);
         else if (gameId === 'pktiktok') openPkTiktok(game);
+        else if (gameId === 'vipwelcome') openVipWelcome(game);
+    }
+
+    function openVipWelcome(game) {
+        if (window.HpVipWelcomePanel && typeof window.HpVipWelcomePanel.open === 'function') {
+            window.HpVipWelcomePanel.open(socket);
+        } else {
+            console.error('[vipwelcome] HpVipWelcomePanel chưa load');
+        }
     }
 
     function openCaro(game) {
@@ -477,7 +586,9 @@
         bindRange(dom.cfgJarH, cfg.jar.height, dom.cfgJarHV);
         bindRange(dom.cfgGmin, cfg.gift.minSize, dom.cfgGminV);
         bindRange(dom.cfgGmax, cfg.gift.maxSize, dom.cfgGmaxV);
-        bindRange(dom.cfgGoal, cfg.goal?.target ?? 1000, dom.cfgGoalV);
+        // cfg-goal đã chuyển từ slider sang number input — set value trực tiếp
+        if (dom.cfgGoal) dom.cfgGoal.value = cfg.goal?.target ?? 5000;
+        if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
         bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
@@ -573,7 +684,7 @@
             jarVisible: dom.cfgJarVisible.checked,
             jarLocked: !!(dom.cfgJarLocked && dom.cfgJarLocked.checked),
             features,
-            goal: { target: parseInt(dom.cfgGoal.value, 10) || 1000 },
+            goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,
@@ -1343,19 +1454,26 @@
     function setConnectedUI(connected, username) {
         isLiveConnected = !!connected;
         liveUsername = username || '';
+        const statusRow = document.getElementById('status-row');
         if (connected) {
-            // Ẩn input, đổi nút thành dạng toggle disconnect
             if (dom.connRow) dom.connRow.style.display = 'none';
             dom.btnConnect.classList.remove('primary');
             dom.btnConnect.classList.add('secondary');
             dom.btnConnect.disabled = false;
-            dom.btnConnect.innerHTML = `<span style="color:#22c55e">●</span> @${escAttrInline(liveUsername)} · Bấm để ngắt`;
+            dom.btnConnect.innerHTML = `<span class="conn-dot"></span><span class="conn-name">@${escAttrInline(liveUsername)}</span><span class="conn-eject" title="Ngắt kết nối">⏻</span>`;
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = false;
+            // Ẩn status-row khi connected (button + stats đã đủ thông tin)
+            if (statusRow) statusRow.style.display = 'none';
         } else {
             if (dom.connRow) dom.connRow.style.display = '';
             dom.btnConnect.classList.add('primary');
             dom.btnConnect.classList.remove('secondary');
             dom.btnConnect.disabled = false;
             dom.btnConnect.textContent = 'Kết nối LIVE';
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = true;
+            // Hiện lại status-row khi disconnected
+            if (statusRow) statusRow.style.display = '';
+            ['lstatViewer','lstatDiamond','lstatFollow','lstatShare'].forEach(k => { if (dom[k]) dom[k].textContent = '0'; });
         }
     }
     function escAttrInline(s) { return String(s ?? '').replace(/[<>"]/g, ''); }
@@ -1396,7 +1514,14 @@
         }
     }
     async function doDisconnect() {
-        const ok = window.confirm(`Ngắt kết nối khỏi @${liveUsername}?`);
+        const ok = await hpConfirm({
+            icon: '⏻',
+            title: 'Ngắt kết nối TikTok LIVE',
+            body: `Bạn có chắc muốn ngắt kết nối khỏi <b>@${escHtml(liveUsername)}</b>?<br><span style="color:#8b93a8">OBS overlay sẽ ngừng nhận sự kiện cho đến khi kết nối lại.</span>`,
+            okLabel: 'Ngắt kết nối',
+            cancelLabel: 'Giữ kết nối',
+            tone: 'danger'
+        });
         if (!ok) return;
         dom.btnConnect.disabled = true;
         await fetch('/api/disconnect', { method: 'POST' });
@@ -1792,7 +1917,21 @@
     socket.on('member', (m) => appendSystem(`👋 ${m.nickname || m.uniqueId} đã vào LIVE`));
     socket.on('social', (s) => appendSystem(`💗 ${s.nickname || s.uniqueId} ${s.label || ''}`));
     socket.on('roomUser', (r) => {
-        if (typeof r.viewerCount === 'number') dom.statViewer.textContent = `👥 ${r.viewerCount}`;
+        if (typeof r.viewerCount === 'number' && dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(r.viewerCount);
+    });
+    // Live stats — viewer, diamond, follow, share
+    function fmtNum(n) {
+        n = Number(n) || 0;
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return String(n);
+    }
+    socket.on('liveStats', (s) => {
+        if (!s) return;
+        if (dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(s.viewerCount);
+        if (dom.lstatDiamond) dom.lstatDiamond.textContent = fmtNum(s.totalDiamond);
+        if (dom.lstatFollow) dom.lstatFollow.textContent = fmtNum(s.totalFollows);
+        if (dom.lstatShare) dom.lstatShare.textContent = fmtNum(s.totalShares);
     });
 
     // ===== Bình luận popup toggle + badge =====

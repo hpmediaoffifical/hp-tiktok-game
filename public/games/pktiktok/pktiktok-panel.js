@@ -75,10 +75,16 @@
             const hasFile = !!ev.mediaUrl;
             const fileName = ev.mediaName || (ev.mediaUrl ? ev.mediaUrl.split('/').pop() : '');
             const typeBadge = hasFile ? (ev.mediaType === 'video' ? '🎞 VIDEO' : (ev.mediaType === 'audio' ? '🔊 ÂM' : '📄')) : '';
+            const isResultPhase = (ev.key === 'win' || ev.key === 'lose');
+            const userRulesCount = (ev.topContributorRules || []).length;
+            const settingsBtn = isResultPhase
+                ? `<button type="button" class="pkfx-settings-btn" data-pkfx-settings title="Cài effect riêng theo TOP 1 user tặng quà trong PK">⚙${userRulesCount > 0 ? `<span class="pkfx-rules-badge">${userRulesCount}</span>` : ''}</button>`
+                : '';
             return `<div class="pkfx-card${ev.enabled === false ? ' disabled' : ''}${hasFile ? ' has-file' : ''}" data-pkfx-key="${ev.key}">
                 <div class="pkfx-card-head">
                     <span class="pkfx-card-emoji">${ev.emoji || '🎬'}</span>
                     <div class="pkfx-card-title">${escapeHtml(ev.label)}</div>
+                    ${settingsBtn}
                     <label class="pkfx-card-toggle" title="Bật / Tắt sự kiện này">
                         <input type="checkbox" data-pkfx-toggle ${ev.enabled === false ? '' : 'checked'} />
                     </label>
@@ -145,6 +151,9 @@
                 card.classList.toggle('disabled', !ev.enabled);
                 await persistConfig();
             });
+            card.querySelector('[data-pkfx-settings]')?.addEventListener('click', () => {
+                openTopRulesModal(key);
+            });
             const vol = card.querySelector('[data-pkfx-vol]');
             const volV = card.querySelector('[data-pkfx-vol-v]');
             if (vol) {
@@ -155,6 +164,109 @@
                 });
             }
         });
+    }
+
+    // ====== Top-1 contributor rules modal (cho win/lose phase) ======
+    function openTopRulesModal(eventKey) {
+        const ev = cfg.events.find(e => e.key === eventKey);
+        if (!ev) return;
+        ev.topContributorRules = ev.topContributorRules || [];
+        let modal = document.getElementById('pkfx-top-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'pkfx-top-modal';
+            modal.className = 'pkfx-top-modal-overlay';
+            modal.innerHTML = `
+                <div class="pkfx-top-modal-card">
+                    <div class="pkfx-top-modal-head">
+                        <div class="pkfx-top-modal-title">🏆 Effect riêng cho TOP 1 user tặng quà</div>
+                        <button class="pkfx-top-modal-close" id="pkfx-top-close">✕</button>
+                    </div>
+                    <div class="pkfx-top-modal-hint">Khi PK kết thúc với phase này, server tìm user có TỔNG KIM CƯƠNG cao nhất trong trận. Nếu user đó có trong danh sách → phát media riêng. Nếu không → dùng media default.</div>
+                    <div id="pkfx-top-rules-list" class="pkfx-top-rules-list"></div>
+                    <button class="primary small" id="pkfx-top-add">➕ Thêm user</button>
+                </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('show'); });
+            modal.querySelector('#pkfx-top-close').addEventListener('click', () => modal.classList.remove('show'));
+        }
+        renderTopRules(ev);
+        modal.classList.add('show');
+        modal.dataset.evKey = eventKey;
+    }
+    function renderTopRules(ev) {
+        const host = document.querySelector('#pkfx-top-rules-list');
+        if (!host) return;
+        const rules = ev.topContributorRules || [];
+        if (rules.length === 0) {
+            host.innerHTML = '<div class="pkfx-top-empty">Chưa có user nào. Bấm "➕ Thêm user" để thêm rule cho TOP 1.</div>';
+        } else {
+            host.innerHTML = rules.map((r, i) => {
+                const fileName = r.mediaName || (r.mediaUrl ? r.mediaUrl.split('/').pop() : '');
+                const hasFile = !!r.mediaUrl;
+                return `<div class="pkfx-top-rule" data-top-idx="${i}">
+                    <input type="text" placeholder="@tiktok_id" class="pkfx-top-uid" value="${escapeHtml(r.uniqueId || '')}" />
+                    <span class="pkfx-top-file">${hasFile ? '🎞 ' + escapeHtml(fileName) : '— chưa chọn file —'}</span>
+                    <button class="ghost mini pkfx-top-pick">📁</button>
+                    <button class="danger mini pkfx-top-del">🗑</button>
+                </div>`;
+            }).join('');
+        }
+        // Wire add button (outside list)
+        const addBtn = document.querySelector('#pkfx-top-add');
+        if (addBtn) {
+            addBtn.onclick = async () => {
+                ev.topContributorRules.push({ uniqueId: '', mediaUrl: '', mediaName: '', mediaType: '' });
+                renderTopRules(ev);
+                await persistConfig();
+            };
+        }
+        // Wire row buttons
+        host.querySelectorAll('.pkfx-top-rule').forEach(row => {
+            const idx = +row.dataset.topIdx;
+            row.querySelector('.pkfx-top-uid').addEventListener('input', (e) => {
+                ev.topContributorRules[idx].uniqueId = e.target.value.replace(/^@/, '').trim();
+                schedulePersist();
+            });
+            row.querySelector('.pkfx-top-pick').addEventListener('click', async () => {
+                const inp = document.createElement('input');
+                inp.type = 'file';
+                inp.accept = 'video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg,.mp4,.webm,.mp3,.wav,.ogg,.m4a';
+                inp.style.display = 'none';
+                document.body.appendChild(inp);
+                inp.onchange = async () => {
+                    const f = inp.files?.[0]; inp.remove();
+                    if (!f) return;
+                    const ext = (f.name.split('.').pop() || '').toLowerCase();
+                    if (f.size > 30 * 1024 * 1024) return flashWarn('File quá 30MB');
+                    try {
+                        const url = `/api/games/pktiktok/upload?ext=${encodeURIComponent(ext)}&name=${encodeURIComponent(f.name)}`;
+                        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f });
+                        const j = await r.json();
+                        if (!j.ok) throw new Error(j.error);
+                        ev.topContributorRules[idx].mediaUrl = j.url;
+                        ev.topContributorRules[idx].mediaName = f.name;
+                        ev.topContributorRules[idx].mediaType = ['mp4','webm'].includes(ext) ? 'video' : 'audio';
+                        await persistConfig();
+                        renderTopRules(ev);
+                        renderGrid();   // update badge count
+                        flashOk('Đã tải lên');
+                    } catch (e) { flashWarn('Lỗi: ' + e.message); }
+                };
+                inp.click();
+            });
+            row.querySelector('.pkfx-top-del').addEventListener('click', async () => {
+                ev.topContributorRules.splice(idx, 1);
+                renderTopRules(ev);
+                renderGrid();
+                await persistConfig();
+            });
+        });
+    }
+    let _topPersistTimer = null;
+    function schedulePersist() {
+        clearTimeout(_topPersistTimer);
+        _topPersistTimer = setTimeout(() => persistConfig().catch(() => {}), 500);
     }
 
     function pickFileForEvent(key) {
