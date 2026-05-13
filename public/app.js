@@ -576,7 +576,9 @@
         bindRange(dom.cfgJarH, cfg.jar.height, dom.cfgJarHV);
         bindRange(dom.cfgGmin, cfg.gift.minSize, dom.cfgGminV);
         bindRange(dom.cfgGmax, cfg.gift.maxSize, dom.cfgGmaxV);
-        bindRange(dom.cfgGoal, cfg.goal?.target ?? 1000, dom.cfgGoalV);
+        // cfg-goal đã chuyển từ slider sang number input — set value trực tiếp
+        if (dom.cfgGoal) dom.cfgGoal.value = cfg.goal?.target ?? 5000;
+        if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
         bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
@@ -660,7 +662,7 @@
             jarVisible: dom.cfgJarVisible.checked,
             jarLocked: !!(dom.cfgJarLocked && dom.cfgJarLocked.checked),
             features,
-            goal: { target: parseInt(dom.cfgGoal.value, 10) || 1000 },
+            goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,

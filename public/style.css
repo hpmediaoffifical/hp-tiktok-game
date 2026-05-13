@@ -3504,6 +3504,16 @@ body.game-caro #caught-popup {
     padding: 4px 0 2px;
 }
 
+/* Number input cho cfg row (vd: Mục tiêu hủ) */
+.cfg-num-input {
+    width: 100%; padding: 6px 10px;
+    background: rgba(0,0,0,0.4); color: #fff;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; font-size: 13px; font-weight: 700;
+}
+.cfg-num-input:focus { outline: none; border-color: #ffb800; }
+.cfg-val-hidden { display: none !important; }
+
 /* Settings pane */
 .vw-setting-block {
     padding: 12px 14px; margin-bottom: 10px;

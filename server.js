@@ -439,6 +439,7 @@ let connection = null;
 let currentUsername = null;
 let connecting = false;
 let currentRoomId = null;
+let currentHostUserId = '';   // owner.userId của room đang connect — dùng để identify host team trong PK
 // Session stats — counters for connection card display
 let liveStats = {
     viewerCount: 0,
@@ -655,72 +656,174 @@ function attachConnectionEvents(conn) {
         } catch (e) { console.error('[vipwelcome] ROOM_USER process error:', e); }
     });
 
-    // ====== PK TikTok auto-bind ======
-    // Hook các event battle để emit 'pktiktok:autoTrigger' tự động khi PK match.
-    // BattleAction enum: 4=OPEN(start), 5=FINISH(end), 6=CUT_SHORT
-    // BattleTaskMessageType enum: 0=START(mission), 1=UPDATE, 2=SETTLE, 3=REWARD_SETTLE
-    function emitPkAutoTrigger(key, reason) {
+    // ====== PK TikTok auto-bind (BETA — refined) ======
+    // BattleAction: 4=OPEN, 5=FINISH, 6=CUT_SHORT
+    // BattleTaskMessageType: 0=START, 1=UPDATE, 2=SETTLE, 3=REWARD_SETTLE
+    //
+    // Phase mapping:
+    //   start    ← LINK_MIC_BATTLE action=4
+    //   mission  ← LINK_MIC_BATTLE_TASK type=0
+    //   x2 / x3  ← LINK_MIC_BATTLE_TASK with task config (multiplier in description)
+    //   warn10s  ← fallback timer hoặc khi server gửi countdown
+    //   lead/behind ← periodic check ARMIES (mỗi 30s)
+    //   win/lose ← FINISH + so sánh scores với hostTeamIndex
+    //   glove/mist/hammer/time ← chưa map (TikTok không expose enum riêng)
+
+    // Server-side QUEUE — drain serial để effect không overlap
+    let pkAutoQueue = [];
+    let pkAutoDrainTimer = null;
+    const PK_AUTO_DRAIN_GAP_MS = 3500;   // ~3.5s giữa các effect (đủ cho video ngắn)
+    function pkAutoEnqueue(key, reason) {
         const cfg = appConfig.games?.pktiktok;
         if (!cfg || cfg.enabled === false || !cfg.autoBindPkDuo) return;
-        console.log(`[pktiktok] AUTO-TRIGGER → ${key} (reason: ${reason})`);
-        io.emit('pktiktok:autoTrigger', { key, reason, ts: Date.now() });
+        // Dedupe: nếu phase này đã ở cuối queue, skip
+        if (pkAutoQueue.length > 0 && pkAutoQueue[pkAutoQueue.length - 1].key === key) {
+            console.log(`[pktiktok] AUTO skip dup "${key}"`);
+            return;
+        }
+        pkAutoQueue.push({ key, reason, ts: Date.now() });
+        console.log(`[pktiktok] AUTO queued → ${key} (reason: ${reason}), queue=${pkAutoQueue.length}`);
+        if (!pkAutoDrainTimer) drainPkAutoNow();
+    }
+    function drainPkAutoNow() {
+        if (pkAutoQueue.length === 0) { pkAutoDrainTimer = null; return; }
+        const item = pkAutoQueue.shift();
+        console.log(`[pktiktok] AUTO emit → ${item.key} (reason: ${item.reason})`);
+        io.emit('pktiktok:autoTrigger', item);
+        pkAutoDrainTimer = setTimeout(drainPkAutoNow, PK_AUTO_DRAIN_GAP_MS);
+    }
+    function clearPkAutoQueue() {
+        pkAutoQueue = [];
+        if (pkAutoDrainTimer) { clearTimeout(pkAutoDrainTimer); pkAutoDrainTimer = null; }
     }
 
-    // PK timer state — schedule warn10s + auto-result if FINISH event không đến
+    // PK match state
     let pkActive = false;
     let pkStartTs = 0;
     let pkTimers = [];
+    let pkHostTeamIndex = -1;       // index của team mà host thuộc về (0 hoặc 1+)
+    let pkLastScoreSnap = null;     // [score1, score2, ...]
+    let pkLastLeadState = '';       // 'lead' | 'behind' | 'tie' | ''
+    let pkLastPeriodicScore = 0;
+    const PK_PERIODIC_LEAD_CHECK_MS = 30_000;  // mỗi 30s announce lead/behind
+    function resetPkState() {
+        pkActive = false;
+        pkHostTeamIndex = -1;
+        pkLastScoreSnap = null;
+        pkLastLeadState = '';
+        pkLastPeriodicScore = 0;
+        clearPkTimers();
+    }
     function clearPkTimers() {
-        for (const t of pkTimers) clearTimeout(t);
+        for (const t of pkTimers) {
+            if (t && t._isInterval) clearInterval(t._handle);
+            else clearTimeout(t);
+        }
         pkTimers = [];
     }
-    function schedulePkPhase(key, delayMs, reason) {
-        pkTimers.push(setTimeout(() => emitPkAutoTrigger(key, reason), delayMs));
+
+    // Helper: extract teams + scores từ raw armies/battle data — log tất cả để debug
+    function parseTeamsArmies(data) {
+        const teams = [];
+        const raw = data?.battleItems || data?.teams || data?.armies || [];
+        if (Array.isArray(raw)) {
+            for (let i = 0; i < raw.length; i++) {
+                const t = raw[i];
+                const score = Number(t?.totalScore ?? t?.score ?? t?.totalUserCount ?? 0);
+                const anchorIds = (t?.hostsList || t?.hosts || t?.userList || []).map(u => String(u?.userId || u?.uniqueId || u || ''));
+                teams.push({ index: i, score, anchorIds, raw: t });
+            }
+        }
+        return teams;
     }
 
     conn.on(WebcastEvent.LINK_MIC_BATTLE, (data) => {
         const action = data?.battleConfig?.battleAction ?? data?.action ?? null;
         const battleStatus = data?.battleStatus;
         const currentRound = data?.currentRound;
-        console.log(`[pktiktok] LINK_MIC_BATTLE action=${action} status=${battleStatus} round=${currentRound}`);
+        console.log(`[pktiktok] LINK_MIC_BATTLE action=${action} status=${battleStatus} round=${currentRound} keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
         if (action === 4 /* OPEN */) {
+            resetPkState();
             pkActive = true;
             pkStartTs = Date.now();
-            clearPkTimers();
-            emitPkAutoTrigger('start', 'battle_open');
-            // Fallback timers: warn10s ở giây 110 (PK chuẩn 120s), nếu battle vẫn active
-            schedulePkPhase('warn10s', 110_000, 'fallback_timer_110s');
+            clearPkAutoQueue();
+            pkAutoEnqueue('start', 'battle_open');
+            // Identify host team — match userId của owner (set bởi connectToUser qua currentHostUserId)
+            try {
+                const teams = parseTeamsArmies(data?.battleConfig || data);
+                const ownerId = String(currentHostUserId || '');
+                if (ownerId) {
+                    for (const t of teams) {
+                        if (t.anchorIds.includes(ownerId)) { pkHostTeamIndex = t.index; break; }
+                    }
+                }
+                if (pkHostTeamIndex < 0 && teams.length > 0) pkHostTeamIndex = 0;
+                console.log(`[pktiktok] PK OPEN: hostTeamIndex=${pkHostTeamIndex}, teams=${teams.length}, ownerId=${ownerId}`);
+            } catch (e) {}
+            // Fallback timer cho warn10s
+            pkTimers.push(setTimeout(() => pkAutoEnqueue('warn10s', 'fallback_timer_110s'), 110_000));
+            // Periodic lead/behind check (mỗi 30s)
+            const periodicCheck = setInterval(() => {
+                if (!pkActive) { clearInterval(periodicCheck); return; }
+                if (!pkLastScoreSnap || pkHostTeamIndex < 0) return;
+                const hostScore = pkLastScoreSnap[pkHostTeamIndex] || 0;
+                const others = pkLastScoreSnap.filter((_, i) => i !== pkHostTeamIndex);
+                const maxOther = Math.max(0, ...others);
+                let newState = '';
+                if (hostScore > maxOther) newState = 'lead';
+                else if (hostScore < maxOther) newState = 'behind';
+                else newState = 'tie';
+                if (newState !== pkLastLeadState && (newState === 'lead' || newState === 'behind')) {
+                    pkLastLeadState = newState;
+                    pkAutoEnqueue(newState, `periodic_30s (host=${hostScore} vs max_opp=${maxOther})`);
+                }
+            }, PK_PERIODIC_LEAD_CHECK_MS);
+            // Lưu interval handle để clear khi PK end
+            pkTimers.push({ _isInterval: true, _handle: periodicCheck });
         } else if (action === 5 /* FINISH */ || action === 6 /* CUT_SHORT */) {
-            pkActive = false;
-            clearPkTimers();
-            // Không có cách dễ xác định win/lose từ event này — emit cả 'win' cho host làm placeholder
-            // User có thể override bằng test manual
-            emitPkAutoTrigger('win', 'battle_finish (action=' + action + ')');
+            // Determine win/lose from final scores
+            let resultKey = 'win';
+            if (pkLastScoreSnap && pkHostTeamIndex >= 0) {
+                const hostScore = pkLastScoreSnap[pkHostTeamIndex] || 0;
+                const others = pkLastScoreSnap.filter((_, i) => i !== pkHostTeamIndex);
+                const maxOther = Math.max(0, ...others);
+                resultKey = hostScore >= maxOther ? 'win' : 'lose';
+                console.log(`[pktiktok] PK FINISH: host=${hostScore} vs max_opp=${maxOther} → ${resultKey}`);
+            } else {
+                console.log(`[pktiktok] PK FINISH: no score data → default 'win' (action=${action})`);
+            }
+            pkAutoEnqueue(resultKey, `battle_finish (action=${action})`);
+            resetPkState();
         }
     });
     conn.on(WebcastEvent.LINK_MIC_BATTLE_TASK, (data) => {
         const type = data?.battleTaskMessageType;
-        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type}`);
+        // Try parse multiplier text từ task description
+        const descText = data?.taskDescription || data?.description || data?.text || '';
+        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type} desc="${String(descText).slice(0, 100)}" keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
         if (type === 0 /* START */) {
-            emitPkAutoTrigger('mission', 'task_start');
+            pkAutoEnqueue('mission', 'task_start');
+            // Heuristic: nếu desc text có x2/x3, queue thêm
+            const txt = String(descText).toLowerCase();
+            if (/x\s*2|nhân\s*2|speed\s*x?2/.test(txt)) pkAutoEnqueue('x2', 'task_desc_x2');
+            else if (/x\s*3|nhân\s*3|speed\s*x?3/.test(txt)) pkAutoEnqueue('x3', 'task_desc_x3');
+        } else if (type === 2 /* SETTLE */ || type === 3 /* REWARD_SETTLE */) {
+            // Task settled — heuristic guess: nếu reward = multiplier x2/x3 (chưa decode được)
         }
     });
     conn.on(WebcastEvent.LINK_MIC_BATTLE_PUNISH_FINISH, (data) => {
         console.log(`[pktiktok] LINK_MIC_BATTLE_PUNISH_FINISH`);
-        pkActive = false;
-        clearPkTimers();
+        resetPkState();
     });
     conn.on(WebcastEvent.LINK_MIC_ARMIES, (data) => {
-        // Armies update — chứa scores của 2 team. Có thể dùng để detect lead/behind
+        // Cập nhật score snapshot mỗi khi armies thay đổi
         try {
-            const teams = data?.battleItems || data?.teams || [];
-            if (Array.isArray(teams) && teams.length >= 2) {
-                const t1 = Number(teams[0]?.totalUserCount || teams[0]?.totalScore || 0);
-                const t2 = Number(teams[1]?.totalUserCount || teams[1]?.totalScore || 0);
-                if (t1 > t2) emitPkAutoTrigger('lead', 'armies (host ahead)');
-                else if (t1 < t2) emitPkAutoTrigger('behind', 'armies (host behind)');
+            const teams = parseTeamsArmies(data);
+            if (teams.length > 0) {
+                pkLastScoreSnap = teams.map(t => t.score);
+                console.log(`[pktiktok] LINK_MIC_ARMIES scores=[${pkLastScoreSnap.join(', ')}] hostIdx=${pkHostTeamIndex}`);
             }
-        } catch (e) {}
+        } catch (e) { console.error('[pktiktok] armies parse error:', e); }
     });
 }
 
@@ -934,6 +1037,7 @@ async function connectToUser(username) {
         const hostLevel = Number(state?.roomInfo?.owner?.userHonor?.level) || 0;
         const hostPic = state?.roomInfo?.owner?.profilePicture?.url || '';
         const hostVerified = !!state?.roomInfo?.owner?.verified;
+        currentHostUserId = String(state?.roomInfo?.owner?.userId || '');
         // Lấy followerCount của HOST từ roomInfo
         const followerCount = Number(state?.roomInfo?.owner?.followInfo?.followerCount) || 0;
         if (followerCount > 0) {
