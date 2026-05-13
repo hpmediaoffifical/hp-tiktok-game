@@ -171,6 +171,7 @@
         cfgScaleUfo: $('#cfg-scale-ufo'),
         cfgScaleUfoV: $('#cfg-scale-ufo-v'),
         cfgJarAccessory: $('#cfg-jar-accessory'),
+        cfgJarTheme: $('#cfg-jar-theme'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
@@ -397,7 +398,7 @@
 
             const jglass = document.createElement('img');
             jglass.className = 'jar-glass';
-            jglass.src = '/assets/thuytinh/jar-glass.png';
+            jglass.src = '/assets/thuytinh/ben-ngoai/jar-glass.png';
             jglass.style.position = 'absolute';
             jglass.style.zIndex = '4';
             jglass.style.pointerEvents = 'none';
@@ -618,6 +619,7 @@
         if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = sOs;
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = sUf;
         if (dom.cfgJarAccessory) dom.cfgJarAccessory.value = cfg.jarAccessory || 'none';
+        if (dom.cfgJarTheme) dom.cfgJarTheme.value = cfg.jarTheme || 'default';
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -705,6 +707,7 @@
                 ufo: parseFloat(dom.cfgScaleUfo?.value) || 1
             },
             jarAccessory: dom.cfgJarAccessory?.value || 'none',
+            jarTheme: dom.cfgJarTheme?.value || 'default',
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
         };
@@ -1347,29 +1350,14 @@
         if (!dom.giftCatalogEl) return;
         dom.giftCatalogEl.innerHTML = '';
         const f = filter.trim().toLowerCase();
-        let list = (!f ? giftSheet : giftSheet.filter(g =>
-            g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
-        ));
-        // ƯU TIÊN sort:
-        // 1) Quà đã gán → trước quà chưa gán
-        // 2) Trong nhóm "đã gán": quà gán GẦN ĐÂY NHẤT lên đầu (recentAssignments index)
-        // 3) Còn lại giữ thứ tự gốc (diamond asc)
-        list = list.slice().sort((a, b) => {
-            const aT = currentTriggers[String(a.id)] ? 1 : 0;
-            const bT = currentTriggers[String(b.id)] ? 1 : 0;
-            if (aT !== bT) return bT - aT;
-            if (aT === 1) {
-                const ai = recentAssignments.indexOf(String(a.id));
-                const bi = recentAssignments.indexOf(String(b.id));
-                // Trong nhóm "đã gán": có trong recent thì index nhỏ hơn = mới hơn → trước
-                if (ai !== bi) {
-                    if (ai === -1) return 1;
-                    if (bi === -1) return -1;
-                    return ai - bi;
-                }
-            }
-            return 0;
-        });
+        // ẨN các quà đã gán hiệu ứng (đã hiển thị ở quick-test grid bên trái tab Thử)
+        // → Tránh hiển thị 2 lần và làm giảm số card trong DANH SÁCH QUÀ
+        let list = giftSheet.filter(g => !currentTriggers[String(g.id)]);
+        if (f) {
+            list = list.filter(g =>
+                g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
+            );
+        }
         const frag = document.createDocumentFragment();
         // Render toàn bộ list (DOM grid 619 cards vẫn nhẹ). Trước đây slice(0,400)
         // khiến sort ASC theo Kim Cương bị cắt mất 219 quà cao nhất.
@@ -1628,6 +1616,7 @@
     dom.cfgJarVisible?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarLocked?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
+    dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);

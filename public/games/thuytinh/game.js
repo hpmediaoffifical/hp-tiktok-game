@@ -131,9 +131,22 @@
                 ufo: 1
             },
             // 🎀 Accessory gắn lên miệng hũ — không che thân hũ. Default 'none'.
-            jarAccessory: 'none'
+            jarAccessory: 'none',
+            // 🎨 Theme màu hũ — đổi ảnh jar-glass theo PNG khác màu (bên-ngoai folder)
+            // Các option: default | blue | cam | green | pink | tim | yellow
+            jarTheme: 'default'
         };
     }
+    // Map theme → file PNG hũ ngoài (bên-ngoai folder)
+    const JAR_THEME_PATHS = {
+        default: '/assets/thuytinh/ben-ngoai/jar-glass.png',
+        blue:    '/assets/thuytinh/ben-ngoai/jar-glass_blue.png',
+        cam:     '/assets/thuytinh/ben-ngoai/jar-glass_cam.png',
+        green:   '/assets/thuytinh/ben-ngoai/jar-glass_green.png',
+        pink:    '/assets/thuytinh/ben-ngoai/jar-glass_pink.png',
+        tim:     '/assets/thuytinh/ben-ngoai/jar-glass_tim.png',
+        yellow:  '/assets/thuytinh/ben-ngoai/jar-glass_yellow.png'
+    };
     // SVG accessories gắn lên miệng hũ (vị trí = neck top, không che body jar).
     // Mỗi SVG có viewBox 200x100, render scale theo jar width.
     const JAR_ACCESSORIES = {
@@ -2057,6 +2070,17 @@
             thiefLayer.style.setProperty('--tt-ufo-scale', String(clamp(a.ufo)));
             // osin dùng inline width/height % → đọc config trực tiếp lúc spawn (triggerOsin).
         }
+        // Đổi PNG hũ ngoài theo theme — chỉ thay src của jarGlassEl
+        function applyJarTheme() {
+            if (!jarGlassEl) return;
+            const theme = config.jarTheme || 'default';
+            const newSrc = JAR_THEME_PATHS[theme] || JAR_THEME_PATHS.default;
+            // Compare relative path (img.src returns absolute URL)
+            if (!jarGlassEl.src.endsWith(newSrc)) {
+                jarGlassEl.src = newSrc;
+            }
+        }
+
         // Accessory SVG element — gắn vào DOM 1 lần, position theo jar mỗi lần positionJar()
         let _accessoryEl = null;
         function ensureAccessoryEl() {
@@ -2087,12 +2111,12 @@
             if (!_accessoryEl) return;
             const r = jarRect();
             // Vị trí: căn giữa X theo jar, Y nằm ngay trên cổ hũ (nắp)
-            // Width = 50% jar width, height = 25% jar width (aspect 2:1 do SVG viewBox 200x100)
-            const accW = r.w * 0.5;
+            // Width = 80% jar width (TĂNG từ 50%), aspect 2:1 do SVG viewBox 200x100
+            const accW = r.w * 0.8;
             const accH = accW * 0.5;
             const accX = r.cx - accW / 2;
-            // Y: ngay trên neckTop, nhô lên 1 chút (10% accH)
-            const accY = r.y + r.h * SHAPE.neckTopY - accH * 0.85;
+            // Y: ngay trên neckTop, nhô lên trên 80% accH (đè lên nắp đẹp hơn)
+            const accY = r.y + r.h * SHAPE.neckTopY - accH * 0.8;
             _accessoryEl.style.left = (accX / CANVAS_W * 100) + '%';
             _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
             _accessoryEl.style.width  = (accW / CANVAS_W * 100) + '%';
@@ -3450,6 +3474,7 @@
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
             applyActorScales();
+            applyJarTheme();
             applyJarAccessory();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
