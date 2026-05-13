@@ -139,9 +139,7 @@
         cfgShowCount: $('#cfg-show-count'),
         cfgJarVisible: $('#cfg-jar-visible'),
         cfgJarLocked: $('#cfg-jar-locked'),
-        btnClearJar: $('#btn-clear-jar'),
-        btnShake: $('#btn-shake'),
-        btnResetSession: $('#btn-reset-session'),
+        btnResetSessionTop: $('#btn-reset-session-top'),
         btnThief: $('#btn-thief'),
         btnOsin: $('#btn-osin'),
         btnFxFirework: $('#btn-fx-firework'),
@@ -783,8 +781,54 @@
     }
 
     // ===== Trigger UI (compact: icon + preview + ⚙) =====
+    // Render quick-test grid trong tab Thử — hiện các quà đã gán hiệu ứng để test nhanh
+    function renderQuickTestGrid() {
+        const grid = document.getElementById('quick-test-grid');
+        const empty = document.getElementById('quick-test-empty');
+        if (!grid) return;
+        grid.innerHTML = '';
+        const entries = Object.entries(currentTriggers || {});
+        if (!entries.length) {
+            if (empty) empty.hidden = false;
+            return;
+        }
+        if (empty) empty.hidden = true;
+        const frag = document.createDocumentFragment();
+        for (const [giftId, action] of entries) {
+            const g = giftMap[String(giftId)];
+            const ef = EFFECTS.find(e => e.key === action);
+            if (!g) continue;
+            const card = document.createElement('div');
+            card.className = 'quick-test-card';
+            card.title = `${g.name || 'Quà'} (ID ${giftId}) → ${ef?.label || action}`;
+            const img = document.createElement('img');
+            img.src = g.image || '';
+            img.alt = g.name || '';
+            img.onerror = () => { img.style.display = 'none'; };
+            const name = document.createElement('div');
+            name.className = 'qt-name';
+            name.textContent = g.name || `ID ${giftId}`;
+            const actBadge = document.createElement('div');
+            actBadge.className = 'qt-action';
+            actBadge.textContent = ef?.ico || '?';
+            card.appendChild(actBadge);
+            card.appendChild(img);
+            card.appendChild(name);
+            card.addEventListener('click', () => {
+                if (!currentGame) return;
+                fetch(`/api/games/${currentGame.id}/test-gift`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ giftId, count: 1, nickname: 'Test' })
+                }).catch(() => {});
+            });
+            frag.appendChild(card);
+        }
+        grid.appendChild(frag);
+    }
+
     function renderTriggerList() {
         if (!dom.triggerList) return;
+        renderQuickTestGrid();   // sync quick-test khi triggers thay đổi
         dom.triggerList.innerHTML = '';
         const frag = document.createDocumentFragment();
         for (const ef of EFFECTS) {
@@ -1572,10 +1616,6 @@
 
     dom.btnClearComments.addEventListener('click', () => dom.commentsEl.innerHTML = '');
     dom.btnClearGifts.addEventListener('click', () => dom.giftStreamEl.innerHTML = '');
-    // QUAN TRỌNG: btnClearJar / btnShake phải sendCmd ra OBS, không chỉ chạy local
-    // (lỗi v1.0.2: chỉ gọi local → OBS không xoá hũ theo)
-    dom.btnClearJar.addEventListener('click', () => { gameInstance?.clearAll(); sendCmd('clear'); forceSyncState(); });
-    dom.btnShake.addEventListener('click', () => { gameInstance?.shake(); sendCmd('shake'); });
 
     dom.giftSearchInput.addEventListener('input', () => renderGiftCatalog(dom.giftSearchInput.value));
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
@@ -1601,14 +1641,15 @@
             body: JSON.stringify({ cmd, payload: payload || null })
         }).catch(() => {});
     }
-    dom.btnResetSession?.addEventListener('click', () => {
+    function resetSessionAll() {
         // Phiên mới: reset stats + clear bodies trong hũ + đồng bộ OBS qua 2 cmd
         gameInstance?.resetSession();
         gameInstance?.clearAll();
         sendCmd('resetSession');
         sendCmd('clear');
         forceSyncState();
-    });
+    }
+    dom.btnResetSessionTop?.addEventListener('click', resetSessionAll);
     dom.btnThief?.addEventListener('click', () => {
         if (!gameInstance) return;
         // 1 lần nhấn = 1 tên trộm. Chọn ngẫu nhiên 1 tipper gần đây để đặt tên.

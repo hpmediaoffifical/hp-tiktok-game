@@ -64,7 +64,10 @@
                 <div id="game-list" class="game-list"></div>
             </section>
 
-            <div class="side-footer">© HP Media · <span id="footer-version">v1.0.3</span></div>
+            <div class="side-footer">
+                © HP Media · <span id="footer-version">v1.0.3</span>
+                <div class="side-footer-author">by Nguyen Hoang Phung</div>
+            </div>
             <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Thu / Mở menu" title="Thu / Mở menu">‹</button>
         </aside>
 
@@ -89,6 +92,7 @@
                     <div class="overlay-bar">
                         <input id="overlay-url" type="text" readonly hidden />
                         <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Copy link</button>
+                        <button id="btn-reset-session-top" class="ghost small" title="Reset session: clear hũ + reset stats / leaderboard / mục tiêu">↺ Phiên mới</button>
                         <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
                         <button id="btn-open-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
@@ -267,16 +271,16 @@
                             <!-- 🎬 Thao tác thử -->
                             <div class="tab-pane" data-pane="act">
                                 <div class="cfg-actions">
-                                    <button id="btn-clear-jar" class="ghost small">🗑 Xoá hết</button>
-                                    <button id="btn-shake" class="ghost small">💥 Lắc</button>
-                                    <button id="btn-reset-session" class="ghost small">↺ Phiên mới</button>
-                                </div>
-                                <div class="cfg-actions">
                                     <button id="btn-thief" class="ghost small">🥷 Thả trộm</button>
                                     <button id="btn-osin" class="ghost small">🧹 Gọi OSIN</button>
                                     <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
                                     <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
                                     <button id="btn-fx-shape" class="ghost small">🎨 Tạo hình</button>
+                                </div>
+                                <div class="quick-test-section">
+                                    <div class="quick-test-title">⚡ Test nhanh quà đã gán hiệu ứng</div>
+                                    <div class="quick-test-grid" id="quick-test-grid"></div>
+                                    <div class="quick-test-empty" id="quick-test-empty">Chưa gán hiệu ứng cho quà nào. Vào tab 🎯 Quà để gán.</div>
                                 </div>
                             </div>
 

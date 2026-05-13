@@ -912,12 +912,26 @@ function lookupGiftFromTikTok(id) {
     const items = Array.isArray(list) ? list : Object.values(list || {});
     const target = items.find(g => String(g.id) === String(id));
     if (!target) return null;
-    // Schema TikTok: { id, name, diamond_count, image: { url_list: [...] }, icon: { url_list: [...] } }
-    const imgUrls = target.image?.url_list || target.icon?.url_list || [];
+    // TikTok response có nhiều field chứa URL ảnh — thử lần lượt để fix case
+    // gift có ID nhưng không có image (vd: streak gift, region gift, gift mới chưa cache)
+    const tryUrls = (obj) => {
+        if (!obj) return [];
+        if (Array.isArray(obj.url_list)) return obj.url_list;
+        if (Array.isArray(obj.urlList))  return obj.urlList;
+        if (typeof obj.url === 'string') return [obj.url];
+        return [];
+    };
+    const candidates = [
+        ...tryUrls(target.image),
+        ...tryUrls(target.icon),
+        ...tryUrls(target.preview_image),
+        ...tryUrls(target.thumbnail),
+        target.image_url, target.icon_url, target.url
+    ].filter(u => typeof u === 'string' && u.startsWith('http'));
     return {
-        name: target.name || '',
-        image: imgUrls[0] || '',
-        diamond: target.diamond_count || 0
+        name: target.name || target.gift_name || '',
+        image: candidates[0] || '',
+        diamond: target.diamond_count || target.diamondCount || 0
     };
 }
 
@@ -927,9 +941,11 @@ function recordUnknownGift(g) {
     // Đã có trong sheet → skip
     if (giftMap[id]) return null;
     const tt = lookupGiftFromTikTok(id);
-    const resolvedName = g.giftName || tt?.name || '';
-    const resolvedImage = g.giftPicture || tt?.image || '';
-    const resolvedDiamond = parseInt(g.diamondCount, 10) || tt?.diamond || 0;
+    const resolvedName = g.giftName || g.gift_name || tt?.name || '';
+    // Thử nhiều field từ event payload (snake_case, camelCase, alternative names)
+    const resolvedImage = g.giftPicture || g.gift_picture || g.giftIcon || g.gift_icon
+        || g.image || g.icon || tt?.image || '';
+    const resolvedDiamond = parseInt(g.diamondCount, 10) || parseInt(g.diamond_count, 10) || tt?.diamond || 0;
     if (!resolvedName && !resolvedImage) return null;
     const now = Date.now();
     const prev = unknownGifts[id];

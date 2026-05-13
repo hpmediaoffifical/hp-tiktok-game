@@ -982,50 +982,48 @@
             }, dur);
         }
 
-        // Lốc dọc (vertical tornado): bodies xoắn ốc quanh trục giữa hũ, lift NHẸ.
-        // Khác bản cũ (lốc tròn xoáy mạnh + lift mạnh → quà bay ra mất):
-        //   - Pull về cột giữa thay vì swirl ngang
-        //   - Lift pulse theo phase (không liên tục) → quà không bay vô tận
-        //   - Helical X oscillation theo Y position → tạo hình xoắn ốc dọc
-        //   - Clamp max velocity → không xé tường
-        //   - Khóa miệng hũ → quà không thoát ra
+        // Lốc dọc giữa canvas: tháo tường hũ tạm để bodies bay tự do thành cột xoắn ốc
+        // giữa màn hình. Sau effect → rebuild walls + bodies rơi xuống lại theo gravity.
+        // Khác cũ (bám vào hũ, bị block): bodies thoát ra ngoài jar walls → swirl thoải mái.
         function fxTornado() {
             const k = Math.max(0.3, Math.min(2, config.effects?.tornado?.intensity ?? 1));
-            const r = jarRect();
             if (config.features.audio) audio.tornado();
-            addTempLid();
-            const columnX = r.cx;
-            const jarTopY = r.y + r.h * SHAPE.neckTopY;
+            // Tháo jar walls tạm — bodies không bị jar block
+            removeJarWalls();
+            // Cột tornado ở giữa canvas (không bám vào hũ)
+            const columnX = CANVAS_W / 2;
+            const columnCenterY = CANVAS_H * 0.4;   // giữa trên canvas
             const TOTAL = 70;
-            const maxV = 9;
+            const maxV = 10;
             let t = 0;
             const iv = setInterval(() => {
                 if (t++ > TOTAL) {
                     clearInterval(iv);
-                    removeTempLid();
+                    // Rebuild walls — bodies sẽ rơi xuống do gravity, một số rơi vào hũ
+                    buildJarWalls();
                     return;
                 }
-                // Envelope: tăng dần rồi giảm dần
-                const intensity = Math.sin((t / TOTAL) * Math.PI) * k * 0.6;   // weaker 40%
+                const intensity = Math.sin((t / TOTAL) * Math.PI) * k * 0.7;
                 bodies.forEach(b => {
                     const dx = b.position.x - columnX;
-                    // Phase tăng theo Y → bodies ở cao có phase khác bodies ở thấp → helical
-                    const phase = (b.position.y - jarTopY) / 80 + t * 0.18;
-                    // Pull về cột giữa (mạnh hơn dx càng xa)
-                    const pullX = -dx * 0.08;
-                    // Dao động ngang theo sin → tạo xoắn ốc
-                    const oscX = Math.cos(phase) * 1.8 * intensity;
-                    // Lift pulse — chỉ lift khi sin > 0, không liên tục
-                    const liftPulse = Math.max(0, Math.sin(phase * 1.3)) * 0.7 * intensity;
-                    const newVx = b.velocity.x * 0.78 + pullX + oscX;
-                    const newVy = b.velocity.y * 0.85 - liftPulse;
+                    const dy = b.position.y - columnCenterY;
+                    // Pull về tâm cột tornado
+                    const pullX = -dx * 0.06;
+                    const pullY = -dy * 0.05;
+                    // Helical X oscillation theo Y position → xoắn ốc dọc
+                    const phase = (b.position.y - columnCenterY) / 60 + t * 0.22;
+                    const oscX = Math.cos(phase) * 3 * intensity;
+                    const oscY = Math.sin(phase * 0.7) * 1.2 * intensity;
+                    const newVx = b.velocity.x * 0.82 + pullX + oscX;
+                    const newVy = b.velocity.y * 0.82 + pullY + oscY;
                     Body.setVelocity(b, {
                         x: Math.max(-maxV, Math.min(maxV, newVx)),
                         y: Math.max(-maxV, Math.min(maxV, newVy))
                     });
-                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.15 * intensity);
+                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.2 * intensity);
                 });
             }, 30);
+            showComboToast('🌪 <b>Lốc xoáy</b> giữa canvas!', 'linear-gradient(135deg, #6366f1, #8b5cf6)');
         }
         function fxSlow() {
             const ts = (config.effects?.slow?.timeScale ?? 0.25);
@@ -1070,45 +1068,39 @@
             showComboToast('☔ <b>Mưa quà</b> đang rơi xuống!', 'linear-gradient(135deg, #0ea5e9, #6366f1)');
         }
 
-        // ===== 🚀 Phun trào — bodies trong hũ bắn lên cao tạo geyser =====
+        // ===== 🚀 Phun trào — hút quà NGOÀI hũ về phía hũ (như máy hút bụi) =====
+        // Khác hẳn version cũ (phun từ trong hũ lên — ngược logic). Giờ hút từ ngoài vào.
         function fxGeyser() {
             const cfg = config.effects?.geyser || {};
             const dur = Math.max(800, Math.min(4000, cfg.durationMs ?? 1800));
             const power = Math.max(0.4, Math.min(2.5, cfg.power ?? 1.0));
             if (config.features.audio) audio.geyser();
-            addTempLid();   // chặn quà bay khỏi miệng hũ
             const r = jarRect();
-            const centerX = r.cx;
-            const bottomY = r.y + r.h * SHAPE.bodyBottomY;
+            const mouthX = r.cx;
+            const mouthY = r.y + r.h * SHAPE.neckTopY;
+            const targetY = mouthY - 80;   // điểm hút phía trên miệng hũ → gravity sẽ kéo xuống
             const TOTAL = Math.floor(dur / 30);
-            const maxV = 11;
+            const maxV = 14;
             let t = 0;
             const iv = setInterval(() => {
-                if (t++ > TOTAL) {
-                    clearInterval(iv);
-                    removeTempLid();
-                    return;
-                }
-                // Envelope: mạnh nhất ở giữa effect
+                if (t++ > TOTAL) { clearInterval(iv); return; }
                 const env = Math.sin((t / TOTAL) * Math.PI);
-                bodies.forEach(b => {
-                    const dx = b.position.x - centerX;
-                    // Bodies ở gần đáy + gần cột giữa được lift mạnh hơn
-                    const distFromColumn = Math.abs(dx);
-                    const verticalBoost = distFromColumn < r.w * 0.25 ? 1 : 0.4;
-                    const heightFactor = Math.max(0, (b.position.y - r.y) / r.h);   // càng dưới càng cao
-                    const liftAmount = 4.5 * env * power * verticalBoost * heightFactor;
-                    // Pull vào cột giữa
-                    const pullX = -dx * 0.05;
-                    const newVx = b.velocity.x * 0.92 + pullX;
-                    const newVy = b.velocity.y * 0.92 - liftAmount;
+                // Re-fetch escaped bodies mỗi tick (status thay đổi liên tục)
+                const escaped = findEscapedBodies();
+                escaped.forEach(b => {
+                    const dx = mouthX - b.position.x;
+                    const dy = targetY - b.position.y;
+                    const dist = Math.max(Math.hypot(dx, dy), 1);
+                    const factor = 0.18 * env * power;
+                    const newVx = b.velocity.x * 0.85 + (dx / dist) * Math.min(dist, 600) * factor * 0.05;
+                    const newVy = b.velocity.y * 0.85 + (dy / dist) * Math.min(dist, 600) * factor * 0.05;
                     Body.setVelocity(b, {
                         x: Math.max(-maxV, Math.min(maxV, newVx)),
-                        y: Math.max(-maxV * 1.5, Math.min(maxV, newVy))
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
                     });
                 });
             }, 30);
-            showComboToast('🚀 <b>Phun trào!</b>', 'linear-gradient(135deg, #f59e0b, #ef4444)');
+            showComboToast('🚀 <b>Phun trào</b> — hút quà về hũ!', 'linear-gradient(135deg, #f59e0b, #ef4444)');
         }
 
         // ===== 🧲 Nam châm — bodies hút lẫn nhau tạo cụm =====
