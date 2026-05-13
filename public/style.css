@@ -181,25 +181,26 @@ input, button { font-family: inherit; }
     color: #e6e8ee; font-size: 13px; padding: 6px 0;
 }
 
-/* Live stats grid trong sidebar — hiển thị khi kết nối LIVE */
+/* Live stats — 1 hàng ngang gọn, icon nhỏ + số */
 .live-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
     margin-top: 8px;
+    padding: 0 2px;
 }
 .live-stat {
-    display: flex; align-items: center; gap: 6px;
-    padding: 7px 10px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    transition: border-color 0.15s, background 0.15s;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    transition: opacity 0.15s;
+    flex: 0 1 auto;
 }
-.live-stat:hover { border-color: rgba(255, 184, 0, 0.3); background: rgba(255, 184, 0, 0.05); }
-.live-stat-ico { font-size: 16px; flex-shrink: 0; }
-.live-stat-val { font-size: 14px; font-weight: 800; color: #f3f5fa; letter-spacing: 0.2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Sidebar collapsed: ẩn stats grid (chỉ icon hiện) */
+.live-stat:hover { opacity: 0.85; }
+.live-stat-ico { font-size: 13px; flex-shrink: 0; line-height: 1; }
+.live-stat-val { font-size: 12px; font-weight: 700; color: #f3f5fa; letter-spacing: 0.1px; }
 .sidebar.collapsed .live-stats-grid { display: none; }
 
 /* Connected state button — username + eject icon, no redundant text */
