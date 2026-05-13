@@ -440,6 +440,10 @@ let currentUsername = null;
 let connecting = false;
 let currentRoomId = null;
 let currentHostUserId = '';   // owner.userId của room đang connect — dùng để identify host team trong PK
+// Hook để emitGift gọi vào PK gift tracking (set bởi attachConnectionEvents khi PK active)
+let pktiktokTrackPkGift = null;
+// Lưu thông tin TOP 1 contributor khi PK kết thúc — dùng cho rule override
+let pkLastTopContributor = null;
 // Session stats — counters for connection card display
 let liveStats = {
     viewerCount: 0,
@@ -701,17 +705,35 @@ function attachConnectionEvents(conn) {
     let pkActive = false;
     let pkStartTs = 0;
     let pkTimers = [];
-    let pkHostTeamIndex = -1;       // index của team mà host thuộc về (0 hoặc 1+)
-    let pkLastScoreSnap = null;     // [score1, score2, ...]
-    let pkLastLeadState = '';       // 'lead' | 'behind' | 'tie' | ''
+    let pkHostTeamIndex = -1;
+    let pkLastScoreSnap = null;
+    let pkLastLeadState = '';
     let pkLastPeriodicScore = 0;
-    const PK_PERIODIC_LEAD_CHECK_MS = 30_000;  // mỗi 30s announce lead/behind
+    const PK_PERIODIC_LEAD_CHECK_MS = 30_000;
+    // Track gifts gửi vào HOST trong khoảng PK active — để detect TOP 1 khi PK end
+    let pkGiftDuringMatch = new Map();
+    // Expose tracker cho emitGift
+    pktiktokTrackPkGift = (g) => {
+        if (!pkActive || !g.uniqueId) return;
+        const k = String(g.uniqueId).toLowerCase();
+        const cur = pkGiftDuringMatch.get(k) || {
+            uniqueId: g.uniqueId, nickname: g.nickname, profilePicture: g.profilePicture, level: g.level || 0,
+            totalDiamond: 0, totalCount: 0
+        };
+        cur.totalDiamond += Number(g.diamond) || 0;
+        cur.totalCount += 1;
+        if (g.nickname) cur.nickname = g.nickname;
+        if (g.profilePicture) cur.profilePicture = g.profilePicture;
+        if (g.level) cur.level = g.level;
+        pkGiftDuringMatch.set(k, cur);
+    };
     function resetPkState() {
         pkActive = false;
         pkHostTeamIndex = -1;
         pkLastScoreSnap = null;
         pkLastLeadState = '';
         pkLastPeriodicScore = 0;
+        pkGiftDuringMatch.clear();
         clearPkTimers();
     }
     function clearPkTimers() {
@@ -748,7 +770,7 @@ function attachConnectionEvents(conn) {
             pkStartTs = Date.now();
             clearPkAutoQueue();
             pkAutoEnqueue('start', 'battle_open');
-            // Identify host team — match userId của owner (set bởi connectToUser qua currentHostUserId)
+            // Identify host team — match userId của owner
             try {
                 const teams = parseTeamsArmies(data?.battleConfig || data);
                 const ownerId = String(currentHostUserId || '');
@@ -760,8 +782,21 @@ function attachConnectionEvents(conn) {
                 if (pkHostTeamIndex < 0 && teams.length > 0) pkHostTeamIndex = 0;
                 console.log(`[pktiktok] PK OPEN: hostTeamIndex=${pkHostTeamIndex}, teams=${teams.length}, ownerId=${ownerId}`);
             } catch (e) {}
-            // Fallback timer cho warn10s
-            pkTimers.push(setTimeout(() => pkAutoEnqueue('warn10s', 'fallback_timer_110s'), 110_000));
+            // warn10s — TỪ duration của trận PK nếu battleConfig có. Bỏ rigid 110s timer cũ.
+            const durationSec = Number(
+                data?.battleConfig?.battleSetting?.duration ||
+                data?.battleConfig?.duration ||
+                data?.duration || 0
+            );
+            if (durationSec > 20) {
+                const warnDelay = (durationSec - 10) * 1000;
+                console.log(`[pktiktok] PK duration=${durationSec}s → warn10s scheduled at +${warnDelay/1000}s`);
+                pkTimers.push(setTimeout(() => {
+                    if (pkActive) pkAutoEnqueue('warn10s', `duration_based (${durationSec}s match)`);
+                }, warnDelay));
+            } else {
+                console.log(`[pktiktok] PK duration không phát hiện được — skip warn10s auto (user trigger thủ công khi cần)`);
+            }
             // Periodic lead/behind check (mỗi 30s)
             const periodicCheck = setInterval(() => {
                 if (!pkActive) { clearInterval(periodicCheck); return; }
@@ -781,7 +816,7 @@ function attachConnectionEvents(conn) {
             // Lưu interval handle để clear khi PK end
             pkTimers.push({ _isInterval: true, _handle: periodicCheck });
         } else if (action === 5 /* FINISH */ || action === 6 /* CUT_SHORT */) {
-            // Determine win/lose from final scores
+            // Determine win/lose
             let resultKey = 'win';
             if (pkLastScoreSnap && pkHostTeamIndex >= 0) {
                 const hostScore = pkLastScoreSnap[pkHostTeamIndex] || 0;
@@ -792,8 +827,23 @@ function attachConnectionEvents(conn) {
             } else {
                 console.log(`[pktiktok] PK FINISH: no score data → default 'win' (action=${action})`);
             }
+            // Detect TOP 1 contributor và lưu thông tin để rule check khi emit
+            const sorted = [...pkGiftDuringMatch.values()].sort((a, b) => b.totalDiamond - a.totalDiamond);
+            const top1 = sorted[0] || null;
+            if (top1) {
+                console.log(`[pktiktok] PK TOP 1 contributor: @${top1.uniqueId} "${top1.nickname || ''}" — ${top1.totalDiamond} 💎 (${top1.totalCount} gifts)`);
+                // Save vào last context — phase trigger handler sẽ check rule khi emit
+                pkLastTopContributor = top1;
+            } else {
+                pkLastTopContributor = null;
+                console.log(`[pktiktok] PK FINISH: không có gift nào trong trận → không TOP 1`);
+            }
             pkAutoEnqueue(resultKey, `battle_finish (action=${action})`);
-            resetPkState();
+            // Delay reset state để khi emit còn dùng được pkLastTopContributor
+            setTimeout(() => { pkLastTopContributor = null; }, 10_000);
+            // Reset pkActive nhưng giữ data tracking
+            pkActive = false;
+            clearPkTimers();
         }
     });
     conn.on(WebcastEvent.LINK_MIC_BATTLE_TASK, (data) => {
@@ -980,6 +1030,16 @@ function emitGift(g) {
     if (diamond > 0) {
         liveStats.totalDiamond += diamond * repeat;
         emitLiveStatsThrottled();
+    }
+    // PK: track gifts gửi cho HOST trong khoảng PK active — để detect TOP 1 contributor khi PK end
+    if (pktiktokTrackPkGift && g.uniqueId) {
+        pktiktokTrackPkGift({
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            profilePicture: g.profilePicture || enriched.image,
+            level: Number(g.level) || 0,
+            diamond: diamond * repeat
+        });
     }
     // VIP Welcome — kiểm tra rules khi user tặng quà
     try {
@@ -1760,17 +1820,39 @@ app.post('/api/games/pktiktok/trigger', (req, res) => {
         if (!ev) return res.json({ ok: false, error: 'event_not_found' });
         if (ev.enabled === false) return res.json({ ok: false, error: 'event_disabled' });
         if (!ev.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+        // Top-contributor user override (chỉ áp dụng cho phase win/lose/mission khi PK kết thúc)
+        let media = { url: ev.mediaUrl, type: ev.mediaType || '', name: '' };
+        let topUser = null;
+        const isResultPhase = (key === 'win' || key === 'lose');
+        if (isResultPhase && pkLastTopContributor && Array.isArray(ev.topContributorRules) && ev.topContributorRules.length > 0) {
+            const top = pkLastTopContributor;
+            const topUidLower = String(top.uniqueId || '').toLowerCase().replace(/^@/, '');
+            const rule = ev.topContributorRules.find(r => {
+                const ruleUid = String(r.uniqueId || '').toLowerCase().replace(/^@/, '').trim();
+                return ruleUid && ruleUid === topUidLower && r.mediaUrl;
+            });
+            if (rule) {
+                media.url = rule.mediaUrl;
+                media.type = rule.mediaType || '';
+                media.name = rule.mediaName || '';
+                topUser = top;
+                console.log(`[pktiktok] TOP 1 rule MATCH for @${top.uniqueId} → override media to ${rule.mediaUrl}`);
+            } else {
+                console.log(`[pktiktok] TOP 1 @${top.uniqueId} không có rule riêng → dùng default media`);
+            }
+        }
         const payload = {
             key,
             label: ev.label,
             emoji: ev.emoji,
-            mediaUrl: ev.mediaUrl,
-            mediaType: ev.mediaType || '',
+            mediaUrl: media.url,
+            mediaType: media.type || guessMediaType(media.url),
             volume: ev.volume == null ? 100 : ev.volume,
             playbackRate: ev.playbackRate || 1.0,
             interruptCurrent: ev.interruptCurrent !== false,
             showLabel: !!(cfg.display && cfg.display.showLabel),
             source: source || 'manual',
+            topUser: topUser ? { uniqueId: topUser.uniqueId, nickname: topUser.nickname, totalDiamond: topUser.totalDiamond } : null,
             ts: Date.now(),
         };
         io.emit('pktiktok:play', payload);

@@ -3219,6 +3219,66 @@ body.game-caro #caught-popup {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* Settings button on event card (cho win/lose phase) */
+.pkfx-settings-btn {
+    position: relative;
+    width: 22px; height: 22px; padding: 0;
+    border-radius: 50%; border: 1px solid rgba(255, 184, 0, 0.4);
+    background: rgba(255, 184, 0, 0.12); color: #ffd166;
+    font-size: 11px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.pkfx-settings-btn:hover { background: rgba(255, 184, 0, 0.25); }
+.pkfx-rules-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: #ef4444; color: #fff;
+    font-size: 9px; font-weight: 800;
+    padding: 1px 4px; border-radius: 999px; min-width: 14px;
+    line-height: 1;
+}
+
+/* Top-1 contributor rules modal */
+.pkfx-top-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center;
+    z-index: 12000;
+}
+.pkfx-top-modal-overlay.show { display: flex; animation: pkfxFade 0.18s ease-out; }
+@keyframes pkfxFade { from { opacity: 0; } to { opacity: 1; } }
+.pkfx-top-modal-card {
+    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+    border: 1px solid rgba(255, 184, 0, 0.3);
+    border-radius: 12px;
+    padding: 20px 22px;
+    width: 540px; max-width: 92vw; max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 22px 64px rgba(0, 0, 0, 0.65);
+}
+.pkfx-top-modal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.pkfx-top-modal-title { flex: 1; font-size: 15px; font-weight: 800; color: #f3f5fa; }
+.pkfx-top-modal-close {
+    background: rgba(255,255,255,0.07); color: #d6dae6;
+    border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px;
+}
+.pkfx-top-modal-hint { font-size: 11.5px; color: #8b93a8; line-height: 1.5; padding: 6px 0 12px; }
+.pkfx-top-rules-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.pkfx-top-rule {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+}
+.pkfx-top-uid {
+    flex: 0 0 160px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+    background: rgba(0,0,0,0.4); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+}
+.pkfx-top-file { flex: 1; font-size: 11px; color: #d6dae6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pkfx-top-empty {
+    padding: 20px; text-align: center; color: #667085; font-size: 12px;
+    border: 1.5px dashed rgba(255, 255, 255, 0.1); border-radius: 8px;
+}
+
 /* ============================================================
    VIP Welcome — Chào mừng VIP & cấp độ tặng quà
    ============================================================ */
