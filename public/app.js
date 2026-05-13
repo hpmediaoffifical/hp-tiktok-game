@@ -813,7 +813,8 @@
             name.textContent = g.name || `ID ${giftId}`;
             const actBadge = document.createElement('div');
             actBadge.className = 'qt-action';
-            actBadge.textContent = ef?.ico || '?';
+            // Hiển thị TÊN hiệu ứng (text) thay vì icon — rõ ràng hơn
+            actBadge.textContent = ef?.label || action;
             card.appendChild(actBadge);
             card.appendChild(img);
             card.appendChild(name);
