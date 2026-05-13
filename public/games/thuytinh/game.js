@@ -130,19 +130,93 @@
                 osin: 1,
                 ufo: 1
             },
-            // 🎨 Theme hũ: 'default' | 'gold' | 'pink' | 'emerald' | 'azure' | 'crystal'
-            // Áp filter hue-rotate + sepia/contrast lên SVG hũ — không cần SVG riêng.
-            jarTheme: 'default'
+            // 🎀 Accessory gắn lên miệng hũ — không che thân hũ. Default 'none'.
+            jarAccessory: 'none'
         };
     }
-    // Map theme → CSS filter cho jar bottom + glass
-    const JAR_THEMES = {
-        default:  '',
-        gold:     'hue-rotate(35deg) saturate(1.4) brightness(1.05)',
-        pink:     'hue-rotate(310deg) saturate(1.3)',
-        emerald:  'hue-rotate(120deg) saturate(1.2)',
-        azure:    'hue-rotate(200deg) saturate(1.15)',
-        crystal:  'brightness(1.2) contrast(1.1) saturate(0.4)'
+    // SVG accessories gắn lên miệng hũ (vị trí = neck top, không che body jar).
+    // Mỗi SVG có viewBox 200x100, render scale theo jar width.
+    const JAR_ACCESSORIES = {
+        none: '',
+        'bow-pink': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bpG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#ffa3c5"/><stop offset="0.5" stop-color="#ff5d8f"/><stop offset="1" stop-color="#d63384"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#ff5d8f" stroke="#a02560" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="1.5"/>
+        </svg>`,
+        'bow-blue': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bbG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#7dd3fc"/><stop offset="0.5" stop-color="#3b82f6"/><stop offset="1" stop-color="#1e40af"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#3b82f6" stroke="#1e3a8a" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="1.5"/>
+        </svg>`,
+        'bow-white': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bwG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#f1f5f9"/><stop offset="1" stop-color="#cbd5e1"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="1.5"/>
+        </svg>`,
+        'bow-black': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bkG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#475569"/><stop offset="0.5" stop-color="#1e293b"/><stop offset="1" stop-color="#0f172a"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bkG)" stroke="#000" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bkG)" stroke="#000" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#1e293b" stroke="#000" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bkG)" stroke="#000" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bkG)" stroke="#000" stroke-width="1.5"/>
+        </svg>`,
+        'crown': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="crG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#fde047"/><stop offset="0.5" stop-color="#fbbf24"/><stop offset="1" stop-color="#b45309"/>
+            </linearGradient></defs>
+            <path d="M40 80 L55 30 L80 60 L100 20 L120 60 L145 30 L160 80 Z" fill="url(#crG)" stroke="#78350f" stroke-width="3"/>
+            <rect x="40" y="78" width="120" height="14" fill="#fbbf24" stroke="#78350f" stroke-width="2"/>
+            <circle cx="55" cy="30" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.5"/>
+            <circle cx="100" cy="20" r="7" fill="#22d3ee" stroke="#0e7490" stroke-width="1.5"/>
+            <circle cx="145" cy="30" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.5"/>
+            <circle cx="100" cy="85" r="4" fill="#fff"/><circle cx="70" cy="85" r="3" fill="#fff"/><circle cx="130" cy="85" r="3" fill="#fff"/>
+        </svg>`,
+        'flower-cherry': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <g transform="translate(60,50)"><circle cx="0" cy="-20" r="14" fill="#fda4af"/><circle cx="19" cy="-6" r="14" fill="#fda4af"/><circle cx="12" cy="16" r="14" fill="#fda4af"/><circle cx="-12" cy="16" r="14" fill="#fda4af"/><circle cx="-19" cy="-6" r="14" fill="#fda4af"/><circle cx="0" cy="0" r="6" fill="#fbbf24"/></g>
+            <g transform="translate(140,50)"><circle cx="0" cy="-20" r="14" fill="#fda4af"/><circle cx="19" cy="-6" r="14" fill="#fda4af"/><circle cx="12" cy="16" r="14" fill="#fda4af"/><circle cx="-12" cy="16" r="14" fill="#fda4af"/><circle cx="-19" cy="-6" r="14" fill="#fda4af"/><circle cx="0" cy="0" r="6" fill="#fbbf24"/></g>
+            <g transform="translate(100,40) scale(0.7)"><circle cx="0" cy="-20" r="14" fill="#ec4899"/><circle cx="19" cy="-6" r="14" fill="#ec4899"/><circle cx="12" cy="16" r="14" fill="#ec4899"/><circle cx="-12" cy="16" r="14" fill="#ec4899"/><circle cx="-19" cy="-6" r="14" fill="#ec4899"/><circle cx="0" cy="0" r="6" fill="#fde047"/></g>
+        </svg>`,
+        'star-gold': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="sgG"><stop offset="0" stop-color="#fde047"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+            <path d="M100 10 L114 50 L156 50 L122 75 L135 115 L100 90 L65 115 L78 75 L44 50 L86 50 Z" fill="url(#sgG)" stroke="#78350f" stroke-width="2"/>
+            <circle cx="35" cy="30" r="4" fill="#fff" opacity="0.9"/>
+            <circle cx="170" cy="35" r="3" fill="#fff" opacity="0.9"/>
+            <circle cx="160" cy="75" r="3" fill="#fff" opacity="0.9"/>
+        </svg>`,
+        'leaves-christmas': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <g><path d="M20 60 Q60 30 100 50 Q140 30 180 60 L180 80 Q140 60 100 80 Q60 60 20 80 Z" fill="#15803d" stroke="#14532d" stroke-width="2"/>
+            <circle cx="50" cy="70" r="6" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="100" cy="55" r="7" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="150" cy="70" r="6" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="75" cy="50" r="4" fill="#fbbf24"/>
+            <circle cx="125" cy="50" r="4" fill="#fbbf24"/></g>
+        </svg>`,
+        'gem-diamond': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="gdG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#7dd3fc"/><stop offset="0.5" stop-color="#06b6d4"/><stop offset="1" stop-color="#0e7490"/>
+            </linearGradient></defs>
+            <path d="M100 10 L150 40 L100 95 L50 40 Z" fill="url(#gdG)" stroke="#0e7490" stroke-width="2"/>
+            <path d="M100 10 L150 40 L100 50 L50 40 Z" fill="#bae6fd" opacity="0.7"/>
+            <path d="M100 10 L100 50 L80 30 Z" fill="#fff" opacity="0.6"/>
+        </svg>`
     };
 
     // ===== Audio (Web Audio API tổng hợp âm thanh, không cần file) =====
@@ -357,7 +431,11 @@
             };
             setStyle(jarBottomEl);
             setStyle(jarGlassEl);
+            // Clear filter cũ nếu có (legacy theme jar)
+            if (jarBottomEl) jarBottomEl.style.filter = '';
+            if (jarGlassEl)  jarGlassEl.style.filter  = '';
             buildWalls();
+            positionAccessory();
             positionUiOverlays();
             updateCountDisplay();
         }
@@ -1979,11 +2057,46 @@
             thiefLayer.style.setProperty('--tt-ufo-scale', String(clamp(a.ufo)));
             // osin dùng inline width/height % → đọc config trực tiếp lúc spawn (triggerOsin).
         }
-        function applyJarTheme() {
-            const theme = config.jarTheme || 'default';
-            const filter = JAR_THEMES[theme] || '';
-            if (jarBottomEl) jarBottomEl.style.filter = filter;
-            if (jarGlassEl)  jarGlassEl.style.filter  = filter;
+        // Accessory SVG element — gắn vào DOM 1 lần, position theo jar mỗi lần positionJar()
+        let _accessoryEl = null;
+        function ensureAccessoryEl() {
+            if (_accessoryEl) return _accessoryEl;
+            if (!jarBottomEl?.parentElement) return null;
+            _accessoryEl = document.createElement('div');
+            _accessoryEl.className = 'tt-jar-accessory';
+            _accessoryEl.style.cssText = 'position:absolute;pointer-events:none;z-index:5;display:none';
+            // Insert sau jarGlassEl để accessory nằm trên cùng
+            jarBottomEl.parentElement.appendChild(_accessoryEl);
+            return _accessoryEl;
+        }
+        function applyJarAccessory() {
+            const el = ensureAccessoryEl();
+            if (!el) return;
+            const acc = config.jarAccessory || 'none';
+            const svg = JAR_ACCESSORIES[acc];
+            if (!svg) {
+                el.style.display = 'none';
+                el.innerHTML = '';
+                return;
+            }
+            el.style.display = 'block';
+            el.innerHTML = svg;
+            positionAccessory();
+        }
+        function positionAccessory() {
+            if (!_accessoryEl) return;
+            const r = jarRect();
+            // Vị trí: căn giữa X theo jar, Y nằm ngay trên cổ hũ (nắp)
+            // Width = 50% jar width, height = 25% jar width (aspect 2:1 do SVG viewBox 200x100)
+            const accW = r.w * 0.5;
+            const accH = accW * 0.5;
+            const accX = r.cx - accW / 2;
+            // Y: ngay trên neckTop, nhô lên 1 chút (10% accH)
+            const accY = r.y + r.h * SHAPE.neckTopY - accH * 0.85;
+            _accessoryEl.style.left = (accX / CANVAS_W * 100) + '%';
+            _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
+            _accessoryEl.style.width  = (accW / CANVAS_W * 100) + '%';
+            _accessoryEl.style.height = (accH / CANVAS_H * 100) + '%';
         }
         function bailUser(uid) {
             if (!uid) return;
@@ -3337,7 +3450,7 @@
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
             applyActorScales();
-            applyJarTheme();
+            applyJarAccessory();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -3406,7 +3519,7 @@
         positionJar();
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
         applyActorScales();
-        applyJarTheme();
+        applyJarAccessory();
         if (config.features.randomEvents) startRandomEvents();
         if (config.features.thiefAuto) startThiefAuto();
         // Runner FIXED delta — Matter.js default isFixed:false sẽ adapt dt theo real time.

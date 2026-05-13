@@ -170,7 +170,7 @@
         cfgScaleOsinV: $('#cfg-scale-osin-v'),
         cfgScaleUfo: $('#cfg-scale-ufo'),
         cfgScaleUfoV: $('#cfg-scale-ufo-v'),
-        cfgJarTheme: $('#cfg-jar-theme'),
+        cfgJarAccessory: $('#cfg-jar-accessory'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
@@ -617,7 +617,7 @@
         if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = sPo;
         if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = sOs;
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = sUf;
-        if (dom.cfgJarTheme) dom.cfgJarTheme.value = cfg.jarTheme || 'default';
+        if (dom.cfgJarAccessory) dom.cfgJarAccessory.value = cfg.jarAccessory || 'none';
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -704,7 +704,7 @@
                 osin: parseFloat(dom.cfgScaleOsin?.value) || 1,
                 ufo: parseFloat(dom.cfgScaleUfo?.value) || 1
             },
-            jarTheme: dom.cfgJarTheme?.value || 'default',
+            jarAccessory: dom.cfgJarAccessory?.value || 'none',
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
         };
@@ -1627,7 +1627,7 @@
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarVisible?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarLocked?.addEventListener('change', pushConfigUpdate);
-    dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
+    dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);
