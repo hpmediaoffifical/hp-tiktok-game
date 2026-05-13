@@ -581,6 +581,7 @@
                 case 'osin': triggerOsin(userInfo); break;
                 case 'ufo': triggerUFO(userInfo); break;
                 case 'kickJar': fxKickJar(userInfo); break;
+                case 'throwJar': fxThrowJar(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
                 case 'shape': fxShape(userInfo); break;
             }
@@ -3116,7 +3117,9 @@
             kickJarBusy = true;
 
             const r = jarRect();
-            const groundY = CANVAS_H * 0.91;
+            // OSIN groundY — đặt ngang với đáy hũ (cảm giác đứng cạnh hũ chứ không xa)
+            // Trước: 0.91 (sát đáy canvas, OSIN quá thấp so với hũ)
+            const groundY = Math.max(CANVAS_H * 0.78, r.y + r.h * 0.92);
             const { name } = opts;
 
             // ===== 1. Spawn OSIN từ trái =====
@@ -3155,94 +3158,120 @@
             if (config.features.audio) audio.steal();
             await wait(220);
 
-            // ===== 6. Hũ bay parabolic tới target (50% X, 37% Y — khu user đánh dấu) =====
-            // Tháo jar walls để bodies tự rơi do gravity. Cũng disable physics rendering vì
-            // mình sẽ manual animate jar elements + bodies stay in place visually.
-            removeJarWalls();
+            // ===== 6. Hũ bay parabolic tới target (45% X, 37% Y) =====
+            // GIỮ jar walls + bodies INSIDE jar cùng bay → quà ngoài hũ (đã rớt) giữ nguyên.
+            // Khi tới target mới shatterJarAt → walls remove + bodies inside scatter ra ngoài.
 
-            // Target position
+            // Snapshot bodies INSIDE jar (trước khi bay) — chỉ những bodies này được dịch chuyển
+            const jarBottomYThresh = r.y + r.h * 0.95;
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                const insideX = p.x >= r.x - 30 && p.x <= r.x + r.w + 30;
+                const insideY = p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomYThresh + 40;
+                return insideX && insideY;
+            });
+
             const targetCx = CANVAS_W * 0.45;
             const targetCy = CANVAS_H * 0.37;
+            const newJarX = r.x + (targetCx - r.cx);
+            const newJarY = r.y + (targetCy - r.cy);
 
-            // Save original styles
+            // Save original styles + tắt CSS transition trên jar elements (mình tween bằng JS)
             const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
             const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
             const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+            if (jarBottomEl) jarBottomEl.style.transition = 'none';
+            if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
+            if (_accessoryEl) _accessoryEl.style.transition = 'none';
 
-            // Animate jar fly — dùng CSS transition cho left/top + rotate
+            // Pause physics — bodies + walls không bị gravity affect trong flight,
+            // chỉ di chuyển bởi setPosition theo tween.
+            const savedTimeScale = engine.timing.timeScale;
+            engine.timing.timeScale = 0;
+
             const flyDur = 1100;
-            const animateEl = (el, fromX, fromY, toX, toY, rotateDeg) => {
-                if (!el) return;
-                el.style.transition = `left ${flyDur}ms cubic-bezier(.25,.6,.35,1), top ${flyDur}ms cubic-bezier(.4,-.5,.6,.5), transform ${flyDur}ms ease-out`;
-                el.style.left = (toX / CANVAS_W * 100) + '%';
-                el.style.top  = (toY / CANVAS_H * 100) + '%';
-                // Giữ % size hiện tại, thêm rotate
-                const existingTransform = el.style.transform || '';
-                el.style.transform = existingTransform.replace(/rotate\([^)]*\)/, '') + ` rotate(${rotateDeg}deg)`;
-            };
-            // Jar bottom + glass + accessory all fly together
-            const dx = targetCx - r.cx;
-            const dy = targetCy - r.cy;
-            const newJarX = r.x + dx;
-            const newJarY = r.y + dy;
-            animateEl(jarBottomEl, r.x, r.y, newJarX, newJarY, 35);
-            animateEl(jarGlassEl, r.x, r.y, newJarX, newJarY, 35);
-            // Accessory animate cùng — position theo công thức trong positionAccessory
-            if (_accessoryEl) {
-                const accW = r.w * 0.8;
-                const accH = accW * 0.5;
-                const targetAccX = targetCx - accW/2;
-                const targetAccY = targetCy - r.h/2 + r.h * SHAPE.neckTopY - accH * 0.8;
-                _accessoryEl.style.transition = `left ${flyDur}ms cubic-bezier(.25,.6,.35,1), top ${flyDur}ms cubic-bezier(.4,-.5,.6,.5), transform ${flyDur}ms ease-out`;
-                _accessoryEl.style.left = (targetAccX / CANVAS_W * 100) + '%';
-                _accessoryEl.style.top  = (targetAccY / CANVAS_H * 100) + '%';
-                _accessoryEl.style.transform = `rotate(35deg)`;
-            }
+            let lastCx = r.cx, lastCy = r.cy;
+            await tween(t => {
+                // X: easeOut. Y: linear + parabolic peak (15% canvas height above midpoint)
+                const easeX = 1 - Math.pow(1 - t, 2);
+                const newCx = r.cx + (targetCx - r.cx) * easeX;
+                const yLinear = r.cy + (targetCy - r.cy) * t;
+                const peakDepth = CANVAS_H * 0.18;
+                const newCy = yLinear - peakDepth * Math.sin(t * Math.PI);
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
 
-            // ===== 7. Giữa đường: spawn crack overlay (sau 600ms) =====
-            setTimeout(() => {
-                if (overlayLayer && !jarStolen) {
-                    const crackEl = document.createElement('div');
-                    crackEl.className = 'tt-crack show';
-                    crackEl.style.position = 'absolute';
-                    crackEl.style.left = (newJarX / CANVAS_W * 100) + '%';
-                    crackEl.style.top = (newJarY / CANVAS_H * 100) + '%';
-                    crackEl.style.width = (r.w / CANVAS_W * 100) + '%';
-                    crackEl.style.height = (r.h / CANVAS_H * 100) + '%';
-                    crackEl.style.transform = 'rotate(35deg)';
-                    crackEl.innerHTML = generateCrackSvg(8);
-                    overlayLayer.appendChild(crackEl);
-                    crackElements.push(crackEl);
-                    if (config.features.audio) audio.steal();
+                // Move jar walls (physics)
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
                 }
-            }, 600);
+                // CHỈ move bodies INSIDE jar — bodies ngoài (escaped) giữ nguyên vị trí
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
 
-            // ===== 8. OSIN reset pose, walk back left =====
+                // Visual jar
+                const angle = t * 35;
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarBottomEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarGlassEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    const accX = newCx - accW / 2;
+                    const accY = newY + r.h * SHAPE.neckTopY - accH * 0.8;
+                    _accessoryEl.style.left = (accX / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
+                    _accessoryEl.style.transform = `rotate(${angle}deg)`;
+                }
+
+                // Crack overlay khi t ~ 0.55 (giữa đường, lần đầu chạm)
+                if (t > 0.55 && !wrap.__crackedOnce) {
+                    wrap.__crackedOnce = true;
+                    if (overlayLayer && !jarStolen) {
+                        const crackEl = document.createElement('div');
+                        crackEl.className = 'tt-crack show';
+                        crackEl.style.position = 'absolute';
+                        crackEl.style.left = (newX / CANVAS_W * 100) + '%';
+                        crackEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                        crackEl.style.width  = (r.w / CANVAS_W * 100) + '%';
+                        crackEl.style.height = (r.h / CANVAS_H * 100) + '%';
+                        crackEl.style.transform = `rotate(${angle}deg)`;
+                        crackEl.innerHTML = generateCrackSvg(8);
+                        overlayLayer.appendChild(crackEl);
+                        crackElements.push(crackEl);
+                        if (config.features.audio) audio.steal();
+                    }
+                }
+
+                lastCx = newCx;
+                lastCy = newCy;
+            }, flyDur);
+
+            // ===== 7. OSIN reset pose, walk back trái (sau khi đá xong) =====
             wrap.style.transition = 'transform 0.4s ease';
             wrap.style.transform = 'translate(-50%, -100%) scaleX(-1)';
             setTimeout(() => {
                 wrap.classList.remove('osin-jumping');
                 wrap.classList.add('osin-walking');
                 wrap.style.transition = 'left 1.3s linear, transform 0.3s ease';
-                wrap.style.transform = 'translate(-50%, -100%)';   // mặt sang phải để đi ra phải
+                wrap.style.transform = 'translate(-50%, -100%)';
                 wrap.style.left = ((CANVAS_W + CANVAS_W * 0.18) / CANVAS_W * 100) + '%';
-            }, 800);
+            }, 100);
 
-            // ===== 9. Tới target → SHATTER =====
-            await wait(flyDur);
-            // Restore styles trước khi shatter (vì shatter set opacity)
-            // Bodies vẫn ở vị trí cũ trong physics world (chỉ visual jar di chuyển)
-            // → shatterJar release bodies từ vị trí cũ — sẽ tạo cảm giác quà rơi từ trên xuống
-            //   (do mất jar walls và gravity kéo xuống) — chấp nhận trade-off
-            // Đặt jar tại target rồi shatter từ target
-            // Để gifts rơi ĐÚNG từ target: di chuyển bodies tới target trước khi shatter
-            bodies.forEach(b => {
-                const offsetX = b.position.x - r.cx;
-                const offsetY = b.position.y - r.cy;
-                Body.setPosition(b, { x: targetCx + offsetX, y: targetCy + offsetY });
-            });
-            // Move jar physics walls có thể không cần (đã removeJarWalls). Shatter giờ fire visual:
-            shatterJarAt(targetCx, targetCy);
+            // ===== 8. Tại target → SHATTER (chỉ scatter bodies inside jar) =====
+            engine.timing.timeScale = savedTimeScale;
+            shatterJarAt(targetCx, targetCy, insideBodies);
 
             // ===== 10. Chờ 3s rồi respawn jar tại vị trí gốc =====
             setTimeout(() => {
@@ -3263,8 +3292,215 @@
                 'linear-gradient(135deg, #dc2626, #f59e0b)'
             );
         }
+        // ===== 💪 OSIN KÉO + NÉM hũ — drag to middle then throw up =====
+        // Flow: OSIN tới hũ → grab → kéo về giữa canvas → wind-up → NÉM lên cao
+        //   → hũ bay parabolic UP tới target → crack mid-air → shatter ở target → quà rơi
+        let throwJarBusy = false;
+        async function fxThrowJar(opts = {}) {
+            if (throwJarBusy || kickJarBusy || jarStolen) return;
+            if (!thiefLayer) return;
+            throwJarBusy = true;
+
+            const r = jarRect();
+            const groundY = Math.max(CANVAS_H * 0.78, r.y + r.h * 0.92);
+            const { name } = opts;
+
+            // 1. Spawn OSIN từ trái
+            const wrap = buildOsinNode({ name: name ? '💪 ' + name : '💪 OSIN ném hũ' });
+            thiefLayer.appendChild(wrap);
+            const personW = 12, personH = 16;
+            wrap.style.position = 'absolute';
+            wrap.style.width = personW + '%';
+            wrap.style.height = personH + '%';
+            const startX = -CANVAS_W * 0.13;
+            wrap.style.left = (startX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)';
+            wrap.style.transition = 'left 1.2s linear, top 0.4s ease, transform 0.3s ease';
+            wrap.classList.add('osin-walking');
+            await wait(80);
+
+            // 2. Đi tới CẠNH PHẢI hũ
+            const rightOfJarX = r.x + r.w + CANVAS_W * 0.04;
+            wrap.style.left = (rightOfJarX / CANVAS_W * 100) + '%';
+            await wait(1220);
+
+            // 3. Quay sang trái + bend down (grab pose)
+            wrap.style.transition = 'transform 0.3s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1)';
+            wrap.classList.remove('osin-walking');
+            wrap.classList.add('osin-carrying');
+            await wait(380);
+
+            // 4. KÉO HŨ về giữa canvas — OSIN walk leftward, jar follows
+            const middleCx = CANVAS_W * 0.5;
+            const middleCy = groundY - r.h * 0.45;   // hũ ở ground level, center y = groundY - half jar height
+            const dragDur = 1300;
+
+            // Snapshot bodies INSIDE jar (trước khi kéo) — chỉ những bodies này được dịch
+            // chuyển. Bodies ngoài hũ (escaped) giữ nguyên vị trí.
+            const jarBottomYThresh = r.y + r.h * 0.95;
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                const insideX = p.x >= r.x - 30 && p.x <= r.x + r.w + 30;
+                const insideY = p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomYThresh + 40;
+                return insideX && insideY;
+            });
+
+            // Pause physics + sync jar walls + bodies during drag
+            const savedTimeScale = engine.timing.timeScale;
+            engine.timing.timeScale = 0;
+            if (jarBottomEl) jarBottomEl.style.transition = 'none';
+            if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
+            if (_accessoryEl) _accessoryEl.style.transition = 'none';
+            const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
+            const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
+            const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+
+            // OSIN walks left to middle (dragging)
+            const osinDragX = middleCx + r.w * 0.55;   // OSIN stand slightly right of jar
+            wrap.style.transition = `left ${dragDur}ms linear`;
+            wrap.style.left = (osinDragX / CANVAS_W * 100) + '%';
+
+            let lastCx = r.cx, lastCy = r.cy;
+            await tween(t => {
+                const newCx = r.cx + (middleCx - r.cx) * t;
+                const newCy = r.cy + (middleCy - r.cy) * t;
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    _accessoryEl.style.left = ((newCx - accW/2) / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
+                }
+                lastCx = newCx;
+                lastCy = newCy;
+            }, dragDur);
+
+            // 5. Wind-up: OSIN bend down further + tilt body
+            wrap.classList.remove('osin-carrying');
+            wrap.classList.add('osin-jumping');
+            wrap.style.transition = 'transform 0.25s cubic-bezier(.5,1.5,.5,1)';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1) rotate(15deg)';
+            if (config.features.audio) audio.steal();
+            await wait(280);
+
+            // 6. THROW! Jar parabolic UP tới target (red rectangle area)
+            const targetCx = CANVAS_W * 0.5;   // chính giữa X
+            const targetCy = CANVAS_H * 0.25;  // upper area (red rect)
+            const throwDur = 850;
+
+            await tween(t => {
+                // X: linear from middleCx to targetCx
+                const newCx = middleCx + (targetCx - middleCx) * t;
+                // Y: parabolic — bay vọt LÊN cao rồi xuống tại target
+                // Cong cao hơn: peakDepth lớn
+                const yLinear = middleCy + (targetCy - middleCy) * t;
+                const peakDepth = CANVAS_H * 0.12;   // peak 12% ABOVE midpoint của arc
+                const newCy = yLinear - peakDepth * Math.sin(t * Math.PI);
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
+
+                const angle = t * 360;   // 1 vòng xoay full → tumble
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarBottomEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarGlassEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    _accessoryEl.style.left = ((newCx - accW/2) / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
+                    _accessoryEl.style.transform = `rotate(${angle}deg)`;
+                }
+
+                // Crack overlay khi t ~ 0.6 (gần tới target)
+                if (t > 0.6 && !wrap.__crackedOnceThrow) {
+                    wrap.__crackedOnceThrow = true;
+                    if (overlayLayer && !jarStolen) {
+                        const crackEl = document.createElement('div');
+                        crackEl.className = 'tt-crack show';
+                        crackEl.style.position = 'absolute';
+                        crackEl.style.left = (newX / CANVAS_W * 100) + '%';
+                        crackEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                        crackEl.style.width  = (r.w / CANVAS_W * 100) + '%';
+                        crackEl.style.height = (r.h / CANVAS_H * 100) + '%';
+                        crackEl.style.transform = `rotate(${angle}deg)`;
+                        crackEl.innerHTML = generateCrackSvg(10);
+                        overlayLayer.appendChild(crackEl);
+                        crackElements.push(crackEl);
+                        if (config.features.audio) audio.steal();
+                    }
+                }
+
+                lastCx = newCx;
+                lastCy = newCy;
+            }, throwDur);
+
+            // 7. OSIN reset + walk off left
+            wrap.style.transition = 'transform 0.3s ease, left 1.3s linear';
+            wrap.style.transform = 'translate(-50%, -100%)';
+            wrap.classList.remove('osin-jumping');
+            wrap.classList.add('osin-walking');
+            wrap.style.left = ((-CANVAS_W * 0.15) / CANVAS_W * 100) + '%';
+
+            // 8. Resume physics + SHATTER ở target (chỉ scatter bodies inside)
+            engine.timing.timeScale = savedTimeScale;
+            shatterJarAt(targetCx, targetCy, insideBodies);
+
+            // 9. Sau 3s respawn jar
+            setTimeout(() => {
+                if (jarBottomEl) jarBottomEl.style.cssText = jbStyle;
+                if (jarGlassEl) jarGlassEl.style.cssText = jgStyle;
+                if (_accessoryEl) _accessoryEl.style.cssText = accStyle;
+                positionJar();
+                positionAccessory();
+            }, 3200);
+            setTimeout(() => wrap.remove(), 1400);
+            throwJarBusy = false;
+
+            showComboToast(
+                `💪 <b>OSIN NÉM HŨ LÊN TRỜI!</b> 🚀`,
+                'linear-gradient(135deg, #f59e0b, #dc2626)'
+            );
+        }
+
         // Variant của shatterJar nhận vị trí explosion center custom
-        function shatterJarAt(cx, cy) {
+        // targetBodies (optional): chỉ scatter mảng bodies này (default: all bodies)
+        function shatterJarAt(cx, cy, targetBodies) {
             flashShatterToast(`💥 <b>HŨ VỠ TAN!</b> Quà rơi tung toé`);
             if (config.features.audio) { audio.fanfare(); audio.big(); }
             if (jarBottomEl) jarBottomEl.style.transition = 'opacity 0.4s, filter 0.4s';
@@ -3276,7 +3512,8 @@
                 if (jarGlassEl) { jarGlassEl.style.opacity = '0.1'; jarGlassEl.style.filter = ''; }
             }, 250);
 
-            bodies.forEach(b => {
+            const scatterPool = (targetBodies && targetBodies.length) ? targetBodies : bodies;
+            scatterPool.forEach(b => {
                 const dx = b.position.x - cx;
                 const dist = Math.max(Math.abs(dx), 1);
                 Body.setVelocity(b, {
@@ -3770,7 +4007,7 @@
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
             getJarRect, setJarPosition,
-            triggerThief, triggerOsin, triggerUFO, fxKickJar, setThiefAppearance, setPoliceAppearance,
+            triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
