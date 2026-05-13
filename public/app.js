@@ -17,11 +17,13 @@
         { key: 'thief',      ico: '🥷', label: 'Trộm' },
         { key: 'joinPolice', ico: '🚓', label: 'Gia nhập CS' },
         { key: 'osin',       ico: '🧹', label: 'Osin nhặt quà' },
+        { key: 'ufo',        ico: '🛸', label: 'UFO hút 5-10 quà' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'fireworks',  ico: '🎆', label: 'Pháo hoa' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'tornado',    ico: '🌀', label: 'Lốc xoáy' },
         { key: 'tilt',       ico: '⚖',  label: 'Nghiêng hũ' },
+        { key: 'pourOut',    ico: '🔄', label: 'Dốc ngược hũ (đổ hết)' },
         { key: 'gravflip',   ico: '🔄', label: 'Đảo trọng lực' },
         { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
         { key: 'slow',       ico: '🐢', label: 'Slow motion' },
@@ -152,6 +154,14 @@
         cfgScaleLbV: $('#cfg-scale-lb-v'),
         cfgScaleCaught: $('#cfg-scale-caught'),
         cfgScaleCaughtV: $('#cfg-scale-caught-v'),
+        cfgScaleThief: $('#cfg-scale-thief'),
+        cfgScaleThiefV: $('#cfg-scale-thief-v'),
+        cfgScalePolice: $('#cfg-scale-police'),
+        cfgScalePoliceV: $('#cfg-scale-police-v'),
+        cfgScaleOsin: $('#cfg-scale-osin'),
+        cfgScaleOsinV: $('#cfg-scale-osin-v'),
+        cfgScaleUfo: $('#cfg-scale-ufo'),
+        cfgScaleUfoV: $('#cfg-scale-ufo-v'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
@@ -482,6 +492,18 @@
         bindRange(dom.cfgScaleCaught, sCa, dom.cfgScaleCaughtV);
         if (dom.cfgScaleLbV) dom.cfgScaleLbV.textContent = sLb;
         if (dom.cfgScaleCaughtV) dom.cfgScaleCaughtV.textContent = sCa;
+        const sTh = cfg.actorScales?.thief ?? 1;
+        const sPo = cfg.actorScales?.police ?? 1;
+        const sOs = cfg.actorScales?.osin ?? 1;
+        const sUf = cfg.actorScales?.ufo ?? 1;
+        bindRange(dom.cfgScaleThief, sTh, dom.cfgScaleThiefV);
+        bindRange(dom.cfgScalePolice, sPo, dom.cfgScalePoliceV);
+        bindRange(dom.cfgScaleOsin, sOs, dom.cfgScaleOsinV);
+        bindRange(dom.cfgScaleUfo, sUf, dom.cfgScaleUfoV);
+        if (dom.cfgScaleThiefV) dom.cfgScaleThiefV.textContent = sTh;
+        if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = sPo;
+        if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = sOs;
+        if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = sUf;
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -562,6 +584,12 @@
                 leaderboard: parseFloat(dom.cfgScaleLb.value) || 1,
                 caught: parseFloat(dom.cfgScaleCaught.value) || 1
             },
+            actorScales: {
+                thief: parseFloat(dom.cfgScaleThief?.value) || 1,
+                police: parseFloat(dom.cfgScalePolice?.value) || 1,
+                osin: parseFloat(dom.cfgScaleOsin?.value) || 1,
+                ufo: parseFloat(dom.cfgScaleUfo?.value) || 1
+            },
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
         };
@@ -586,6 +614,10 @@
         if (dom.cfgPoliceBanV) dom.cfgPoliceBanV.textContent = cfg.policeBanSec;
         if (dom.cfgScaleLbV) dom.cfgScaleLbV.textContent = cfg.panelScales.leaderboard;
         if (dom.cfgScaleCaughtV) dom.cfgScaleCaughtV.textContent = cfg.panelScales.caught;
+        if (dom.cfgScaleThiefV) dom.cfgScaleThiefV.textContent = cfg.actorScales.thief;
+        if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = cfg.actorScales.police;
+        if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = cfg.actorScales.osin;
+        if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = cfg.actorScales.ufo;
         setSaveStatus('saving');
         clearTimeout(saveCfgTimer);
         const doSave = () => {
@@ -1418,7 +1450,7 @@
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);

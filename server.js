@@ -717,52 +717,74 @@ app.get('/api/version', (req, res) => {
 });
 
 // ============================================================
-// AUTO-UPDATE: check + download + install
+// AUTO-UPDATE: check + download + install (đơn giản như v1.0.6-v1.0.9)
 // ============================================================
 // Flow:
-//   1. App load → GET /api/update/check → so version với license-server
+//   1. App load → GET /api/update/check → so version với GitHub Releases
 //   2. Có update → modal hỏi user
 //   3. User OK → POST /api/update/download → server tải .exe + emit progress
-//      qua socket → verify SHA256 → spawn installer silent → app.quit
-// KHÔNG show URL, KHÔNG link GitHub trong code (repo có thể private — token không nhúng
-// vào installer để tránh leak khi attacker extract .exe).
-// Auto-update chỉ qua license-server kiểm soát bởi HP Media.
+//      qua socket → spawn installer silent (VBS launcher) → app.quit
+// Bảo mật ĐƠN GIẢN:
+//   - PRIMARY: GitHub Releases API public (https://api.github.com/repos/.../releases/latest)
+//   - FALLBACK: license-server (chỉ chạy nếu GitHub fail VÀ license-server có cấu hình)
+//   - Không có SHA256 verify cho GitHub (GitHub API không trả hash) → chấp nhận
+//     trade-off đơn giản hơn so với license-server (có SHA).
+
+// GitHub repo cho auto-update — PUBLIC để fetch unauth (không cần token).
+// Repo phải có Releases với tag vX.Y.Z và asset "HP-Action-LIVE-Setup-X.Y.Z.exe".
+// Override qua env HP_GITHUB_REPO=owner/repo nếu user dùng repo khác.
+const GITHUB_REPO = process.env.HP_GITHUB_REPO || 'hpmediaoffifical/hp-tiktok-game';
 
 app.get('/api/update/check', async (req, res) => {
     try {
         const pkg = require('./package.json');
         const localVer = pkg.version || '0.0.0';
 
-        if (!isWorkerConfigured()) {
-            return res.json({
-                ok: false,
-                localVersion: localVer,
-                error: 'Máy chủ cập nhật chưa cấu hình — liên hệ HP Media'
-            });
-        }
+        // === Primary: GitHub Releases (public repo, source of truth) ===
         try {
-            const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-            if (r.ok) {
-                const remote = await r.json();
-                if (remote.ok && remote.version) {
-                    const isNewer = cmpVersion(remote.version, localVer) > 0;
+            const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { timeout: 8000 });
+            if (ghRes.ok) {
+                const remote = await ghRes.json();
+                if (remote.tag_name) {
+                    const remoteVer = String(remote.tag_name).replace(/^v/i, '');
+                    const isNewer = cmpVersion(remoteVer, localVer) > 0;
+                    const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                                    || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
                     return res.json({
-                        ok: true, localVersion: localVer, hasUpdate: isNewer,
-                        latestVersion: remote.version, notes: remote.notes || '',
-                        size: remote.size || 0, sha256: remote.sha256 || '',
-                        source: 'license-server'
+                        ok: true,
+                        localVersion: localVer,
+                        hasUpdate: isNewer,
+                        latestVersion: remoteVer,
+                        notes: remote.body || '',
+                        size: setupAsset?.size || 0,
+                        sha256: '',   // GitHub không có SHA → skip verify
+                        source: 'github'
                     });
                 }
             }
-            // Server reachable nhưng chưa có version published → coi như đang dùng latest
-            return res.json({ ok: true, localVersion: localVer, hasUpdate: false });
-        } catch (e) {
-            return res.json({
-                ok: false,
-                localVersion: localVer,
-                error: 'Không kết nối được máy chủ cập nhật — thử lại sau'
-            });
+        } catch (e) { /* GitHub fail → fallback license-server */ }
+
+        // === Fallback: license-server (nếu cấu hình) ===
+        if (isWorkerConfigured()) {
+            try {
+                const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 6000 });
+                if (r.ok) {
+                    const remote = await r.json();
+                    if (remote.ok && remote.version) {
+                        const isNewer = cmpVersion(remote.version, localVer) > 0;
+                        return res.json({
+                            ok: true, localVersion: localVer, hasUpdate: isNewer,
+                            latestVersion: remote.version, notes: remote.notes || '',
+                            size: remote.size || 0, sha256: remote.sha256 || '',
+                            source: 'license-server'
+                        });
+                    }
+                }
+            } catch (e) { /* both sources failed */ }
         }
+
+        // Cả 2 nguồn fail
+        return res.json({ ok: false, localVersion: localVer, error: 'Không kết nối được nguồn cập nhật — thử lại sau' });
     } catch (e) {
         res.json({ ok: false, error: e.message });
     }
@@ -796,22 +818,42 @@ app.post('/api/update/download', async (req, res) => {
         try {
             sendProgress({ phase: 'connecting', percent: 0, message: 'Đang kết nối tới máy chủ cập nhật...' });
 
-            // === Tải về CHỈ qua license-server (không dùng GitHub fallback để tránh
-            // lộ URL/token; private repo không thể fetch unauth) ===
+            // === Xác định nguồn tải: GitHub primary, license-server fallback ===
             let downloadUrl, expectedSize = 0, expectedSha = '', version = 'latest';
 
-            if (!isWorkerConfigured()) {
-                throw new Error('Máy chủ cập nhật chưa cấu hình');
+            // Primary: GitHub Releases
+            try {
+                const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { timeout: 8000 });
+                if (ghRes.ok) {
+                    const remote = await ghRes.json();
+                    const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                                    || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
+                    if (setupAsset) {
+                        downloadUrl = setupAsset.browser_download_url;
+                        expectedSize = setupAsset.size || 0;
+                        expectedSha = '';   // GitHub không có SHA → skip verify
+                        version = String(remote.tag_name).replace(/^v/i, '');
+                    }
+                }
+            } catch (e) { /* GitHub fail → fallback license-server */ }
+
+            // Fallback: license-server
+            if (!downloadUrl && isWorkerConfigured()) {
+                try {
+                    const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 6000 });
+                    const meta = await metaRes.json();
+                    if (meta.ok && meta.version) {
+                        downloadUrl = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer';
+                        expectedSize = meta.size || 0;
+                        expectedSha = (meta.sha256 || '').toLowerCase();
+                        version = meta.version;
+                    }
+                } catch (e) { /* both sources failed */ }
             }
-            const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-            const meta = await metaRes.json();
-            if (!meta.ok || !meta.version) {
-                throw new Error('Máy chủ cập nhật chưa có phiên bản nào published');
+
+            if (!downloadUrl) {
+                throw new Error('Không kết nối được nguồn cập nhật');
             }
-            downloadUrl = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer';
-            expectedSize = meta.size || 0;
-            expectedSha = (meta.sha256 || '').toLowerCase();
-            version = meta.version;
 
             // Step 2: download installer to temp folder
             const os = require('os');
@@ -1118,13 +1160,17 @@ app.post('/api/disconnect', async (req, res) => {
 });
 
 // Gửi lệnh điều khiển game (thief, fireworks, tornado...) tới mọi overlay
+// Monotonic sequence ID cho gameCmd — overlay dedup theo seq để tránh
+// duplicate spawn khi OBS cache stale code / reconnect re-attach listener.
+let _cmdSeq = 0;
 app.post('/api/games/:id/cmd', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     const { cmd, payload } = req.body || {};
     if (!cmd) return res.status(400).json({ ok: false, error: 'Thiếu cmd' });
-    io.emit('gameCmd', { gameId: g.id, cmd, payload: payload || null });
-    res.json({ ok: true });
+    const seq = ++_cmdSeq;
+    io.emit('gameCmd', { gameId: g.id, cmd, payload: payload || null, seq });
+    res.json({ ok: true, seq });
 });
 
 // Test-spawn a gift (manual drop from UI)

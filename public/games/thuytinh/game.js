@@ -84,6 +84,18 @@
                     showName: true,         // hiện tên user ở giữa hình
                     nameSize: 64,           // cỡ chữ tên user (px) — 24..160
                     color: '#ffd166'        // màu chữ tên user
+                },
+                // UFO: hút N quà rớt NGOÀI hũ (escaped) → bay tới miệng hũ → thả vào.
+                // VIP PRO hơn OSIN (OSIN chỉ nhặt 1 quà ngoài, UFO nhặt 5-10 quà cùng lúc).
+                ufo: {
+                    minCapacity: 5,         // hút tối thiểu N quà
+                    maxCapacity: 10,        // hút tối đa N quà
+                    radiusPct: 40           // bán kính scan (% canvas width) tính từ scan center
+                },
+                // Dốc ngược hũ: tilt jar gần 180° để đổ hết quà ra → UFO/OSIN cứu lại
+                pourOut: {
+                    angleDeg: 165,          // góc nghiêng max (gần dốc ngược)
+                    holdMs: 1400            // giữ ở góc max bao lâu (để quà rơi hết)
                 }
             },
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
@@ -95,6 +107,13 @@
             panelScales: {
                 leaderboard: 1,
                 caught: 1
+            },
+            // Tỉ lệ scale nhân vật trộm / cảnh sát / osin / ufo (1 = 100% base size)
+            actorScales: {
+                thief: 1,
+                police: 1,
+                osin: 1,
+                ufo: 1
             }
         };
     }
@@ -102,9 +121,19 @@
     // ===== Audio (Web Audio API tổng hợp âm thanh, không cần file) =====
     const audio = (() => {
         let ctx = null;
+        let noiseBuf = null;
         function ensureCtx() {
             if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
             return ctx;
+        }
+        function getNoiseBuffer() {
+            const a = ensureCtx(); if (!a) return null;
+            if (noiseBuf) return noiseBuf;
+            const len = a.sampleRate * 2;
+            noiseBuf = a.createBuffer(1, len, a.sampleRate);
+            const data = noiseBuf.getChannelData(0);
+            for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+            return noiseBuf;
         }
         function tone(freq, dur, type = 'sine', vol = 0.15) {
             const a = ensureCtx(); if (!a) return;
@@ -118,6 +147,69 @@
             g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
             o.start(t0); o.stop(t0 + dur + 0.02);
         }
+        // Frequency sweep: dùng cho whoosh / beam / suck
+        function sweep(fromHz, toHz, dur, type = 'sawtooth', vol = 0.12) {
+            const a = ensureCtx(); if (!a) return;
+            const o = a.createOscillator();
+            const g = a.createGain();
+            o.type = type;
+            const t0 = a.currentTime;
+            o.frequency.setValueAtTime(fromHz, t0);
+            o.frequency.exponentialRampToValueAtTime(Math.max(20, toHz), t0 + dur);
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.05, dur * 0.2));
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+            o.connect(g); g.connect(a.destination);
+            o.start(t0); o.stop(t0 + dur + 0.02);
+        }
+        // Filtered noise burst — dùng cho rumble, crash, cascade
+        function noise(dur, freqCenter = 800, q = 8, vol = 0.18) {
+            const a = ensureCtx(); if (!a) return;
+            const buf = getNoiseBuffer(); if (!buf) return;
+            const src = a.createBufferSource(); src.buffer = buf;
+            const filter = a.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = freqCenter;
+            filter.Q.value = q;
+            const g = a.createGain();
+            const t0 = a.currentTime;
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(vol, t0 + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+            src.connect(filter); filter.connect(g); g.connect(a.destination);
+            src.start(t0); src.stop(t0 + dur + 0.02);
+        }
+
+        // UFO drone hum — trả về stop() để gọi khi UFO rời đi
+        function ufoHum() {
+            const a = ensureCtx(); if (!a) return () => {};
+            const o1 = a.createOscillator();
+            const o2 = a.createOscillator();
+            const lfo = a.createOscillator();   // vibrato
+            const lfoGain = a.createGain();
+            const g = a.createGain();
+            o1.type = 'sawtooth'; o1.frequency.value = 90;
+            o2.type = 'sine';     o2.frequency.value = 135;
+            lfo.frequency.value = 4.5; lfoGain.gain.value = 6;
+            const t0 = a.currentTime;
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(0.06, t0 + 0.6);   // fade in
+            lfo.connect(lfoGain);
+            lfoGain.connect(o1.frequency);
+            lfoGain.connect(o2.frequency);
+            o1.connect(g); o2.connect(g); g.connect(a.destination);
+            o1.start(t0); o2.start(t0); lfo.start(t0);
+            let stopped = false;
+            return function stop() {
+                if (stopped) return; stopped = true;
+                const t = a.currentTime;
+                g.gain.cancelScheduledValues(t);
+                g.gain.setValueAtTime(g.gain.value, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+                o1.stop(t + 0.55); o2.stop(t + 0.55); lfo.stop(t + 0.55);
+            };
+        }
+
         return {
             plop: () => tone(360, 0.07, 'sine', 0.18),
             ting: () => tone(1240, 0.08, 'triangle', 0.14),
@@ -126,7 +218,34 @@
                 const seq = [523, 659, 784, 1047];
                 seq.forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.18), i * 110));
             },
-            steal: () => { tone(800, 0.06, 'square', 0.12); setTimeout(() => tone(420, 0.08, 'sawtooth', 0.12), 60); }
+            steal: () => { tone(800, 0.06, 'square', 0.12); setTimeout(() => tone(420, 0.08, 'sawtooth', 0.12), 60); },
+
+            // ===== UFO sounds =====
+            ufoHum,
+            // Beam activate: sweep tăng tone + nhẹ noise hiss
+            ufoBeam: () => { sweep(200, 1400, 0.45, 'sawtooth', 0.10); noise(0.45, 2400, 14, 0.06); },
+            // Mỗi lần hút 1 quà: whoosh up
+            ufoSuck: () => sweep(400, 1600, 0.35, 'triangle', 0.10),
+            // Mỗi lần thả quà rơi vào hũ: bậc xuống + plop
+            ufoDrop: () => { sweep(900, 220, 0.25, 'triangle', 0.09); setTimeout(() => tone(380, 0.06, 'sine', 0.16), 200); },
+            // UFO arrival/exit swoosh
+            ufoArrive: () => sweep(120, 600, 0.6, 'sawtooth', 0.10),
+            ufoExit:   () => sweep(700, 90, 0.7, 'sawtooth', 0.10),
+
+            // ===== Effects khác =====
+            // Dốc ngược hũ: rumble dài + crash khi quà đổ ra
+            pourOut: () => {
+                noise(1.2, 180, 3, 0.16);                                        // rumble bass
+                sweep(400, 120, 1.0, 'sawtooth', 0.08);                          // jar tilt creak
+                setTimeout(() => noise(0.5, 800, 5, 0.14), 1100);                // cascade khi quà rơi
+                setTimeout(() => { for (let i = 0; i < 6; i++) setTimeout(() => tone(280 + Math.random()*200, 0.06, 'sine', 0.12), i * 50); }, 1100);
+            },
+            // Lốc xoáy: wind whistle
+            tornado: () => { sweep(200, 800, 0.6, 'sine', 0.10); noise(0.8, 1500, 6, 0.10); },
+            // Slow motion: descending tone
+            slow: () => sweep(600, 150, 0.5, 'sine', 0.10),
+            // Đảo trọng lực: dual tone WOW effect
+            gravflip: () => { tone(523, 0.15, 'square', 0.10); setTimeout(() => tone(330, 0.2, 'triangle', 0.12), 130); }
         };
     })();
 
@@ -300,9 +419,9 @@
                     avatar: g.profilePicture,
                     uid: String(g.userId || g.uniqueId || '')
                 };
-                for (let i = 0; i < n; i++) {
-                    setTimeout(() => runTriggerAction(triggerAction, userInfo), i * 300);
-                }
+                // 1 quà = 1 trigger, KHÔNG nhân theo repeatCount.
+                // Trước đây loop n lần → user gift x2 spawn 2 tên trộm cùng lúc.
+                runTriggerAction(triggerAction, userInfo);
                 return;
             }
             for (let i = 0; i < n; i++) spawnQueue.push(g);
@@ -322,6 +441,7 @@
                 case 'megaboom': fxMegaboom(); if (config.features.audio) audio.fanfare(); break;
                 case 'tornado': fxTornado(); break;
                 case 'tilt': fxTilt(); break;
+                case 'pourOut': fxPourOut(); break;
                 case 'gravflip': fxGravFlip(); break;
                 case 'shake': shake(); break;
                 case 'clear': clearAll(); break;
@@ -329,6 +449,7 @@
                 case 'crackJar': fxCrackJar(); break;
                 case 'stealJar': fxStealJar(); break;
                 case 'osin': triggerOsin(userInfo); break;
+                case 'ufo': triggerUFO(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
                 case 'shape': fxShape(userInfo); break;
             }
@@ -661,14 +782,85 @@
             });
             tiltAnimating = false;
         }
+        // ===== Dốc ngược hũ — đổ hết quà ra ngoài =====
+        // Khác fxTilt thông thường: góc nghiêng gần 180° (mặc định 165°) → miệng hũ
+        // chĩa xuống → mọi quà rơi ra do gravity. UFO / OSIN sẽ cứu lại sau.
+        async function fxPourOut() {
+            if (tiltAnimating || jarStolen || spillInProgress) return;
+            const cfg = config.effects?.pourOut || {};
+            const angleDeg = Math.max(120, Math.min(180, cfg.angleDeg ?? 165));
+            const holdMs = Math.max(500, Math.min(4000, cfg.holdMs ?? 1400));
+            const dir = Math.random() < 0.5 ? -1 : 1;
+            const maxAngle = (angleDeg * Math.PI / 180) * dir;
+
+            tiltAnimating = true;
+            const r = jarRect();
+            const pivot = { x: r.cx, y: r.cy };
+            const visualEls = [jarBottomEl, jarGlassEl].filter(Boolean);
+            const origTr = visualEls.map(el => el.style.transform || '');
+            visualEls.forEach((el) => {
+                el.style.transition = 'none';
+                el.style.transformOrigin = '50% 50%';
+            });
+            const applyTilt = (theta) => {
+                const delta = theta - currentTiltAngle;
+                if (delta === 0) return;
+                for (const w of jarWalls) {
+                    try { Body.rotate(w, delta, pivot); } catch (e) {}
+                }
+                currentTiltAngle = theta;
+                const deg = (theta * 180 / Math.PI).toFixed(2);
+                visualEls.forEach(el => { el.style.transform = `rotate(${deg}deg)`; });
+            };
+
+            // Toast cảnh báo
+            showComboToast(
+                `🔄 Hũ bị <b>DỐC NGƯỢC</b> — quà đổ tung tóe!`,
+                'linear-gradient(135deg, #f59e0b, #ef4444)'
+            );
+            if (config.features.audio) audio.pourOut();
+
+            // Phase 1: nghiêng nhanh tới góc max (1.2s)
+            await tween(t => {
+                const e = 1 - Math.pow(1 - t, 2.5);
+                applyTilt(maxAngle * e);
+            }, 1200);
+
+            // Phase 2: giữ ở góc max → bodies sẽ tự rơi ra do gravity
+            // Đồng thời boost velocity cho từng body để chắc chắn chúng văng ra
+            for (const b of bodies) {
+                try {
+                    Body.setVelocity(b, {
+                        x: b.velocity.x + (Math.random() - 0.5) * 3,
+                        y: b.velocity.y + Math.random() * 2
+                    });
+                } catch (e) {}
+            }
+            await wait(holdMs);
+
+            // Phase 3: dựng lại hũ (1s)
+            await tween(t => {
+                const e = t * t;
+                applyTilt(maxAngle * (1 - e));
+            }, 1000);
+            applyTilt(0);
+
+            visualEls.forEach((el, i) => {
+                el.style.transition = '';
+                el.style.transform = origTr[i];
+            });
+            tiltAnimating = false;
+        }
         function fxGravFlip() {
             const dur = (config.effects?.gravflip?.durationMs ?? 2200);
             engine.gravity.y = -Math.abs(engine.gravity.y);
+            if (config.features.audio) audio.gravflip();
             setTimeout(() => engine.gravity.y = Math.abs(config.physics.gravity), dur);
         }
         function fxTornado() {
             const k = (config.effects?.tornado?.intensity ?? 1);
             const r = jarRect();
+            if (config.features.audio) audio.tornado();
             let t = 0;
             const TOTAL = 90;
             const iv = setInterval(() => {
@@ -695,6 +887,7 @@
             const ts = (config.effects?.slow?.timeScale ?? 0.25);
             const dur = (config.effects?.slow?.durationMs ?? 3000);
             engine.timing.timeScale = ts;
+            if (config.features.audio) audio.slow();
             setTimeout(() => engine.timing.timeScale = 1, dur);
         }
 
@@ -1529,6 +1722,17 @@
                 el.style.setProperty('--cs', String(s));
             }
         }
+        // Đẩy actorScales (thief/police/osin) vào CSS variables của thiefLayer
+        // → mọi .tt-thief / .tt-police con sẽ pick up tự động qua var().
+        function applyActorScales() {
+            if (!thiefLayer) return;
+            const a = config.actorScales || {};
+            const clamp = (v) => Math.max(0.3, Math.min(3, v ?? 1));
+            thiefLayer.style.setProperty('--tt-thief-scale', String(clamp(a.thief)));
+            thiefLayer.style.setProperty('--tt-police-scale', String(clamp(a.police)));
+            thiefLayer.style.setProperty('--tt-ufo-scale', String(clamp(a.ufo)));
+            // osin dùng inline width/height % → đọc config trực tiếp lúc spawn (triggerOsin).
+        }
         function bailUser(uid) {
             if (!uid) return;
             bannedUntilByUid.delete(String(uid));
@@ -1918,7 +2122,7 @@
                     return p.x >= r.x && p.x <= r.x + r.w
                         && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomY;
                 });
-                const preferInside = insideJar.length > 0 && Math.random() < 0.75;  // 75% prefer inside
+                const preferInside = insideJar.length > 0 && Math.random() < 0.9;  // 90% prefer inside
                 const pool = preferInside ? insideJar : bodies;
                 const targetBody = pool[Math.floor(Math.random() * pool.length)];
                 const targetX = targetBody.position.x;
@@ -2162,7 +2366,7 @@
                 return p.x >= r.x && p.x <= r.x + r.w
                     && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= r.y + r.h * 0.95;
             });
-            const pool = (insideJar.length && Math.random() < 0.75) ? insideJar : bodies;
+            const pool = (insideJar.length && Math.random() < 0.9) ? insideJar : bodies;
             const target = pool[Math.floor(Math.random() * pool.length)];
             let lootGm = null;
             const idx = bodies.indexOf(target);
@@ -2400,7 +2604,8 @@
             const enterX = fromLeft ? -CANVAS_W * 0.13 : CANVAS_W * 1.13;
             const exitX = enterX;   // exit về lại nơi đến
             const groundY = CANVAS_H * 0.91;
-            const personW = 12, personH = 16;
+            const osinScale = Math.max(0.3, Math.min(3, config.actorScales?.osin ?? 1));
+            const personW = 12 * osinScale, personH = 16 * osinScale;
             wrap.style.position = 'absolute';
             wrap.style.width = personW + '%';
             wrap.style.height = personH + '%';
@@ -2507,6 +2712,258 @@
             showComboToast(
                 `🧹 <b>Cảm ơn OSIN ${escHtml(thankName)}</b> đã giúp tôi nhặt quà về hũ!`,
                 'linear-gradient(135deg, #10b981, #14b8a6)'
+            );
+        }
+
+        // ===== UFO: VIP PRO hơn OSIN — hút 5-10 quà trong phạm vi → thả vào hũ =====
+        // Flow: spawn off-screen → fly tới scan center → tractor beam hút N quà → fly tới
+        // miệng hũ → tractor beam thả từng quà → bay khỏi màn hình.
+        let ufoBusy = false;
+        function ufoSvg() {
+            // SVG đĩa bay đơn giản: thân + dome + đèn nhấp nháy
+            return `
+<svg viewBox="0 0 120 60" xmlns="http://www.w3.org/2000/svg" class="ufo-craft">
+  <defs>
+    <linearGradient id="ufoBody" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#cbd5e1"/>
+      <stop offset="0.5" stop-color="#94a3b8"/>
+      <stop offset="1" stop-color="#475569"/>
+    </linearGradient>
+    <radialGradient id="ufoDome" cx="0.5" cy="0.8" r="0.7">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="1" stop-color="#0369a1"/>
+    </radialGradient>
+  </defs>
+  <!-- Thân chính: ellipse dẹt -->
+  <ellipse cx="60" cy="38" rx="55" ry="12" fill="url(#ufoBody)" stroke="#1e293b" stroke-width="1.5"/>
+  <!-- Dome trên -->
+  <path d="M30 35 Q60 5 90 35 Z" fill="url(#ufoDome)" stroke="#1e293b" stroke-width="1.5" opacity="0.85"/>
+  <!-- Đèn dưới (3 đèn nhấp nháy) -->
+  <circle class="ufo-light l1" cx="35" cy="46" r="3.2" fill="#fbbf24"/>
+  <circle class="ufo-light l2" cx="60" cy="48" r="3.2" fill="#f87171"/>
+  <circle class="ufo-light l3" cx="85" cy="46" r="3.2" fill="#34d399"/>
+</svg>`;
+        }
+        function buildUFONode({ name, avatar }) {
+            const wrap = document.createElement('div');
+            wrap.className = 'tt-ufo';
+            wrap.innerHTML = `
+                <div class="ufo-name">${name ? '🛸 ' + escHtml(name) : '🛸 UFO'}</div>
+                <div class="ufo-craft-wrap">${ufoSvg()}</div>
+                <div class="ufo-beam"></div>
+            `;
+            return wrap;
+        }
+        async function triggerUFO(opts = {}) {
+            if (!thiefLayer || ufoBusy) return;
+            // UFO chỉ hút quà NGOÀI hũ (escaped) — VIP PRO version của OSIN.
+            // Picking-from-jar-and-dropping-back-into-jar là vô nghĩa.
+            const escaped = findEscapedBodies();
+            if (!escaped.length) {
+                showComboToast(
+                    `🛸 UFO tới nhưng không có quà rớt ngoài hũ để cứu`,
+                    'linear-gradient(135deg, #6b7280, #4b5563)'
+                );
+                return;
+            }
+            ufoBusy = true;
+            const { name, avatar } = opts;
+            const cfg = config.effects?.ufo || {};
+            const minN = Math.max(1, cfg.minCapacity ?? 5);
+            const maxN = Math.max(minN, cfg.maxCapacity ?? 10);
+            const capacity = minN + Math.floor(Math.random() * (maxN - minN + 1));
+            const radiusPct = Math.max(10, Math.min(80, cfg.radiusPct ?? 40));
+            const radius = CANVAS_W * radiusPct / 100;
+
+            const r = jarRect();
+            const wrap = buildUFONode({ name, avatar });
+            thiefLayer.appendChild(wrap);
+
+            // Start UFO hum drone — chạy suốt animation, tắt khi UFO exit
+            let stopHum = () => {};
+            if (config.features.audio) {
+                stopHum = audio.ufoHum();
+                audio.ufoArrive();
+            }
+
+            // Random độ cao bay: 15-35% canvas height (THẤP hơn version cũ 8-30%)
+            // - Min 15%: vẫn còn cao đủ thấy rõ, không sát đỉnh
+            // - Max clamp dưới miệng hũ - 3% để chừa khoảng kéo beam
+            //   (idol thường ngồi tầm 50-70% nên UFO ở 15-35% gần idol — dễ nhìn)
+            const mouthYPct = (r.y + r.h * SHAPE.neckTopY) / CANVAS_H * 100;
+            const maxFlyPct = Math.max(20, Math.min(35, mouthYPct - 3));
+            const flyYPct = 15 + Math.random() * (maxFlyPct - 15);
+            const flyY = CANVAS_H * flyYPct / 100;
+            const fromLeft = Math.random() < 0.5;
+            const startX = fromLeft ? -CANVAS_W * 0.18 : CANVAS_W * 1.18;
+
+            // Pick scan center: random escaped body → tâm scan
+            const anchor = escaped[Math.floor(Math.random() * escaped.length)];
+            const scanCenterX = Math.max(CANVAS_W * 0.15, Math.min(CANVAS_W * 0.85, anchor.position.x));
+            const scanCenterY = Math.max(CANVAS_H * 0.3, Math.min(CANVAS_H * 0.88, anchor.position.y));
+
+            const posUFO = (xCanvas, yCanvas) => {
+                wrap.style.position = 'absolute';
+                wrap.style.left = (xCanvas / CANVAS_W * 100) + '%';
+                wrap.style.top = (yCanvas / CANVAS_H * 100) + '%';
+            };
+            posUFO(startX, flyY);
+            wrap.style.transition = 'left 1.4s cubic-bezier(.25,.46,.45,.94), top 1.4s ease-out';
+            await wait(60);
+
+            // Phase 1: bay tới scan center (giữ độ cao flyY)
+            posUFO(scanCenterX, flyY);
+            await wait(1400);
+            if (config.features.audio) audio.ufoBeam();
+
+            // Phase 2: extend tractor beam xuống dưới
+            // height tính bằng cqi (= % container width 1080) để independent với wrap nhỏ.
+            const beam = wrap.querySelector('.ufo-beam');
+            const beamLenPx = (scanCenterY + radius * 0.4) - flyY;
+            beam.style.height = (beamLenPx / CANVAS_W * 100) + 'cqi';
+            beam.classList.add('active');
+            await wait(450);
+
+            // Phase 3: tìm escaped bodies trong phạm vi & hút lên
+            // Re-fetch escaped (có thể đã đổi sau khi chờ phase 1+2)
+            const escapedNow = findEscapedBodies();
+            const candidates = escapedNow
+                .map(b => ({
+                    b,
+                    d: Math.hypot(b.position.x - scanCenterX, b.position.y - scanCenterY)
+                }))
+                .filter(x => x.d <= radius)
+                .sort((a, b) => a.d - b.d)
+                .slice(0, capacity);
+
+            const cargo = [];   // { gm, sourceX, sourceY } để spawn lại lúc thả
+            for (const item of candidates) {
+                const tb = item.b;
+                const idx = bodies.indexOf(tb);
+                if (idx < 0) continue;
+                const sourceX = tb.position.x;
+                const sourceY = tb.position.y;
+                const gm = tb.gm;
+                bodies.splice(idx, 1);
+                Composite.remove(engine.world, tb);
+                cargo.push({ gm, sourceX, sourceY });
+
+                // Ghost img bay lên UFO — wobble nhẹ + shrink dần → mất hút vào đĩa bay
+                if (gm?.img) {
+                    const ghost = document.createElement('img');
+                    ghost.src = gm.img.src;
+                    ghost.className = 'tt-ufo-ghost';
+                    ghost.style.left = (sourceX / CANVAS_W * 100) + '%';
+                    ghost.style.top = (sourceY / CANVAS_H * 100) + '%';
+                    thiefLayer.appendChild(ghost);
+                    // Stagger 80ms mỗi quà — tạo cảm giác hút từng cái chứ không đồng loạt
+                    const delay = 60 + Math.random() * 200;
+                    setTimeout(() => {
+                        // Wobble X nhẹ trên đường lên (random ±5% canvas width)
+                        const wobble = (Math.random() - 0.5) * CANVAS_W * 0.05;
+                        ghost.style.left = ((scanCenterX + wobble) / CANVAS_W * 100) + '%';
+                        ghost.style.top = (flyY / CANVAS_H * 100) + '%';
+                        // Shrink xuống 15% size + xoay nhẹ 180° trong khi bay
+                        ghost.style.transform = 'translate(-50%, -50%) scale(0.15) rotate(180deg)';
+                        ghost.style.opacity = '0';
+                        // Whoosh up audio cho từng quà — staggered theo delay
+                        if (config.features.audio) audio.ufoSuck();
+                    }, delay);
+                    setTimeout(() => ghost.remove(), delay + 1200);
+                }
+            }
+            updateCountDisplay();
+            onCountChange(bodies.length);
+            // Chờ ghost bay xong (suck 1.1s + max stagger 260ms ≈ 1.4s)
+            await wait(1300);
+
+            // Retract beam
+            beam.classList.remove('active');
+            beam.style.height = '0cqi';
+            await wait(250);
+
+            if (cargo.length === 0) {
+                // Không hút được quà nào (bodies đã bị di chuyển hoặc race condition)
+                if (config.features.audio) audio.ufoExit();
+                wrap.style.transition = 'left 1.2s ease-in, opacity .4s ease';
+                wrap.style.left = (fromLeft ? CANVAS_W * 1.18 : -CANVAS_W * 0.18) / CANVAS_W * 100 + '%';
+                wrap.style.opacity = '0';
+                await wait(1200);
+                stopHum();
+                wrap.remove();
+                ufoBusy = false;
+                return;
+            }
+
+            // Phase 4: bay tới trên miệng hũ
+            const jarCenterX = r.x + r.w / 2;
+            const dropY = flyY;
+            wrap.style.transition = 'left 1.2s cubic-bezier(.25,.46,.45,.94)';
+            wrap.style.left = (jarCenterX / CANVAS_W * 100) + '%';
+            await wait(1220);
+
+            // Phase 5: extend beam xuống miệng hũ
+            const mouthY = r.y + r.h * SHAPE.neckTopY + 30;
+            const dropBeamPx = mouthY - flyY;
+            beam.style.height = (dropBeamPx / CANVAS_W * 100) + 'cqi';
+            beam.classList.add('active');
+            if (config.features.audio) audio.ufoBeam();
+            await wait(400);
+
+            // Phase 6: thả từng quà — stagger 180ms, mỗi quà tạo physics body mới rơi vào hũ
+            for (let i = 0; i < cargo.length; i++) {
+                const { gm } = cargo[i];
+                if (!gm) continue;
+                const respawnX = jarCenterX + (Math.random() - 0.5) * r.w * 0.5;
+                const respawnY = r.y + r.h * SHAPE.neckTopY + 60;
+                const newBody = Bodies.circle(respawnX, respawnY, gm.sz / 2, {
+                    restitution: config.physics.bounce,
+                    friction: config.physics.friction,
+                    density: 0.002
+                });
+                newBody.gm = gm;
+                Body.setVelocity(newBody, { x: 0, y: 4 });
+                Composite.add(engine.world, newBody);
+                bodies.push(newBody);
+
+                // Visual: ghost rơi từ UFO xuống miệng hũ
+                if (gm.img) {
+                    const ghost = document.createElement('img');
+                    ghost.src = gm.img.src;
+                    ghost.className = 'tt-ufo-ghost drop';
+                    ghost.style.left = (jarCenterX / CANVAS_W * 100) + '%';
+                    ghost.style.top = (flyY / CANVAS_H * 100) + '%';
+                    thiefLayer.appendChild(ghost);
+                    requestAnimationFrame(() => {
+                        ghost.style.top = (mouthY / CANVAS_H * 100) + '%';
+                        ghost.style.opacity = '0';
+                    });
+                    setTimeout(() => ghost.remove(), 600);
+                }
+                if (config.features.audio) audio.ufoDrop();
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                await wait(180);
+            }
+
+            // Retract beam + fly off
+            beam.classList.remove('active');
+            beam.style.height = '0cqi';
+            await wait(250);
+            if (config.features.audio) audio.ufoExit();
+            const exitX = fromLeft ? CANVAS_W * 1.18 : -CANVAS_W * 0.18;
+            wrap.style.transition = 'left 1.4s cubic-bezier(.25,.46,.45,.94), opacity .6s ease';
+            wrap.style.left = (exitX / CANVAS_W * 100) + '%';
+            wrap.style.opacity = '0';
+            await wait(1400);
+            stopHum();
+            wrap.remove();
+            ufoBusy = false;
+
+            const thankName = (name || '').trim() || 'Khách';
+            showComboToast(
+                `🛸 <b>UFO của ${escHtml(thankName)}</b> đã cứu <b>${cargo.length}</b> quà rớt vào hũ!`,
+                'linear-gradient(135deg, #0ea5e9, #6366f1)'
             );
         }
 
@@ -2627,6 +3084,7 @@
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
+            applyActorScales();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -2694,6 +3152,7 @@
         ensureOverlayDom();
         positionJar();
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
+        applyActorScales();
         if (config.features.randomEvents) startRandomEvents();
         if (config.features.thiefAuto) startThiefAuto();
         Runner.run(Runner.create(), engine);
@@ -2703,10 +3162,10 @@
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
             getJarRect, setJarPosition,
-            triggerThief, triggerOsin, setThiefAppearance, setPoliceAppearance,
+            triggerThief, triggerOsin, triggerUFO, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
-            fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow,
+            fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
             fxCrackJar, fxStealJar, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)

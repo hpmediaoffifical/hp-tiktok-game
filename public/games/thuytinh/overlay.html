@@ -224,8 +224,26 @@
 
         // Lệnh điều khiển từ App (authoritative) — OBS replay 1:1 mọi action.
         // App đẩy đủ payload (user info, mode...) để OBS hiển thị cùng nội dung.
-        socket.on('gameCmd', ({ gameId, cmd, payload }) => {
+        //
+        // DEDUP theo seq: tránh duplicate spawn khi
+        //   (1) OBS cache stale code cũ từng gây 1 quà ra 2 trộm
+        //   (2) socket reconnect re-attach listener
+        //   (3) browser source nhân bản scene → 2 overlay cùng render
+        // Server gán seq monotonic. Overlay nhớ 50 seq cuối, skip nếu đã thấy.
+        const seenSeqs = new Set();
+        const seqOrder = [];
+        socket.on('gameCmd', ({ gameId, cmd, payload, seq }) => {
             if (gameId !== 'thuytinh' || !game) return;
+            // Dedup nếu có seq (cmd cũ không có → vẫn process — backward compat)
+            if (seq != null) {
+                if (seenSeqs.has(seq)) return;
+                seenSeqs.add(seq);
+                seqOrder.push(seq);
+                if (seqOrder.length > 50) {
+                    const old = seqOrder.shift();
+                    seenSeqs.delete(old);
+                }
+            }
             if (cmd === 'thief') {
                 // payload có thể là 1 object userInfo, hoặc {thieves:[...]}.
                 const thieves = (payload && payload.thieves && payload.thieves.length)
@@ -234,6 +252,7 @@
                 thieves.forEach((t, i) => setTimeout(() => game.triggerThief(t), i * 400));
             }
             else if (cmd === 'osin') game.triggerOsin(payload || {});
+            else if (cmd === 'ufo') game.triggerUFO(payload || {});
             else if (cmd === 'joinPolice') {
                 // User gia nhập / rời lực lượng CS — payload là userInfo
                 if (typeof game.togglePoliceMembership === 'function') {
@@ -244,6 +263,7 @@
             else if (cmd === 'tornado') game.fxTornado();
             else if (cmd === 'megaboom') game.fxMegaboom();
             else if (cmd === 'tilt') game.fxTilt();
+            else if (cmd === 'pourOut') { if (game.fxPourOut) game.fxPourOut(); }
             else if (cmd === 'gravflip') game.fxGravFlip();
             else if (cmd === 'shake') game.shake();
             else if (cmd === 'slow') { if (game.fxSlow) game.fxSlow(); }
