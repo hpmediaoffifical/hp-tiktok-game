@@ -44,7 +44,8 @@
                 <div class="conn-actions">
                     <button id="btn-connect" class="primary block">Kết nối LIVE</button>
                 </div>
-                <div class="status-row">
+                <!-- Status row — chỉ hiện khi CHƯA kết nối (button đã có dot+name khi connected) -->
+                <div class="status-row" id="status-row">
                     <span class="dot" id="dot"></span>
                     <span id="status-text">Chưa kết nối</span>
                 </div>

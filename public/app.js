@@ -1420,6 +1420,7 @@
     function setConnectedUI(connected, username) {
         isLiveConnected = !!connected;
         liveUsername = username || '';
+        const statusRow = document.getElementById('status-row');
         if (connected) {
             if (dom.connRow) dom.connRow.style.display = 'none';
             dom.btnConnect.classList.remove('primary');
@@ -1427,6 +1428,8 @@
             dom.btnConnect.disabled = false;
             dom.btnConnect.innerHTML = `<span class="conn-dot"></span><span class="conn-name">@${escAttrInline(liveUsername)}</span><span class="conn-eject" title="Ngắt kết nối">⏻</span>`;
             if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = false;
+            // Ẩn status-row khi connected (button + stats đã đủ thông tin)
+            if (statusRow) statusRow.style.display = 'none';
         } else {
             if (dom.connRow) dom.connRow.style.display = '';
             dom.btnConnect.classList.add('primary');
@@ -1434,7 +1437,8 @@
             dom.btnConnect.disabled = false;
             dom.btnConnect.textContent = 'Kết nối LIVE';
             if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = true;
-            // Reset stats display
+            // Hiện lại status-row khi disconnected
+            if (statusRow) statusRow.style.display = '';
             ['lstatViewer','lstatDiamond','lstatFollow','lstatShare'].forEach(k => { if (dom[k]) dom[k].textContent = '0'; });
         }
     }
