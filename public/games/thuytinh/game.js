@@ -96,6 +96,21 @@
                 pourOut: {
                     angleDeg: 165,          // góc nghiêng max (gần dốc ngược)
                     holdMs: 1400            // giữ ở góc max bao lâu (để quà rơi hết)
+                },
+                // Mưa quà: spawn random gifts từ đỉnh canvas rơi xuống hũ
+                rain: {
+                    count: 25,              // số quà spawn (8-50)
+                    durationMs: 3000        // thời gian rải spawn
+                },
+                // Phun trào: bodies trong hũ bắn lên cao tạo geyser
+                geyser: {
+                    durationMs: 1800,       // tổng thời gian phun
+                    power: 1.0              // độ mạnh (0.5-2.0)
+                },
+                // Nam châm: bodies hút lẫn nhau trong X giây tạo cụm
+                magnet: {
+                    durationMs: 3500,
+                    pullStrength: 1.0       // 0.5-2.0
                 }
             },
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
@@ -114,9 +129,21 @@
                 police: 1,
                 osin: 1,
                 ufo: 1
-            }
+            },
+            // 🎨 Theme hũ: 'default' | 'gold' | 'pink' | 'emerald' | 'azure' | 'crystal'
+            // Áp filter hue-rotate + sepia/contrast lên SVG hũ — không cần SVG riêng.
+            jarTheme: 'default'
         };
     }
+    // Map theme → CSS filter cho jar bottom + glass
+    const JAR_THEMES = {
+        default:  '',
+        gold:     'hue-rotate(35deg) saturate(1.4) brightness(1.05)',
+        pink:     'hue-rotate(310deg) saturate(1.3)',
+        emerald:  'hue-rotate(120deg) saturate(1.2)',
+        azure:    'hue-rotate(200deg) saturate(1.15)',
+        crystal:  'brightness(1.2) contrast(1.1) saturate(0.4)'
+    };
 
     // ===== Audio (Web Audio API tổng hợp âm thanh, không cần file) =====
     const audio = (() => {
@@ -245,7 +272,13 @@
             // Slow motion: descending tone
             slow: () => sweep(600, 150, 0.5, 'sine', 0.10),
             // Đảo trọng lực: dual tone WOW effect
-            gravflip: () => { tone(523, 0.15, 'square', 0.10); setTimeout(() => tone(330, 0.2, 'triangle', 0.12), 130); }
+            gravflip: () => { tone(523, 0.15, 'square', 0.10); setTimeout(() => tone(330, 0.2, 'triangle', 0.12), 130); },
+            // ☔ Rain: continuous noise + occasional drops
+            rain: () => { noise(2.5, 1500, 4, 0.10); },
+            // 🚀 Geyser: rising whoosh + bass
+            geyser: () => { sweep(180, 800, 1.5, 'sawtooth', 0.12); noise(1.2, 400, 3, 0.10); },
+            // 🧲 Magnet: subtle hum + ting on attract
+            magnet: () => { tone(880, 0.5, 'sine', 0.06); setTimeout(() => tone(1320, 0.3, 'triangle', 0.08), 250); }
         };
     })();
 
@@ -446,6 +479,9 @@
                 case 'shake': shake(); break;
                 case 'clear': clearAll(); break;
                 case 'slow': fxSlow(); break;
+                case 'rain': fxRain(); break;
+                case 'geyser': fxGeyser(); break;
+                case 'magnet': fxMagnet(); break;
                 case 'crackJar': fxCrackJar(); break;
                 case 'stealJar': fxStealJar(); break;
                 case 'osin': triggerOsin(userInfo); break;
@@ -653,15 +689,44 @@
         function checkBigGiftFx(g, count) {
             if (!config.features.bigGiftFx) return;
             const v = (g.coinValue || 1) * count;
-            if (v >= 10000) { fxMegaboom(); if (config.features.audio) audio.fanfare(); }
-            else if (v >= 1000) { fxFireworks(); if (config.features.audio) audio.big(); }
+            const tipperName = g.nickname || g.uniqueId || 'Guest';
+            const giftName = g.giftName || 'Quà';
+            if (v >= 10000) {
+                fxMegaboom();
+                if (config.features.audio) audio.fanfare();
+                flashBigGiftToast(`💎💎 <b>${escHtml(tipperName)}</b> tặng <b>${escHtml(giftName)}</b> <b>${v.toLocaleString('vi-VN')}⭐</b> 🔥`, 'mega');
+            }
+            else if (v >= 1000) {
+                fxFireworks();
+                if (config.features.audio) audio.big();
+                flashBigGiftToast(`✨ <b>${escHtml(tipperName)}</b> tặng <b>${escHtml(giftName)}</b> <b>${v.toLocaleString('vi-VN')}⭐</b>`, 'big');
+            }
+        }
+
+        // Toast nổi cho quà to — banner trượt từ trên xuống, glow + scale animation
+        let _bigGiftToastEl = null;
+        let _bigGiftToastTimer = null;
+        function flashBigGiftToast(html, tier) {
+            if (!overlayLayer) return;
+            if (!_bigGiftToastEl) {
+                _bigGiftToastEl = document.createElement('div');
+                _bigGiftToastEl.className = 'tt-big-gift-toast';
+                overlayLayer.appendChild(_bigGiftToastEl);
+            }
+            _bigGiftToastEl.classList.remove('show', 'tier-mega', 'tier-big');
+            _bigGiftToastEl.classList.add('tier-' + tier);
+            _bigGiftToastEl.innerHTML = html;
+            void _bigGiftToastEl.offsetWidth;
+            _bigGiftToastEl.classList.add('show');
+            clearTimeout(_bigGiftToastTimer);
+            _bigGiftToastTimer = setTimeout(() => _bigGiftToastEl.classList.remove('show'), tier === 'mega' ? 5000 : 3500);
         }
         function checkGoal() {
             if (!config.features.goalBar || stats.goalReached) return updateGoalBar();
             if (config.goal.target > 0 && stats.totalDiamonds >= config.goal.target) {
                 stats.goalReached = true;
-                if (config.features.audio) audio.fanfare();
-                fxFireworks(); fxFireworks();
+                // 🎯 Goal celebration — confetti 5s + fanfare + animated toast
+                fxGoalCelebration();
                 showWelcome({ giftId: 'goal', giftName: `🎯 Đạt mục tiêu ${config.goal.target}⭐`, image: '' });
                 setTimeout(() => { shake(); }, 600);
                 // Mở mốc kế (gấp đôi)
@@ -691,16 +756,49 @@
         function fxFireworks() {
             const k = (config.effects?.fireworks?.intensity ?? 1);
             const r = jarRect();
-            const count = Math.max(1, Math.round(3 * k));
+            // Cải tiến: tăng số burst (5-7), trải theo cả X và Y, staggered timing
+            const count = Math.max(3, Math.round(6 * k));
             for (let i = 0; i < count; i++) {
-                fxAnimations.push({
-                    type: 'firework',
-                    x: r.cx + (Math.random() - 0.5) * r.w * 0.7,
-                    y: r.y + Math.random() * r.h * 0.4,
-                    age: 0, life: 60,
-                    color: `hsl(${Math.random() * 360},90%,60%)`
-                });
+                setTimeout(() => {
+                    fxAnimations.push({
+                        type: 'firework',
+                        x: r.cx + (Math.random() - 0.5) * r.w * 0.9,
+                        y: r.y + Math.random() * r.h * 0.6,
+                        age: 0, life: 70,
+                        color: `hsl(${Math.random() * 360},95%,65%)`
+                    });
+                    if (i % 2 === 0 && config.features.audio) audio.ting();
+                }, i * 180);   // stagger 180ms mỗi burst
             }
+        }
+
+        // ===== 🎯 Goal celebration — confetti + fanfare khi đạt mục tiêu =====
+        let _goalCelebrated = false;
+        function fxGoalCelebration() {
+            if (_goalCelebrated) return;
+            _goalCelebrated = true;
+            const r = jarRect();
+            if (config.features.audio) audio.fanfare();
+            // 12 burst confetti rải khắp canvas trong 5s
+            for (let i = 0; i < 12; i++) {
+                setTimeout(() => {
+                    fxAnimations.push({
+                        type: 'firework',
+                        x: CANVAS_W * (0.1 + Math.random() * 0.8),
+                        y: CANVAS_H * (0.1 + Math.random() * 0.4),
+                        age: 0, life: 90,
+                        color: `hsl(${Math.random() * 360},95%,70%)`
+                    });
+                    if (config.features.audio && i % 3 === 0) audio.big();
+                }, i * 400);
+            }
+            // Show celebration toast prominently
+            showComboToast(
+                `🎯 <b>ĐẠT MỤC TIÊU!</b> 🎉🎊`,
+                'linear-gradient(135deg, #fbbf24, #ef4444, #ec4899)'
+            );
+            // Reset flag sau 30s — cho phép trigger lại nếu user reset goal
+            setTimeout(() => { _goalCelebrated = false; }, 30000);
         }
         function fxMegaboom() {
             const k = (config.effects?.megaboom?.intensity ?? 1);
@@ -851,35 +949,78 @@
             });
             tiltAnimating = false;
         }
+        // ===== Temp lid — tạm khóa miệng hũ trong gravflip/tornado để quà không bay ra =====
+        let _tempLid = null;
+        function addTempLid() {
+            if (_tempLid) return;
+            const r = jarRect();
+            const T = 14;
+            const nty = r.y + r.h * SHAPE.neckTopY;
+            const nlx = r.x + r.w * SHAPE.neckLeftX;
+            const nrx = r.x + r.w * SHAPE.neckRightX;
+            _tempLid = makeWall((nlx + nrx) / 2, nty - T, nrx - nlx + T * 2, T);
+            Composite.add(engine.world, _tempLid);
+        }
+        function removeTempLid() {
+            if (!_tempLid) return;
+            try { Composite.remove(engine.world, _tempLid); } catch (e) {}
+            _tempLid = null;
+        }
+
         function fxGravFlip() {
             const dur = (config.effects?.gravflip?.durationMs ?? 2200);
+            // Khóa miệng hũ để quà không bay ra qua opening khi đảo gravity
+            addTempLid();
             engine.gravity.y = -Math.abs(engine.gravity.y);
             if (config.features.audio) audio.gravflip();
-            setTimeout(() => engine.gravity.y = Math.abs(config.physics.gravity), dur);
+            setTimeout(() => {
+                engine.gravity.y = Math.abs(config.physics.gravity);
+                removeTempLid();
+            }, dur);
         }
+
+        // Lốc dọc (vertical tornado): bodies xoắn ốc quanh trục giữa hũ, lift NHẸ.
+        // Khác bản cũ (lốc tròn xoáy mạnh + lift mạnh → quà bay ra mất):
+        //   - Pull về cột giữa thay vì swirl ngang
+        //   - Lift pulse theo phase (không liên tục) → quà không bay vô tận
+        //   - Helical X oscillation theo Y position → tạo hình xoắn ốc dọc
+        //   - Clamp max velocity → không xé tường
+        //   - Khóa miệng hũ → quà không thoát ra
         function fxTornado() {
-            const k = (config.effects?.tornado?.intensity ?? 1);
+            const k = Math.max(0.3, Math.min(2, config.effects?.tornado?.intensity ?? 1));
             const r = jarRect();
             if (config.features.audio) audio.tornado();
+            addTempLid();
+            const columnX = r.cx;
+            const jarTopY = r.y + r.h * SHAPE.neckTopY;
+            const TOTAL = 70;
+            const maxV = 9;
             let t = 0;
-            const TOTAL = 90;
             const iv = setInterval(() => {
-                if (t++ > TOTAL) { clearInterval(iv); return; }
-                const intensity = Math.sin((t / TOTAL) * Math.PI) * k;
+                if (t++ > TOTAL) {
+                    clearInterval(iv);
+                    removeTempLid();
+                    return;
+                }
+                // Envelope: tăng dần rồi giảm dần
+                const intensity = Math.sin((t / TOTAL) * Math.PI) * k * 0.6;   // weaker 40%
                 bodies.forEach(b => {
-                    const dx = b.position.x - r.cx;
-                    const dy = b.position.y - r.cy;
-                    const dist = Math.max(Math.hypot(dx, dy), 1);
-                    const nx = dx / dist, ny = dy / dist;
-                    const tgX = -ny, tgY = nx;
-                    const swirl = 8 * intensity * b.mass;
-                    const suck = 2.5 * intensity * b.mass;
-                    const lift = 2.2 * intensity * b.mass;
+                    const dx = b.position.x - columnX;
+                    // Phase tăng theo Y → bodies ở cao có phase khác bodies ở thấp → helical
+                    const phase = (b.position.y - jarTopY) / 80 + t * 0.18;
+                    // Pull về cột giữa (mạnh hơn dx càng xa)
+                    const pullX = -dx * 0.08;
+                    // Dao động ngang theo sin → tạo xoắn ốc
+                    const oscX = Math.cos(phase) * 1.8 * intensity;
+                    // Lift pulse — chỉ lift khi sin > 0, không liên tục
+                    const liftPulse = Math.max(0, Math.sin(phase * 1.3)) * 0.7 * intensity;
+                    const newVx = b.velocity.x * 0.78 + pullX + oscX;
+                    const newVy = b.velocity.y * 0.85 - liftPulse;
                     Body.setVelocity(b, {
-                        x: b.velocity.x * 0.82 + tgX * swirl - nx * suck,
-                        y: b.velocity.y * 0.82 + tgY * swirl - ny * suck - lift
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
                     });
-                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4 * intensity);
+                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.15 * intensity);
                 });
             }, 30);
         }
@@ -889,6 +1030,116 @@
             engine.timing.timeScale = ts;
             if (config.features.audio) audio.slow();
             setTimeout(() => engine.timing.timeScale = 1, dur);
+        }
+
+        // ===== ✨ Mưa quà — spawn N gifts từ trên trời rơi xuống hũ =====
+        function fxRain() {
+            const cfg = config.effects?.rain || {};
+            const count = Math.max(5, Math.min(60, cfg.count ?? 25));
+            const durMs = Math.max(500, Math.min(8000, cfg.durationMs ?? 3000));
+            if (config.features.audio) audio.rain();
+            // Lấy ngẫu nhiên giftMap để có icon đa dạng — fallback dùng bodies trong hũ nếu trống
+            const allGms = [];
+            for (const b of bodies) if (b.gm) allGms.push(b.gm);
+            if (!allGms.length) return showComboToast('☔ Mưa quà cần ít nhất 1 quà trong hũ', 'linear-gradient(135deg,#6b7280,#4b5563)');
+            const interval = durMs / count;
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    const gm = allGms[Math.floor(Math.random() * allGms.length)];
+                    const x = CANVAS_W * (0.2 + Math.random() * 0.6);   // 20-80% width
+                    const y = -50;
+                    const body = Bodies.circle(x, y, gm.sz / 2, {
+                        restitution: config.physics.bounce,
+                        friction: config.physics.friction,
+                        density: 0.002
+                    });
+                    body.gm = gm;
+                    Body.setVelocity(body, { x: (Math.random() - 0.5) * 3, y: 3 + Math.random() * 4 });
+                    Composite.add(engine.world, body);
+                    bodies.push(body);
+                    if (i % 4 === 0 && config.features.audio) audio.plop();
+                }, i * interval);
+            }
+            setTimeout(() => {
+                updateCountDisplay();
+                onCountChange(bodies.length);
+            }, durMs + 200);
+            showComboToast('☔ <b>Mưa quà</b> đang rơi xuống!', 'linear-gradient(135deg, #0ea5e9, #6366f1)');
+        }
+
+        // ===== 🚀 Phun trào — bodies trong hũ bắn lên cao tạo geyser =====
+        function fxGeyser() {
+            const cfg = config.effects?.geyser || {};
+            const dur = Math.max(800, Math.min(4000, cfg.durationMs ?? 1800));
+            const power = Math.max(0.4, Math.min(2.5, cfg.power ?? 1.0));
+            if (config.features.audio) audio.geyser();
+            addTempLid();   // chặn quà bay khỏi miệng hũ
+            const r = jarRect();
+            const centerX = r.cx;
+            const bottomY = r.y + r.h * SHAPE.bodyBottomY;
+            const TOTAL = Math.floor(dur / 30);
+            const maxV = 11;
+            let t = 0;
+            const iv = setInterval(() => {
+                if (t++ > TOTAL) {
+                    clearInterval(iv);
+                    removeTempLid();
+                    return;
+                }
+                // Envelope: mạnh nhất ở giữa effect
+                const env = Math.sin((t / TOTAL) * Math.PI);
+                bodies.forEach(b => {
+                    const dx = b.position.x - centerX;
+                    // Bodies ở gần đáy + gần cột giữa được lift mạnh hơn
+                    const distFromColumn = Math.abs(dx);
+                    const verticalBoost = distFromColumn < r.w * 0.25 ? 1 : 0.4;
+                    const heightFactor = Math.max(0, (b.position.y - r.y) / r.h);   // càng dưới càng cao
+                    const liftAmount = 4.5 * env * power * verticalBoost * heightFactor;
+                    // Pull vào cột giữa
+                    const pullX = -dx * 0.05;
+                    const newVx = b.velocity.x * 0.92 + pullX;
+                    const newVy = b.velocity.y * 0.92 - liftAmount;
+                    Body.setVelocity(b, {
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV * 1.5, Math.min(maxV, newVy))
+                    });
+                });
+            }, 30);
+            showComboToast('🚀 <b>Phun trào!</b>', 'linear-gradient(135deg, #f59e0b, #ef4444)');
+        }
+
+        // ===== 🧲 Nam châm — bodies hút lẫn nhau tạo cụm =====
+        function fxMagnet() {
+            const cfg = config.effects?.magnet || {};
+            const dur = Math.max(1000, Math.min(8000, cfg.durationMs ?? 3500));
+            const pull = Math.max(0.3, Math.min(2.5, cfg.pullStrength ?? 1.0));
+            if (config.features.audio) audio.magnet();
+            const r = jarRect();
+            const centerX = r.cx;
+            // Center attraction point — slightly lower middle of jar
+            const centerY = r.y + r.h * 0.6;
+            const TOTAL = Math.floor(dur / 30);
+            const maxV = 8;
+            let t = 0;
+            const iv = setInterval(() => {
+                if (t++ > TOTAL) { clearInterval(iv); return; }
+                // Envelope ramp up then hold
+                const env = t < 10 ? t / 10 : (t > TOTAL - 15 ? Math.max(0, (TOTAL - t) / 15) : 1);
+                bodies.forEach(b => {
+                    const dx = centerX - b.position.x;
+                    const dy = centerY - b.position.y;
+                    const dist = Math.max(Math.hypot(dx, dy), 20);
+                    // Pull về center điểm, mạnh hơn nếu xa
+                    const factor = 0.06 * pull * env;
+                    const newVx = b.velocity.x * 0.92 + (dx / dist) * dist * factor * 0.1;
+                    const newVy = b.velocity.y * 0.92 + (dy / dist) * dist * factor * 0.1;
+                    Body.setVelocity(b, {
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
+                    });
+                });
+            }, 30);
+            showComboToast('🧲 <b>Nam châm</b> hút quà vào cụm!', 'linear-gradient(135deg, #8b5cf6, #ec4899)');
         }
 
         // ===== Tạo hình quà (hút bodies → ghép hình/chữ → giữ → rơi tự do) =====
@@ -1732,6 +1983,12 @@
             thiefLayer.style.setProperty('--tt-police-scale', String(clamp(a.police)));
             thiefLayer.style.setProperty('--tt-ufo-scale', String(clamp(a.ufo)));
             // osin dùng inline width/height % → đọc config trực tiếp lúc spawn (triggerOsin).
+        }
+        function applyJarTheme() {
+            const theme = config.jarTheme || 'default';
+            const filter = JAR_THEMES[theme] || '';
+            if (jarBottomEl) jarBottomEl.style.filter = filter;
+            if (jarGlassEl)  jarGlassEl.style.filter  = filter;
         }
         function bailUser(uid) {
             if (!uid) return;
@@ -3085,6 +3342,7 @@
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
             applyActorScales();
+            applyJarTheme();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -3153,6 +3411,7 @@
         positionJar();
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
         applyActorScales();
+        applyJarTheme();
         if (config.features.randomEvents) startRandomEvents();
         if (config.features.thiefAuto) startThiefAuto();
         Runner.run(Runner.create(), engine);
@@ -3166,6 +3425,7 @@
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
+            fxRain, fxGeyser, fxMagnet,
             fxCrackJar, fxStealJar, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)
