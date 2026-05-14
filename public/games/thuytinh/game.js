@@ -17,27 +17,26 @@
     const JAR_ASPECT = 1024 / 1536;
 
     function defaultConfig() {
-        // ⭐ DEFAULTS đã được tinh chỉnh theo setup vận hành tốt — áp dụng cho install MỚI.
-        // User cũ đã có app-config.json sẽ giữ nguyên config riêng.
-        // (Cài đặt này khớp giao diện idol đang dùng cho live TikTok: hũ ở góc dưới phải, gravity nặng,
-        // ma sát cao để quà ổn định nhanh, chỉ bật Top tặng + Goal bar + CS — gọn gàng cho stream.)
+        // ⭐ DEFAULTS = setup vận hành CHỈN CHU của HP Media (v1.0.50+) — áp dụng cho install MỚI.
+        // User cũ đã có app-config.json sẽ giữ nguyên config riêng (không bị overwrite).
+        // Bao gồm: 21 trigger gán quà → hiệu ứng, badges hiển thị + auto-scroll, hũ khóa,
+        // CS HP Media, Goal 5000, panel scales đã tinh chỉnh.
         return {
-            // Vị trí + kích thước hũ — góc dưới-phải canvas, hũ nhỏ gọn (height 400 thay vì 1200)
-            jar: { xPercent: 79.43, yPercent: 76.63, height: 400 },
+            // Vị trí hũ — góc dưới-phải, đã tinh chỉnh để cân streamer + chat layout TikTok
+            jar: { xPercent: 64.57, yPercent: 76.38, height: 400 },
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
-            // Physics nặng + ma sát cao → quà rơi nhanh, ổn định nhanh, ít văng lung tung
-            physics: { gravity: 2, bounce: 0.5, friction: 0.5 },
+            // Physics: gravity vừa phải, friction thấp → quà rơi mượt, không cứng
+            physics: { gravity: 1.4, bounce: 0.4, friction: 0.05 },
             jarVisible: true,
-            jarLocked: false,
+            jarLocked: true,                // khóa hũ — không bị kéo nhầm khi clean stream
             maxCapacity: 0,
-            // Chỉ bật những feature thiết yếu cho stream: Âm thanh + Top tặng + Goal Bar + Cảnh sát.
-            // Welcome/Crown/Combo/Quà to v.v. mặc định TẮT cho gọn — user bật lại nếu muốn.
+            // Feature bật mặc định: Âm thanh + Welcome + Crown + Top tặng + Tổng phiên + Goal Bar + CS
             features: {
                 audio: true,
-                welcome: false,
-                crown: false,
+                welcome: true,
+                crown: true,
                 leaderboard: true,
-                sessionTotals: false,
+                sessionTotals: true,
                 goalBar: true,
                 combo: false,
                 tierBorder: false,
@@ -47,20 +46,40 @@
                 thiefAuto: false,
                 police: true
             },
-            goal: { target: 4100 },
-            // Khoảng cách goal bar so với đáy hũ (% canvas H). Âm = sát lên / chồng lên đáy hũ
-            goalBarGap: -1.2,
-            autoShakeAt: 200,
+            goal: { target: 5000 },
+            goalBarGap: 0.1,
+            autoShakeAt: 500,
             randomEventEverySec: 90,
             thiefEverySec: 60,
             thiefMissRate: 0.1,
-            policeCatchRate: 0.2,
+            policeCatchRate: 0.1,
             policeBanSec: 60,
-            policeName: '',
-            // Map: giftId → action ('thief'|'fireworks'|'megaboom'|'tornado'|'tilt'|'gravflip'|'shake'|'clear'|'slow'|'osin')
-            // Quà có trong map sẽ KHÔNG rơi vào hũ, chỉ kích hoạt hiệu ứng tương ứng.
-            // Default trống — user assign per gift qua chuột phải.
-            triggers: {},
+            policeName: 'HP Media',
+            // 21 trigger preset — mỗi gift ID map tới 1 hiệu ứng
+            // (User vẫn có thể đổi qua chuột phải vào card quà)
+            triggers: {
+                '5585':  'pourOut',
+                '5658':  'throwJar',
+                '5827':  'shake',
+                '6064':  'tilt',
+                '6267':  'combo',
+                '6788':  'tornado',
+                '7412':  'joinPolice',
+                '7891':  'rain',
+                '7934':  'shape',
+                '8913':  'stealJar',
+                '9340':  'slow',
+                '10961': 'magnet',
+                '14219': 'gravflip',
+                '15232': 'megaboom',
+                '17004': 'geyser',
+                '17465': 'ufo',
+                '19441': 'fireworks',
+                '19443': 'kickJar',
+                '19447': 'osin',
+                '25340': 'crackJar',
+                '57327': 'thief'
+            },
             // Thông số chi tiết của từng hiệu ứng
             effects: {
                 tornado:  { intensity: 0.2 },
@@ -114,14 +133,15 @@
                 }
             },
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
+            // Badges preset ở góc phải để sát mép TikTok UI, không che hũ
             panelPositions: {
                 leaderboard: null,
                 caught: null,
-                badges: null
+                badges: { left: 81.85, top: 23.41 }
             },
-            // Tỉ lệ scale panel (1 = 100%)
+            // Tỉ lệ scale panel (Top tặng nhỏ hơn để nhường chỗ Goal bar / badges)
             panelScales: {
-                leaderboard: 1,
+                leaderboard: 0.7,
                 caught: 1
             },
             // Tỉ lệ scale nhân vật trộm / cảnh sát / osin / ufo (1 = 100% base size)
@@ -136,24 +156,45 @@
             // 🎨 Theme màu hũ — đổi ảnh jar-glass theo PNG khác màu (bên-ngoai folder)
             // Các option: default | blue | cam | green | pink | tim | yellow
             jarTheme: 'default',
-            // 🏷 Badge hiệu ứng quà — hiển thị quà đã gán effect trên overlay
+            // 🏷 Badge hiệu ứng quà — bật + auto-scroll mặc định cho install mới
             badges: {
-                enabled: false,            // master switch: hiện badges trên overlay
-                layout: 'vertical',        // 'vertical' (stacked) | 'horizontal' (row)
-                defaultNamePos: 'bottom',  // 'left'|'right'|'top'|'bottom' — vị trí chữ default
-                scale: 1.25,               // 0.5-2.0 — preset Dọc + Trên/Dưới
-                iconScale: 1.6,            // 0.5-2.5 — icon to, tràn card
-                nameScale: 1.0,            // 0.5-2.0 — cỡ chữ tên quà (độc lập icon/card)
-                gap: 2.5,                  // 0-3cqw — khoảng cách rộng cho layout dọc
-                locked: false,             // true → khóa vị trí, không cho kéo thả
-                items: {},                 // giftId → { customLabel, namePos, enabled } — per-badge override
-                extras: [],                // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
-                // 🎞 Auto-scroll marquee — tự cuộn vô hạn (1 hàng/cột, chỉ hiện N quà)
+                enabled: true,
+                layout: 'vertical',
+                defaultNamePos: 'bottom',
+                scale: 1.25,
+                iconScale: 1.6,
+                nameScale: 1.0,
+                gap: 2.5,
+                locked: false,
+                // 19 quà preset gán badge — khớp với triggers, customLabel cho 2 hiệu ứng nổi bật
+                items: {
+                    '5269':  { customLabel: 'Pháo hoa', enabled: true },
+                    '5585':  { customLabel: '', enabled: true },
+                    '5655':  { customLabel: 'Trộm',    enabled: true },
+                    '5658':  { customLabel: '', enabled: true },
+                    '5827':  { customLabel: '', enabled: true },
+                    '6064':  { customLabel: '', enabled: true },
+                    '6267':  { customLabel: '', enabled: true },
+                    '7891':  { customLabel: '', enabled: true },
+                    '8913':  { customLabel: '', enabled: true },
+                    '9340':  { customLabel: '', enabled: true },
+                    '10961': { customLabel: '', enabled: true },
+                    '14219': { customLabel: '', enabled: true },
+                    '17004': { customLabel: '', enabled: true },
+                    '17465': { customLabel: '', enabled: true },
+                    '19441': { customLabel: '', enabled: true },
+                    '19443': { customLabel: '', enabled: true },
+                    '19445': { enabled: true },
+                    '25340': { customLabel: '', enabled: true },
+                    '57327': { enabled: true }
+                },
+                extras: [],
+                // Auto-scroll bật mặc định: cuộn lên 6 quà mỗi 1.3s/quà
                 autoScroll: {
-                    enabled: false,        // master switch
-                    visibleCount: 5,       // 2-10 — số quà hiển thị cùng lúc
-                    direction: 'up',       // 'up'|'down' (vertical) | 'left'|'right' (horizontal)
-                    speed: 2               // 0.5-5 giây/quà — total duration = count * speed
+                    enabled: true,
+                    visibleCount: 6,
+                    direction: 'up',
+                    speed: 1.3
                 }
             }
         };
@@ -1223,32 +1264,39 @@
             const dur = Math.max(1000, Math.min(8000, cfg.durationMs ?? 3500));
             const pull = Math.max(0.3, Math.min(2.5, cfg.pullStrength ?? 1.0));
             if (config.features.audio) audio.magnet();
-            const r = jarRect();
-            const centerX = r.cx;
-            // Center attraction point — slightly lower middle of jar
-            const centerY = r.y + r.h * 0.6;
+            // 🧲 TARGET: vùng đầu idol — top-center của màn hình (idol đang LIVE thường ở 15% top)
+            // Sau duration, gravity tự kéo quà rơi xuống → tạo cảm giác idol "hút lên" rồi "thả ra"
+            const centerX = CANVAS_W * 0.5;
+            const centerY = CANVAS_H * 0.15;
+            // Mở miệng hũ để quà bay LÊN được (nếu vẫn bám hũ thì hút lên bị chặn)
+            removeJarWalls();
             const TOTAL = Math.floor(dur / 30);
-            const maxV = 8;
+            const maxV = 14;   // tăng max velocity → quà bay lên nhanh hơn
             let t = 0;
             const iv = setInterval(() => {
-                if (t++ > TOTAL) { clearInterval(iv); return; }
-                // Envelope ramp up then hold
-                const env = t < 10 ? t / 10 : (t > TOTAL - 15 ? Math.max(0, (TOTAL - t) / 15) : 1);
+                if (t++ > TOTAL) {
+                    clearInterval(iv);
+                    // Restore walls để quà rơi lại không bị mất ra ngoài
+                    setTimeout(() => { try { buildJarWalls(); } catch(e){} }, 200);
+                    return;
+                }
+                // Envelope ramp up then hold — release nhanh hơn để quà bị "thả" rơi xuống
+                const env = t < 10 ? t / 10 : (t > TOTAL - 20 ? Math.max(0, (TOTAL - t) / 20) : 1);
                 bodies.forEach(b => {
                     const dx = centerX - b.position.x;
                     const dy = centerY - b.position.y;
                     const dist = Math.max(Math.hypot(dx, dy), 20);
-                    // Pull về center điểm, mạnh hơn nếu xa
-                    const factor = 0.06 * pull * env;
-                    const newVx = b.velocity.x * 0.92 + (dx / dist) * dist * factor * 0.1;
-                    const newVy = b.velocity.y * 0.92 + (dy / dist) * dist * factor * 0.1;
+                    // Pull mạnh hơn theo trục Y → quà bay LÊN trước rồi mới gom horizontal
+                    const factor = 0.08 * pull * env;
+                    const newVx = b.velocity.x * 0.92 + (dx / dist) * dist * factor * 0.08;
+                    const newVy = b.velocity.y * 0.88 + (dy / dist) * dist * factor * 0.12;
                     Body.setVelocity(b, {
                         x: Math.max(-maxV, Math.min(maxV, newVx)),
                         y: Math.max(-maxV, Math.min(maxV, newVy))
                     });
                 });
             }, 30);
-            showComboToast('🧲 <b>Nam châm</b> hút quà vào cụm!', 'linear-gradient(135deg, #8b5cf6, #ec4899)');
+            showComboToast('🧲 <b>Nam châm</b> hút quà lên trên cao!', 'linear-gradient(135deg, #8b5cf6, #ec4899)');
         }
 
         // ===== Tạo hình quà (hút bodies → ghép hình/chữ → giữ → rơi tự do) =====
