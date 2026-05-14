@@ -1578,8 +1578,17 @@
         for (const e of EFFECTS) {
             const btn = document.createElement('button');
             btn.dataset.effect = e.key;
-            btn.innerHTML = `<span>${e.ico}</span> ${e.label}`;
-            if (currentAction === e.key) btn.classList.add('active');
+            // ✓ Hiển thị dấu tích cho effect đã có quà gán (giúp scan nhanh slot trống)
+            const assignedIds = giftIdsForEffect(e.key);
+            const hasAnyGift = assignedIds.length > 0;
+            const isCurrent = currentAction === e.key;
+            // Multi effect: hiện số quà đã gán (vd "Pháo hoa ✓×3"). Single: chỉ ✓
+            const checkmark = hasAnyGift
+                ? (e.multi ? `<span class="cm-check">✓×${assignedIds.length}</span>` : `<span class="cm-check">✓</span>`)
+                : '';
+            btn.innerHTML = `<span>${e.ico}</span> ${e.label}${checkmark}`;
+            if (isCurrent) btn.classList.add('active');
+            else if (hasAnyGift) btn.classList.add('assigned');   // có quà khác đang giữ slot
             btn.addEventListener('click', () => assignTrigger(gift.id, e.key));
             cmList.appendChild(btn);
         }
