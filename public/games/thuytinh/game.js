@@ -2209,9 +2209,21 @@
         }
         function renderBadges() {
             const cfg = config.badges || {};
+            // Khi tắt: REMOVE hẳn container khỏi DOM (fix bug: container ẩn nhưng vẫn chiếm chỗ).
+            // Kết hợp clean stale container nếu có nhiều phiên render cũ còn sót.
+            if (!cfg.enabled) {
+                if (_badgesContainer) {
+                    try { _badgesContainer.remove(); } catch(e) {}
+                    _badgesContainer = null;
+                }
+                // Đề phòng: xóa MỌI .tt-badges trong overlayLayer (bao gồm DOM leftover từ instance cũ)
+                if (overlayLayer) {
+                    overlayLayer.querySelectorAll('.tt-badges').forEach(n => n.remove());
+                }
+                return;
+            }
             const el = ensureBadgesContainer();
             if (!el) return;
-            if (!cfg.enabled) { el.style.display = 'none'; el.innerHTML = ''; return; }
             el.style.display = '';
             // Reset & apply container class — GIỮ tt-drag-panel + class tt-positioned cho drag
             // Container vị trí default top-left, user drag để move tự do
