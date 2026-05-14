@@ -181,6 +181,16 @@
         cfgBadgesScaleV: $('#cfg-badges-scale-v'),
         cfgBadgesIconScale: $('#cfg-badges-iconscale'),
         cfgBadgesIconScaleV: $('#cfg-badges-iconscale-v'),
+        cfgBadgesGap: $('#cfg-badges-gap'),
+        cfgBadgesGapV: $('#cfg-badges-gap-v'),
+        cfgBadgesNameScale: $('#cfg-badges-name-scale'),
+        cfgBadgesNameScaleV: $('#cfg-badges-name-scale-v'),
+        cfgBadgesAutoscroll: $('#cfg-badges-autoscroll'),
+        cfgBadgesVisible: $('#cfg-badges-visible'),
+        cfgBadgesVisibleV: $('#cfg-badges-visible-v'),
+        cfgBadgesScrollDir: $('#cfg-badges-scroll-dir'),
+        cfgBadgesSpeed: $('#cfg-badges-speed'),
+        cfgBadgesSpeedV: $('#cfg-badges-speed-v'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
@@ -653,6 +663,22 @@
         const bIconScale = bdg.iconScale ?? 1;
         if (dom.cfgBadgesIconScale) dom.cfgBadgesIconScale.value = String(bIconScale);
         if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = bIconScale;
+        const bGap = bdg.gap ?? 0.8;
+        if (dom.cfgBadgesGap) dom.cfgBadgesGap.value = String(bGap);
+        if (dom.cfgBadgesGapV) dom.cfgBadgesGapV.textContent = bGap;
+        const bNameScale = bdg.nameScale ?? 1;
+        if (dom.cfgBadgesNameScale)  dom.cfgBadgesNameScale.value = String(bNameScale);
+        if (dom.cfgBadgesNameScaleV) dom.cfgBadgesNameScaleV.textContent = bNameScale;
+        // Auto-scroll
+        const as = bdg.autoScroll || {};
+        if (dom.cfgBadgesAutoscroll) dom.cfgBadgesAutoscroll.checked = !!as.enabled;
+        const bVis = as.visibleCount ?? 5;
+        if (dom.cfgBadgesVisible)  dom.cfgBadgesVisible.value = String(bVis);
+        if (dom.cfgBadgesVisibleV) dom.cfgBadgesVisibleV.textContent = bVis;
+        if (dom.cfgBadgesScrollDir) dom.cfgBadgesScrollDir.value = as.direction || 'up';
+        const bSpeed = as.speed ?? 2;
+        if (dom.cfgBadgesSpeed)  dom.cfgBadgesSpeed.value = String(bSpeed);
+        if (dom.cfgBadgesSpeedV) dom.cfgBadgesSpeedV.textContent = bSpeed;
         // Lưu items + extras để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
         currentBadgeItems = JSON.parse(JSON.stringify(bdg.items || {}));
         currentBadgeExtras = Array.isArray(bdg.extras) ? JSON.parse(JSON.stringify(bdg.extras)) : [];
@@ -751,6 +777,14 @@
                 defaultNamePos: dom.cfgBadgesNamepos?.value || 'right',
                 scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
                 iconScale: parseFloat(dom.cfgBadgesIconScale?.value) || 1,
+                gap: isNaN(parseFloat(dom.cfgBadgesGap?.value)) ? 0.8 : parseFloat(dom.cfgBadgesGap.value),
+                nameScale: parseFloat(dom.cfgBadgesNameScale?.value) || 1,
+                autoScroll: {
+                    enabled: !!dom.cfgBadgesAutoscroll?.checked,
+                    visibleCount: parseInt(dom.cfgBadgesVisible?.value, 10) || 5,
+                    direction: dom.cfgBadgesScrollDir?.value || 'up',
+                    speed: parseFloat(dom.cfgBadgesSpeed?.value) || 2
+                },
                 items: JSON.parse(JSON.stringify(currentBadgeItems || {})),
                 extras: JSON.parse(JSON.stringify(currentBadgeExtras || []))
             },
@@ -784,6 +818,10 @@
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = cfg.actorScales.ufo;
         if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = cfg.badges?.scale ?? 1;
         if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = cfg.badges?.iconScale ?? 1;
+        if (dom.cfgBadgesGapV) dom.cfgBadgesGapV.textContent = cfg.badges?.gap ?? 0.8;
+        if (dom.cfgBadgesNameScaleV) dom.cfgBadgesNameScaleV.textContent = cfg.badges?.nameScale ?? 1;
+        if (dom.cfgBadgesVisibleV) dom.cfgBadgesVisibleV.textContent = cfg.badges?.autoScroll?.visibleCount ?? 5;
+        if (dom.cfgBadgesSpeedV)   dom.cfgBadgesSpeedV.textContent   = cfg.badges?.autoScroll?.speed ?? 2;
         setSaveStatus('saving');
         clearTimeout(saveCfgTimer);
         const doSave = () => {
@@ -916,10 +954,31 @@
                     const im = document.createElement('img'); im.src = g.image; im.title = g.name; prev.appendChild(im);
                 }
             }
+            // 🏷 Badge visibility toggle — bật/tắt badge từng quà trên overlay (không cần mở modal)
+            const ids = ef.multi ? giftIdsForEffect(ef.key)
+                                 : [Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key)].filter(Boolean);
+            const badgeWrap = document.createElement('label');
+            badgeWrap.className = 'trigger-badge-toggle';
+            badgeWrap.title = ids.length
+                ? `Hiện badge trên overlay (${ids.length} quà${ef.multi ? ' — tất cả' : ''})`
+                : 'Chưa gán quà — không thể bật badge';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.disabled = ids.length === 0;
+            // Default checked = true; chỉ uncheck nếu MỌI gift đều enabled === false
+            cb.checked = ids.length === 0 ? false : ids.some(id => currentBadgeItems[id]?.enabled !== false);
+            cb.addEventListener('change', () => {
+                for (const id of ids) {
+                    if (!currentBadgeItems[id]) currentBadgeItems[id] = {};
+                    currentBadgeItems[id].enabled = cb.checked;
+                }
+                pushConfigUpdate(true);
+            });
+            badgeWrap.appendChild(cb);
             const gear = document.createElement('button');
             gear.className = 'gear'; gear.title = `Cài đặt ${ef.label}`; gear.textContent = '⚙';
             gear.addEventListener('click', () => openEffectModal(ef));
-            row.appendChild(ico); row.appendChild(lbl); row.appendChild(prev); row.appendChild(gear);
+            row.appendChild(ico); row.appendChild(lbl); row.appendChild(badgeWrap); row.appendChild(prev); row.appendChild(gear);
             frag.appendChild(row);
         }
         dom.triggerList.appendChild(frag);
@@ -1709,14 +1768,26 @@
     dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
     dom.cfgBadgesEnabled?.addEventListener('change', pushConfigUpdate);
+    // Preset cỡ card / icon / gap / chữ đẹp cho từng combo layout — auto-fill khi đổi layout
+    const BADGE_PRESETS = {
+        vertical:   { scale: 1.25, iconScale: 1.6,  gap: 2.5, nameScale: 1.0 },
+        horizontal: { scale: 1.2,  iconScale: 1.75, gap: 0.8, nameScale: 1.0 }
+    };
     dom.cfgBadgesLayout?.addEventListener('change', () => {
         // Khi đổi layout (dọc/ngang) — clear panelPositions.badges để pos-* dropdown re-take effect
-        // (nếu user đã drag badge tới vị trí khác, drag pos sẽ override pos-* class)
         if (currentGame) {
             const cfg = gameInstance?.getConfig() || {};
             if (cfg.panelPositions?.badges) {
                 cfg.panelPositions.badges = null;
             }
+        }
+        // Auto-apply preset cỡ/icon/gap cho layout vừa chọn
+        const preset = BADGE_PRESETS[dom.cfgBadgesLayout.value];
+        if (preset) {
+            if (dom.cfgBadgesScale)     dom.cfgBadgesScale.value     = String(preset.scale);
+            if (dom.cfgBadgesIconScale) dom.cfgBadgesIconScale.value = String(preset.iconScale);
+            if (dom.cfgBadgesGap)       dom.cfgBadgesGap.value       = String(preset.gap);
+            if (dom.cfgBadgesNameScale) dom.cfgBadgesNameScale.value = String(preset.nameScale);
         }
         pushConfigUpdate();
     });
@@ -1735,6 +1806,12 @@
     });
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
     dom.cfgBadgesIconScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesGap?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesNameScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesAutoscroll?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesVisible?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesScrollDir?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesSpeed?.addEventListener('input', pushConfigUpdate);
 
     // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
     // Lưu vào config.badges.extras = [{id, name, image, customLabel, namePos, enabled}]

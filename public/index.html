@@ -310,9 +310,38 @@
                                             <label>Cỡ icon <span class="cfg-val" id="cfg-badges-iconscale-v">1.0</span></label>
                                             <input type="range" id="cfg-badges-iconscale" min="0.5" max="2.5" step="0.05"/>
                                         </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Khoảng cách giữa các card badge (0 - 3cqw)">
+                                            <label>Khoảng cách <span class="cfg-val" id="cfg-badges-gap-v">0.8</span></label>
+                                            <input type="range" id="cfg-badges-gap" min="0" max="3" step="0.1"/>
+                                        </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Cỡ chữ tên quà (0.5 - 2.0)">
+                                            <label>Cỡ chữ <span class="cfg-val" id="cfg-badges-name-scale-v">1.0</span></label>
+                                            <input type="range" id="cfg-badges-name-scale" min="0.5" max="2.0" step="0.05"/>
+                                        </div>
                                     </div>
                                     <div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">
                                         💡 Vị trí container: kéo thả trên overlay app để di chuyển tự do.
+                                    </div>
+                                    <!-- 🎞 Auto-scroll marquee — tự cuộn vô hạn khi danh sách dài -->
+                                    <div class="badges-cfg-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+                                        <label class="feat compact" style="flex:0 0 auto"><input type="checkbox" id="cfg-badges-autoscroll"/> 🎞 Tự cuộn</label>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:80px" title="Số quà hiển thị cùng lúc (2-10)">
+                                            <label>Số hiện <span class="cfg-val" id="cfg-badges-visible-v">5</span></label>
+                                            <input type="range" id="cfg-badges-visible" min="2" max="10" step="1"/>
+                                        </div>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:90px" title="Hướng cuộn (tuỳ layout)">
+                                            <label>Hướng</label>
+                                            <select id="cfg-badges-scroll-dir" class="cfg-select">
+                                                <option value="up">Lên ↑</option>
+                                                <option value="down">Xuống ↓</option>
+                                                <option value="left">Trái ←</option>
+                                                <option value="right">Phải →</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:80px" title="Tốc độ — giây/quà (nhỏ = nhanh)">
+                                            <label>Tốc độ <span class="cfg-val" id="cfg-badges-speed-v">2</span>s</label>
+                                            <input type="range" id="cfg-badges-speed" min="0.5" max="5" step="0.1"/>
+                                        </div>
                                     </div>
                                     <div class="badges-extras-row">
                                         <div class="badges-extras-title">Badge thủ công bổ sung</div>

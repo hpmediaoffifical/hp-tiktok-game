@@ -140,11 +140,20 @@
             badges: {
                 enabled: false,            // master switch: hiện badges trên overlay
                 layout: 'vertical',        // 'vertical' (stacked) | 'horizontal' (row)
-                defaultNamePos: 'right',   // 'left'|'right'|'top'|'bottom' — vị trí chữ default
-                scale: 1.0,                // 0.5-2.0 — kích thước CARD
-                iconScale: 1.0,            // 0.5-2.5 — kích thước ICON (có thể overflow card)
+                defaultNamePos: 'bottom',  // 'left'|'right'|'top'|'bottom' — vị trí chữ default
+                scale: 1.25,               // 0.5-2.0 — preset Dọc + Trên/Dưới
+                iconScale: 1.6,            // 0.5-2.5 — icon to, tràn card
+                nameScale: 1.0,            // 0.5-2.0 — cỡ chữ tên quà (độc lập icon/card)
+                gap: 2.5,                  // 0-3cqw — khoảng cách rộng cho layout dọc
                 items: {},                 // giftId → { customLabel, namePos, enabled } — per-badge override
-                extras: []                 // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
+                extras: [],                // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
+                // 🎞 Auto-scroll marquee — tự cuộn vô hạn (1 hàng/cột, chỉ hiện N quà)
+                autoScroll: {
+                    enabled: false,        // master switch
+                    visibleCount: 5,       // 2-10 — số quà hiển thị cùng lúc
+                    direction: 'up',       // 'up'|'down' (vertical) | 'left'|'right' (horizontal)
+                    speed: 2               // 0.5-5 giây/quà — total duration = count * speed
+                }
             }
         };
     }
@@ -2165,9 +2174,14 @@
             // Apply iconScale via CSS custom property — cascade tới mọi .tt-badge bên trong
             el.style.setProperty('--icon-scale', String(cfg.iconScale ?? 1));
             el.style.setProperty('--badge-scale', String(cfg.scale || 1));
+            el.style.setProperty('--badge-gap', String(cfg.gap ?? 0.8));
+            el.style.setProperty('--name-scale', String(cfg.nameScale ?? 1));
             // Render từng badge từ config.triggers + config.badges.items
             const triggers = config.triggers || {};
             const items = cfg.items || {};
+            // Fallback icon — HP Media logo (bundled trong public/) cho quà không có image
+            const FALLBACK_ICON = '/hp-logo.png';
+            const iconSrc = (url) => (url && String(url).trim()) ? url : FALLBACK_ICON;
             // Lookup gift metadata qua window.__giftSheet (app.js cache giftSheet vào đây)
             // Hoặc fallback dùng bodies[].gm trong physics world (đã spawn quà rồi)
             const sheet = (typeof window !== 'undefined' && window.__giftSheet) || [];
@@ -2195,7 +2209,7 @@
                 badge.className = 'tt-badge name-' + namePos;
                 badge.title = `${giftMeta.name || ''} · ${label}`;
                 badge.innerHTML = `
-                    <img class="tt-badge-ico" src="${escAttr(giftMeta.image || '')}" alt=""/>
+                    <img class="tt-badge-ico" src="${escAttr(iconSrc(giftMeta.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
                     <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
                 `;
                 frag.appendChild(badge);
@@ -2211,13 +2225,65 @@
                 badge.className = 'tt-badge name-' + namePos;
                 badge.title = `${ex.name} · ${label}`;
                 badge.innerHTML = `
-                    <img class="tt-badge-ico" src="${escAttr(ex.image || '')}" alt=""/>
+                    <img class="tt-badge-ico" src="${escAttr(iconSrc(ex.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
                     <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
                 `;
                 frag.appendChild(badge);
             }
+            // Đếm trước khi append (fragment.children.length = 0 sau khi append)
+            const total = frag.children.length;
             el.innerHTML = '';
-            el.appendChild(frag);
+            // 🔢 Counter pill — sticky top-right, hiển thị tổng số badge (chỉ khi ≥ 2)
+            if (total >= 2) {
+                const counter = document.createElement('div');
+                counter.className = 'tt-badges-counter';
+                counter.textContent = String(total);
+                counter.title = `${total} quà có badge`;
+                el.appendChild(counter);  // FIRST child để sticky-top neo đúng
+            }
+            // 🎞 Auto-scroll marquee — render duplicated track nếu enabled + đủ badges
+            const as = cfg.autoScroll || {};
+            const visibleCount = Math.max(2, parseInt(as.visibleCount || 5, 10));
+            if (as.enabled && total > visibleCount) {
+                // Reset wrap class — auto-scroll force 1 hàng
+                el.classList.add('tt-auto-scroll');
+                const dir = as.direction || 'up';
+                el.classList.remove('tt-scroll-up','tt-scroll-down','tt-scroll-left','tt-scroll-right');
+                el.classList.add('tt-scroll-' + dir);
+                // Track inner + duplicate badges để loop seamless
+                const track = document.createElement('div');
+                track.className = 'tt-badges-track';
+                track.appendChild(frag);    // original badges
+                // Clone từng badge sang track (frag đã empty sau appendChild)
+                for (const card of [...track.children]) {
+                    track.appendChild(card.cloneNode(true));
+                }
+                el.appendChild(track);
+                // Set animation duration: total badges × speed giây
+                const speed = parseFloat(as.speed) || 2;
+                el.style.setProperty('--scroll-duration', (total * speed) + 's');
+                // Size container = visibleCount cards (cqw-based, mọi dimension dùng cqw)
+                const cardSize = (cfg.layout === 'horizontal' ? 7 : 4.5);  // cardW horizontal, cardH vertical
+                const scale = parseFloat(cfg.scale) || 1;
+                const gap = parseFloat(cfg.gap ?? 0.8);
+                const iconScale = parseFloat(cfg.iconScale) || 1;
+                const visibleSize = visibleCount * cardSize * scale
+                                    + Math.max(0, visibleCount - 1) * gap * scale
+                                    + 4 * iconScale;  // 2× padding cho icon overflow
+                if (cfg.layout === 'horizontal') {
+                    el.style.maxWidth  = visibleSize + 'cqw';
+                    el.style.maxHeight = 'none';
+                } else {
+                    el.style.maxHeight = visibleSize + 'cqw';
+                    el.style.maxWidth  = 'none';
+                }
+            } else {
+                el.classList.remove('tt-auto-scroll','tt-scroll-up','tt-scroll-down','tt-scroll-left','tt-scroll-right');
+                el.style.removeProperty('--scroll-duration');
+                el.style.maxHeight = '';
+                el.style.maxWidth  = '';
+                el.appendChild(frag);
+            }
             // Apply user-saved position (nếu user đã kéo trước đó)
             applyPanelPosition('badges', el);
         }
