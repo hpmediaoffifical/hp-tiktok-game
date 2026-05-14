@@ -141,7 +141,8 @@
                 enabled: false,            // master switch: hiện badges trên overlay
                 layout: 'vertical',        // 'vertical' (stacked) | 'horizontal' (row)
                 defaultNamePos: 'right',   // 'left'|'right'|'top'|'bottom' — vị trí chữ default
-                scale: 1.0,                // 0.5-2.0
+                scale: 1.0,                // 0.5-2.0 — kích thước CARD
+                iconScale: 1.0,            // 0.5-2.5 — kích thước ICON (có thể overflow card)
                 items: {},                 // giftId → { customLabel, namePos, enabled } — per-badge override
                 extras: []                 // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
             }
@@ -2161,6 +2162,8 @@
             el.className = 'tt-badges tt-drag-panel layout-' + (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')
                 + (keepPositioned ? ' tt-positioned' : '')
                 + (keepDragging ? ' tt-dragging' : '');
+            // Apply iconScale via CSS custom property — cascade tới mọi .tt-badge bên trong
+            el.style.setProperty('--icon-scale', String(cfg.iconScale ?? 1));
             el.style.setProperty('--badge-scale', String(cfg.scale || 1));
             // Render từng badge từ config.triggers + config.badges.items
             const triggers = config.triggers || {};

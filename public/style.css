@@ -319,8 +319,8 @@ input, button { font-family: inherit; }
 .feat.compact { font-size: 12px; font-weight: 600; }
 .badges-cfg-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.4fr;
-    gap: 10px;
+    grid-template-columns: 1fr 1fr 1.2fr 1.2fr;
+    gap: 8px;
     align-items: end;
 }
 .badges-cfg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -2752,6 +2752,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 /* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect === */
 .tt-badges {
     --badge-scale: 1;
+    --icon-scale: 1;
     position: absolute;
     display: flex;
     gap: calc(0.8cqw * var(--badge-scale));
@@ -2774,22 +2775,17 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .tt-badge {
     /* KÍCH THƯỚC CỐ ĐỊNH cho TỪNG LAYOUT — namePos chỉ đổi vị trí text bên TRONG card */
     box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: relative;
+    overflow: visible;
     flex-shrink: 0;
     background: rgba(20,23,31,0.78);
     backdrop-filter: blur(4px);
     border: 1.5px solid rgba(255,107,61,0.45);
     border-radius: calc(0.8cqw * var(--badge-scale));
     padding: calc(0.5cqw * var(--badge-scale));
-    gap: calc(0.4cqw * var(--badge-scale));
     color: #fff;
     box-shadow: 0 0.2cqw 0.6cqw rgba(0,0,0,0.4);
 }
-/* Card size tùy theo LAYOUT (dọc/ngang). namePos KHÔNG ảnh hưởng kích thước.
-   Dọc: badges stack down → card wide rectangle (icon side-by-side text default)
-   Ngang: badges in row → card square (icon top/bottom text default) */
 .tt-badges.layout-vertical .tt-badge {
     width:  calc(11cqw * var(--badge-scale));
     height: calc(4.5cqw * var(--badge-scale));
@@ -2798,33 +2794,84 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     width:  calc(7cqw * var(--badge-scale));
     height: calc(7cqw * var(--badge-scale));
 }
+/* Icon dùng position: absolute → KHÔNG đẩy text khi icon to vượt khung card */
 .tt-badge-ico {
-    width: calc(3cqw * var(--badge-scale));
-    height: calc(3cqw * var(--badge-scale));
+    position: absolute;
+    width: calc(3cqw * var(--badge-scale) * var(--icon-scale));
+    height: calc(3cqw * var(--badge-scale) * var(--icon-scale));
     object-fit: contain;
-    flex-shrink: 0;
+    z-index: 2;
+    pointer-events: none;
 }
+/* Text fills card, position relative cố định theo namePos — không bị icon đẩy */
 .tt-badge-name {
+    position: absolute;
+    inset: calc(0.5cqw * var(--badge-scale));
     font-size: calc(1cqw * var(--badge-scale));
     font-weight: 700;
     line-height: 1.2;
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 0;
     text-align: center;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
-.tt-badge-name span { display: inline; }
+.tt-badge-name span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
 
-/* Position name relative to icon — chỉ đổi flex-direction, KHÔNG đổi size */
-.tt-badge.name-left   { flex-direction: row-reverse; }
-.tt-badge.name-right  { flex-direction: row; }
-.tt-badge.name-top    { flex-direction: column-reverse; }
-.tt-badge.name-bottom { flex-direction: column; }
+/* Position icon + text theo namePos — icon có thể overflow card mà KHÔNG che chữ */
+.tt-badge.name-right .tt-badge-ico {
+    left: calc(0.4cqw * var(--badge-scale));
+    top: 50%;
+    transform: translateY(-50%);
+}
+.tt-badge.name-right .tt-badge-name {
+    left: calc(3.5cqw * var(--badge-scale));
+}
+
+.tt-badge.name-left .tt-badge-ico {
+    right: calc(0.4cqw * var(--badge-scale));
+    top: 50%;
+    transform: translateY(-50%);
+}
+.tt-badge.name-left .tt-badge-name {
+    right: calc(3.5cqw * var(--badge-scale));
+}
+
+/* Bottom: icon ở TRÊN card (peek above), text dưới — fit user's reference image */
+.tt-badge.name-bottom .tt-badge-ico {
+    bottom: calc(50% + 0.5cqw * var(--badge-scale));
+    left: 50%;
+    transform: translateX(-50%);
+}
+.tt-badge.name-bottom .tt-badge-name {
+    top: 50%;
+    bottom: calc(0.3cqw * var(--badge-scale));
+    align-items: flex-start;
+    padding-top: calc(0.5cqw * var(--badge-scale));
+}
+
+/* Top: icon ở DƯỚI card, text trên */
+.tt-badge.name-top .tt-badge-ico {
+    top: calc(50% + 0.5cqw * var(--badge-scale));
+    left: 50%;
+    transform: translateX(-50%);
+}
+.tt-badge.name-top .tt-badge-name {
+    bottom: 50%;
+    top: calc(0.3cqw * var(--badge-scale));
+    align-items: flex-end;
+    padding-bottom: calc(0.5cqw * var(--badge-scale));
+}
 
 /* === UFO — VIP PRO version of OSIN: hút 5-10 quà ngẫu nhiên === */
 .tt-ufo {

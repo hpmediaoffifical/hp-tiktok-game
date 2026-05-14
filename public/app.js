@@ -179,6 +179,8 @@
         cfgBadgesNamepos: $('#cfg-badges-namepos'),
         cfgBadgesScale: $('#cfg-badges-scale'),
         cfgBadgesScaleV: $('#cfg-badges-scale-v'),
+        cfgBadgesIconScale: $('#cfg-badges-iconscale'),
+        cfgBadgesIconScaleV: $('#cfg-badges-iconscale-v'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
@@ -648,6 +650,9 @@
         const bScale = bdg.scale ?? 1;
         if (dom.cfgBadgesScale) dom.cfgBadgesScale.value = String(bScale);
         if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = bScale;
+        const bIconScale = bdg.iconScale ?? 1;
+        if (dom.cfgBadgesIconScale) dom.cfgBadgesIconScale.value = String(bIconScale);
+        if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = bIconScale;
         // Lưu items + extras để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
         currentBadgeItems = JSON.parse(JSON.stringify(bdg.items || {}));
         currentBadgeExtras = Array.isArray(bdg.extras) ? JSON.parse(JSON.stringify(bdg.extras)) : [];
@@ -745,6 +750,7 @@
                 layout: dom.cfgBadgesLayout?.value || 'vertical',
                 defaultNamePos: dom.cfgBadgesNamepos?.value || 'right',
                 scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
+                iconScale: parseFloat(dom.cfgBadgesIconScale?.value) || 1,
                 items: JSON.parse(JSON.stringify(currentBadgeItems || {})),
                 extras: JSON.parse(JSON.stringify(currentBadgeExtras || []))
             },
@@ -777,6 +783,7 @@
         if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = cfg.actorScales.osin;
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = cfg.actorScales.ufo;
         if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = cfg.badges?.scale ?? 1;
+        if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = cfg.badges?.iconScale ?? 1;
         setSaveStatus('saving');
         clearTimeout(saveCfgTimer);
         const doSave = () => {
@@ -1727,6 +1734,7 @@
         pushConfigUpdate(true);
     });
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesIconScale?.addEventListener('input', pushConfigUpdate);
 
     // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
     // Lưu vào config.badges.extras = [{id, name, image, customLabel, namePos, enabled}]
