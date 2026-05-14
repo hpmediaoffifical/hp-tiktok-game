@@ -875,7 +875,15 @@
                 <div class="modal-section">
                     <div class="modal-sec-title">Chọn từ danh sách quà</div>
                     <input type="text" id="ebm-search" class="text-input" placeholder="Tìm quà theo tên hoặc ID..." style="width:100%;margin-bottom:8px"/>
+                    <div class="ebm-filter-row">
+                        <label class="ebm-exclude-toggle" title="Ẩn các quà đã được gán hiệu ứng hoặc đã có trong badge list">
+                            <input type="checkbox" id="ebm-exclude-assigned" checked/>
+                            <span>Ẩn quà đã có trong MENU hiệu ứng</span>
+                        </label>
+                    </div>
+                    <div class="ebm-diamond-chips" id="ebm-diamond-chips"></div>
                     <div id="ebm-picker" class="ef-gift-picker" style="max-height:320px;overflow-y:auto"></div>
+                    <div class="ebm-result-count" id="ebm-result-count"></div>
                     <!-- hidden inputs kept for backward compat with save handler -->
                     <input type="hidden" id="ebm-id"/>
                     <input type="hidden" id="ebm-name"/>

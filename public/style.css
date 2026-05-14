@@ -356,6 +356,59 @@ input, button { font-family: inherit; }
     margin: 0;
 }
 
+/* Extra badge modal — filter row + diamond chips */
+.ebm-filter-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+.ebm-exclude-toggle {
+    display: flex; align-items: center; gap: 6px;
+    color: #c8cee0;
+    cursor: pointer;
+}
+.ebm-exclude-toggle input { cursor: pointer; }
+.ebm-diamond-chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-bottom: 8px;
+    padding: 6px;
+    background: #0f1218;
+    border: 1px solid #1f2533;
+    border-radius: 6px;
+}
+.ebm-chip {
+    background: #181d28;
+    border: 1px solid #2c3243;
+    color: #c8cee0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s ease;
+    line-height: 1.2;
+}
+.ebm-chip:hover { border-color: #ff6b3d; color: #fff; }
+.ebm-chip.active {
+    background: linear-gradient(135deg, #ff6b3d, #ec4899);
+    border-color: #ff6b3d;
+    color: #fff;
+}
+.ebm-chip.chip-all {
+    background: #2c3243;
+}
+.ebm-chip.chip-all.active {
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border-color: #06b6d4;
+}
+.ebm-result-count {
+    font-size: 11px;
+    color: #6b7390;
+    text-align: right;
+    padding: 4px 2px 0;
+}
+
 /* Badges extras row trong tab Quà */
 .badges-extras-row {
     margin-top: 12px;

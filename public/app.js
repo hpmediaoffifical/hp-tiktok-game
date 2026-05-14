@@ -1733,27 +1733,69 @@
     let currentBadgeExtras = [];   // array của extras objects
 
     const ebmModal = document.getElementById('extra-badge-modal');
+    const EBM_DIAMOND_VALUES = [10, 20, 199, 299, 399, 499, 599, 799, 1000, 2000, 3000, 5000, 10000, 20000];
+    let ebmActiveDiamonds = new Set();   // các Sao value đang active filter
     function openExtraBadgeModal() {
         if (!ebmModal) return;
         document.getElementById('ebm-id').value = '';
         document.getElementById('ebm-name').value = '';
         document.getElementById('ebm-image').value = '';
         document.getElementById('ebm-label').value = '';
-        document.getElementById('ebm-namepos').value = 'right';
+        document.getElementById('ebm-namepos').value = '';   // 'Theo mặc định'
         document.getElementById('ebm-search').value = '';
-        renderEbmPicker('');
+        ebmActiveDiamonds.clear();
+        renderDiamondChips();
+        renderEbmPicker();
         ebmModal.hidden = false;
     }
     function closeExtraBadgeModal() { if (ebmModal) ebmModal.hidden = true; }
+    function renderDiamondChips() {
+        const wrap = document.getElementById('ebm-diamond-chips');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        const allBtn = document.createElement('div');
+        allBtn.className = 'ebm-chip chip-all' + (ebmActiveDiamonds.size === 0 ? ' active' : '');
+        allBtn.textContent = 'Tất cả';
+        allBtn.addEventListener('click', () => {
+            ebmActiveDiamonds.clear();
+            renderDiamondChips();
+            renderEbmPicker();
+        });
+        wrap.appendChild(allBtn);
+        for (const v of EBM_DIAMOND_VALUES) {
+            const chip = document.createElement('div');
+            chip.className = 'ebm-chip' + (ebmActiveDiamonds.has(v) ? ' active' : '');
+            chip.textContent = `${v}⭐`;
+            chip.addEventListener('click', () => {
+                if (ebmActiveDiamonds.has(v)) ebmActiveDiamonds.delete(v);
+                else ebmActiveDiamonds.add(v);
+                renderDiamondChips();
+                renderEbmPicker();
+            });
+            wrap.appendChild(chip);
+        }
+    }
 
-    function renderEbmPicker(filter) {
+    function renderEbmPicker() {
         const picker = document.getElementById('ebm-picker');
+        const countEl = document.getElementById('ebm-result-count');
         if (!picker) return;
         picker.innerHTML = '';
-        const f = (filter || '').trim().toLowerCase();
-        const list = (giftSheet || []).filter(g =>
-            !f || g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
-        );   // KHÔNG limit — hiển thị toàn bộ giftSheet (600+ quà)
+        const f = (document.getElementById('ebm-search')?.value || '').trim().toLowerCase();
+        const excludeAssigned = !!document.getElementById('ebm-exclude-assigned')?.checked;
+        // Set các gift IDs đã được gán effect (triggers) hoặc đã có trong extras
+        const assignedIds = new Set();
+        if (excludeAssigned) {
+            for (const id of Object.keys(currentTriggers || {})) assignedIds.add(String(id));
+            for (const ex of (currentBadgeExtras || [])) if (ex.id) assignedIds.add(String(ex.id));
+        }
+        const list = (giftSheet || []).filter(g => {
+            if (excludeAssigned && assignedIds.has(String(g.id))) return false;
+            if (f && !(g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f))) return false;
+            if (ebmActiveDiamonds.size > 0 && !ebmActiveDiamonds.has(Number(g.diamond || 0))) return false;
+            return true;
+        });
+        if (countEl) countEl.textContent = `${list.length} quà / ${(giftSheet || []).length} tổng`;
         const frag = document.createDocumentFragment();
         for (const g of list) {
             const card = document.createElement('div');
@@ -1779,7 +1821,8 @@
     document.getElementById('btn-add-extra-badge')?.addEventListener('click', openExtraBadgeModal);
     document.getElementById('ebm-close')?.addEventListener('click', closeExtraBadgeModal);
     document.getElementById('ebm-cancel')?.addEventListener('click', closeExtraBadgeModal);
-    document.getElementById('ebm-search')?.addEventListener('input', (ev) => renderEbmPicker(ev.target.value));
+    document.getElementById('ebm-search')?.addEventListener('input', () => renderEbmPicker());
+    document.getElementById('ebm-exclude-assigned')?.addEventListener('change', () => renderEbmPicker());
     document.getElementById('ebm-save')?.addEventListener('click', () => {
         const id = (document.getElementById('ebm-id').value || '').trim();
         const name = (document.getElementById('ebm-name').value || '').trim();
