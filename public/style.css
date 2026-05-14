@@ -1334,6 +1334,12 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .ef-gift-picker .pg img { width: 40px; height: 40px; object-fit: contain; }
 .ef-gift-picker .pg .nm { font-size: 9px; color: #c8cee0; line-height: 1.1; }
 .ef-gift-picker .pg .di { font-size: 9px; color: #60a5fa; }
+.ef-gift-picker .pg .st {
+    font-size: 9px;
+    color: #fbbf24;
+    font-weight: 700;
+    margin-top: 1px;
+}
 .ef-gift-picker .pg.pg-disabled {
     opacity: 0.4;
     cursor: not-allowed;

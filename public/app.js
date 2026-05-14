@@ -1742,7 +1742,11 @@
 
     const ebmModal = document.getElementById('extra-badge-modal');
     const EBM_DIAMOND_VALUES = [10, 20, 199, 299, 399, 499, 599, 799, 1000, 2000, 3000, 5000, 10000, 20000];
-    let ebmActiveDiamonds = new Set();   // các Sao value đang active filter
+    let ebmMinDiamond = 0;   // ngưỡng MIN — chip 299⭐ = lọc quà có diamond >= 299
+    function fmtDiamond(v) {
+        // 10000 → 10,000 cho dễ đọc
+        return Number(v || 0).toLocaleString('en-US');
+    }
     function openExtraBadgeModal() {
         if (!ebmModal) return;
         document.getElementById('ebm-id').value = '';
@@ -1751,7 +1755,7 @@
         document.getElementById('ebm-label').value = '';
         document.getElementById('ebm-namepos').value = '';   // 'Theo mặc định'
         document.getElementById('ebm-search').value = '';
-        ebmActiveDiamonds.clear();
+        ebmMinDiamond = 0;
         renderDiamondChips();
         renderEbmPicker();
         ebmModal.hidden = false;
@@ -1761,22 +1765,23 @@
         const wrap = document.getElementById('ebm-diamond-chips');
         if (!wrap) return;
         wrap.innerHTML = '';
+        // 'Tất cả' = ngưỡng 0 (hiện hết)
         const allBtn = document.createElement('div');
-        allBtn.className = 'ebm-chip chip-all' + (ebmActiveDiamonds.size === 0 ? ' active' : '');
+        allBtn.className = 'ebm-chip chip-all' + (ebmMinDiamond === 0 ? ' active' : '');
         allBtn.textContent = 'Tất cả';
         allBtn.addEventListener('click', () => {
-            ebmActiveDiamonds.clear();
+            ebmMinDiamond = 0;
             renderDiamondChips();
             renderEbmPicker();
         });
         wrap.appendChild(allBtn);
         for (const v of EBM_DIAMOND_VALUES) {
             const chip = document.createElement('div');
-            chip.className = 'ebm-chip' + (ebmActiveDiamonds.has(v) ? ' active' : '');
-            chip.textContent = `${v}⭐`;
+            chip.className = 'ebm-chip' + (ebmMinDiamond === v ? ' active' : '');
+            chip.textContent = `${fmtDiamond(v)}⭐`;   // 10000 → 10,000
+            chip.title = `Quà có ít nhất ${fmtDiamond(v)} sao`;
             chip.addEventListener('click', () => {
-                if (ebmActiveDiamonds.has(v)) ebmActiveDiamonds.delete(v);
-                else ebmActiveDiamonds.add(v);
+                ebmMinDiamond = (ebmMinDiamond === v) ? 0 : v;   // toggle
                 renderDiamondChips();
                 renderEbmPicker();
             });
@@ -1800,7 +1805,8 @@
         const list = (giftSheet || []).filter(g => {
             if (excludeAssigned && assignedIds.has(String(g.id))) return false;
             if (f && !(g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f))) return false;
-            if (ebmActiveDiamonds.size > 0 && !ebmActiveDiamonds.has(Number(g.diamond || 0))) return false;
+            // Chip Sao: lọc quà có diamond >= ngưỡng min (tự động tăng dần)
+            if (ebmMinDiamond > 0 && Number(g.diamond || 0) < ebmMinDiamond) return false;
             return true;
         });
         if (countEl) countEl.textContent = `${list.length} quà / ${(giftSheet || []).length} tổng`;
@@ -1812,6 +1818,7 @@
                 <img src="${g.image || ''}" onerror="this.style.display='none'"/>
                 <div class="nm">${(g.name || '').replace(/[<>]/g,'')}</div>
                 <div class="di">ID ${g.id}</div>
+                <div class="st">${fmtDiamond(g.diamond || 0)}⭐</div>
             `;
             card.addEventListener('click', () => {
                 document.getElementById('ebm-id').value = g.id;
