@@ -2176,6 +2176,7 @@
                 }
             }
             const frag = document.createDocumentFragment();
+            // 1. Badges từ triggers (effects đã gán)
             for (const giftId of Object.keys(triggers)) {
                 const action = triggers[giftId];
                 const itemCfg = items[giftId] || {};
@@ -2189,6 +2190,22 @@
                 badge.title = `${giftMeta.name || ''} · ${label}`;
                 badge.innerHTML = `
                     <img class="tt-badge-ico" src="${escAttr(giftMeta.image || '')}" alt=""/>
+                    <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
+                `;
+                frag.appendChild(badge);
+            }
+            // 2. Badges thủ công bổ sung (extras) — quà không cần gán effect
+            const extras = Array.isArray(cfg.extras) ? cfg.extras : [];
+            for (const ex of extras) {
+                if (ex.enabled === false) continue;
+                if (!ex.id || !ex.name) continue;
+                const label = (ex.customLabel || ex.name).trim();
+                const namePos = ex.namePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
+                const badge = document.createElement('div');
+                badge.className = 'tt-badge name-' + namePos;
+                badge.title = `${ex.name} · ${label}`;
+                badge.innerHTML = `
+                    <img class="tt-badge-ico" src="${escAttr(ex.image || '')}" alt=""/>
                     <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
                 `;
                 frag.appendChild(badge);

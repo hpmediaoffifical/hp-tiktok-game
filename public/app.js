@@ -648,8 +648,10 @@
         const bScale = bdg.scale ?? 1;
         if (dom.cfgBadgesScale) dom.cfgBadgesScale.value = String(bScale);
         if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = bScale;
-        // Lưu items để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
+        // Lưu items + extras để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
         currentBadgeItems = JSON.parse(JSON.stringify(bdg.items || {}));
+        currentBadgeExtras = Array.isArray(bdg.extras) ? JSON.parse(JSON.stringify(bdg.extras)) : [];
+        renderBadgeExtrasList();
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -743,7 +745,8 @@
                 layout: dom.cfgBadgesLayout?.value || 'vertical',
                 position: dom.cfgBadgesPosition?.value || 'top-left',
                 scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
-                items: JSON.parse(JSON.stringify(currentBadgeItems || {}))
+                items: JSON.parse(JSON.stringify(currentBadgeItems || {})),
+                extras: JSON.parse(JSON.stringify(currentBadgeExtras || []))
             },
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
@@ -1719,55 +1722,114 @@
     });
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
 
-    // ===== Custom gift insertion =====
-    // Cho phép user thêm quà tự định nghĩa vào giftSheet (in-memory + persist localStorage)
-    // Vẫn tính bộ đếm khi tặng (test-gift), không cần gán hiệu ứng cụ thể.
-    const cgmModal = document.getElementById('custom-gift-modal');
-    function openCustomGiftModal() {
-        if (!cgmModal) return;
-        document.getElementById('cgm-id').value = '';
-        document.getElementById('cgm-name').value = '';
-        document.getElementById('cgm-image').value = '';
-        document.getElementById('cgm-diamond').value = '1';
-        cgmModal.hidden = false;
+    // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
+    // Lưu vào config.badges.extras = [{id, name, image, customLabel, namePos, enabled}]
+    let currentBadgeExtras = [];   // array của extras objects
+
+    const ebmModal = document.getElementById('extra-badge-modal');
+    function openExtraBadgeModal() {
+        if (!ebmModal) return;
+        document.getElementById('ebm-id').value = '';
+        document.getElementById('ebm-name').value = '';
+        document.getElementById('ebm-image').value = '';
+        document.getElementById('ebm-label').value = '';
+        document.getElementById('ebm-namepos').value = 'right';
+        document.getElementById('ebm-search').value = '';
+        renderEbmPicker('');
+        ebmModal.hidden = false;
     }
-    function closeCustomGiftModal() { if (cgmModal) cgmModal.hidden = true; }
-    document.getElementById('btn-add-custom-gift')?.addEventListener('click', openCustomGiftModal);
-    document.getElementById('cgm-close')?.addEventListener('click', closeCustomGiftModal);
-    document.getElementById('cgm-cancel')?.addEventListener('click', closeCustomGiftModal);
-    document.getElementById('cgm-save')?.addEventListener('click', () => {
-        const id = (document.getElementById('cgm-id').value || '').trim();
-        const name = (document.getElementById('cgm-name').value || '').trim();
-        const image = (document.getElementById('cgm-image').value || '').trim();
-        const diamond = parseInt(document.getElementById('cgm-diamond').value, 10) || 1;
-        if (!id) return flashTriggerToast('⚠ Cần nhập Gift ID');
-        if (!name) return flashTriggerToast('⚠ Cần nhập tên quà');
-        // Save vào localStorage để persist qua restart
-        const customGifts = JSON.parse(localStorage.getItem('hp_custom_gifts') || '[]');
-        const existsIdx = customGifts.findIndex(g => String(g.id) === id);
-        const entry = { id, name, image, diamond, custom: true };
-        if (existsIdx >= 0) customGifts[existsIdx] = entry; else customGifts.push(entry);
-        localStorage.setItem('hp_custom_gifts', JSON.stringify(customGifts));
-        // Merge vào giftSheet + giftMap
-        const sIdx = giftSheet.findIndex(g => String(g.id) === id);
-        if (sIdx >= 0) giftSheet[sIdx] = entry; else giftSheet.push(entry);
-        giftMap[id] = entry;
-        window.__giftSheet = giftSheet;
-        renderGiftCatalog(dom.giftSearchInput?.value || '');
-        flashTriggerToast(`✓ Đã thêm quà custom "${name}" (ID ${id})`);
-        closeCustomGiftModal();
-    });
-    // Load custom gifts khi giftSheet load — merge vào danh sách
-    function mergeCustomGiftsIntoSheet() {
-        const customGifts = JSON.parse(localStorage.getItem('hp_custom_gifts') || '[]');
-        for (const cg of customGifts) {
-            if (!cg.id) continue;
-            const sIdx = giftSheet.findIndex(g => String(g.id) === String(cg.id));
-            if (sIdx >= 0) giftSheet[sIdx] = { ...giftSheet[sIdx], ...cg };
-            else giftSheet.push(cg);
-            giftMap[String(cg.id)] = giftSheet.find(g => String(g.id) === String(cg.id));
+    function closeExtraBadgeModal() { if (ebmModal) ebmModal.hidden = true; }
+
+    function renderEbmPicker(filter) {
+        const picker = document.getElementById('ebm-picker');
+        if (!picker) return;
+        picker.innerHTML = '';
+        const f = (filter || '').trim().toLowerCase();
+        const list = (giftSheet || []).filter(g =>
+            !f || g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
+        ).slice(0, 60);   // limit
+        const frag = document.createDocumentFragment();
+        for (const g of list) {
+            const card = document.createElement('div');
+            card.className = 'ef-gift-pick-card';
+            card.innerHTML = `
+                <img src="${g.image || ''}" onerror="this.style.display='none'"/>
+                <div class="ef-gp-name">${(g.name || '').replace(/[<>]/g,'')}</div>
+                <div class="ef-gp-id">ID ${g.id}</div>
+            `;
+            card.addEventListener('click', () => {
+                document.getElementById('ebm-id').value = g.id;
+                document.getElementById('ebm-name').value = g.name || '';
+                document.getElementById('ebm-image').value = g.image || '';
+            });
+            frag.appendChild(card);
         }
-        window.__giftSheet = giftSheet;
+        picker.appendChild(frag);
+    }
+
+    document.getElementById('btn-add-extra-badge')?.addEventListener('click', openExtraBadgeModal);
+    document.getElementById('ebm-close')?.addEventListener('click', closeExtraBadgeModal);
+    document.getElementById('ebm-cancel')?.addEventListener('click', closeExtraBadgeModal);
+    document.getElementById('ebm-search')?.addEventListener('input', (ev) => renderEbmPicker(ev.target.value));
+    document.getElementById('ebm-save')?.addEventListener('click', () => {
+        const id = (document.getElementById('ebm-id').value || '').trim();
+        const name = (document.getElementById('ebm-name').value || '').trim();
+        const image = (document.getElementById('ebm-image').value || '').trim();
+        const customLabel = (document.getElementById('ebm-label').value || '').trim();
+        const namePos = document.getElementById('ebm-namepos').value || 'right';
+        if (!id || !name) return flashTriggerToast('⚠ Cần Gift ID và Tên quà (chọn từ danh sách hoặc nhập tay)');
+        // Avoid duplicate by id
+        const existsIdx = currentBadgeExtras.findIndex(e => String(e.id) === id);
+        const entry = { id, name, image, customLabel, namePos, enabled: true };
+        if (existsIdx >= 0) currentBadgeExtras[existsIdx] = entry;
+        else currentBadgeExtras.push(entry);
+        renderBadgeExtrasList();
+        pushConfigUpdate(true);
+        flashTriggerToast(`✓ Đã thêm badge "${name}" vào danh sách`);
+        closeExtraBadgeModal();
+    });
+
+    function renderBadgeExtrasList() {
+        const list = document.getElementById('badges-extras-list');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!currentBadgeExtras.length) {
+            list.innerHTML = '<div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">Chưa có badge thủ công nào</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        for (const [idx, e] of currentBadgeExtras.entries()) {
+            const row = document.createElement('div');
+            row.className = 'badges-extra-row';
+            row.innerHTML = `
+                <img src="${e.image || ''}" onerror="this.style.display='none'"/>
+                <div class="be-info">
+                    <div class="be-name">${(e.customLabel || e.name).replace(/[<>]/g,'')}</div>
+                    <div class="be-id">ID ${e.id} · ${e.namePos}</div>
+                </div>
+                <label class="be-toggle"><input type="checkbox" ${e.enabled !== false ? 'checked' : ''} data-idx="${idx}"/></label>
+                <button class="be-remove ghost mini" data-idx="${idx}" title="Xoá">✕</button>
+            `;
+            frag.appendChild(row);
+        }
+        list.appendChild(frag);
+        list.querySelectorAll('.be-toggle input').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const i = parseInt(cb.dataset.idx, 10);
+                if (currentBadgeExtras[i]) {
+                    currentBadgeExtras[i].enabled = cb.checked;
+                    pushConfigUpdate(true);
+                }
+            });
+        });
+        list.querySelectorAll('.be-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const i = parseInt(btn.dataset.idx, 10);
+                currentBadgeExtras.splice(i, 1);
+                renderBadgeExtrasList();
+                pushConfigUpdate(true);
+            });
+        });
     }
     // Feature toggles
     for (const key of FEATURE_KEYS) {
@@ -1845,8 +1907,6 @@
         giftSheet = (data || []).slice().sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
         giftMap = {};
         for (const g of giftSheet) giftMap[String(g.id)] = g;
-        // Merge custom gifts (user-added) vào sheet
-        mergeCustomGiftsIntoSheet();
         renderGiftCatalog(dom.giftSearchInput.value);
         populateGiftDatalist();
         renderTriggerList();

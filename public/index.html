@@ -310,6 +310,11 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <div class="badges-extras-row">
+                                        <div class="badges-extras-title">Badge thủ công bổ sung</div>
+                                        <button id="btn-add-extra-badge" class="ghost mini">➕ Thêm badge</button>
+                                    </div>
+                                    <div id="badges-extras-list" class="badges-extras-list"></div>
                                 </div>
                                 <div class="hint" style="padding:6px 12px 0">Quà chỉ định KHÔNG rơi vào hũ. Bấm ⚙ để cài thông số.</div>
                                 <div class="trigger-list" id="trigger-list"></div>
@@ -362,7 +367,6 @@
                         <div class="card stretch">
                             <div class="card-title">📦 Danh sách quà
                                 <input id="gift-search" type="text" placeholder="Tìm..." class="search-mini"/>
-                                <button id="btn-add-custom-gift" class="ghost mini" title="Thêm quà custom tự định nghĩa">➕ Thêm</button>
                             </div>
                             <div id="gift-catalog" class="gift-catalog"></div>
                             <div class="hint catalog-hint">Bấm 1 quà để rơi thử vào hũ →</div>
@@ -859,39 +863,54 @@
         </div>
     </div>
 
-    <!-- Modal thêm quà custom -->
-    <div id="custom-gift-modal" class="modal" hidden>
-        <div class="modal-card" style="max-width:420px">
+    <!-- Modal thêm badge extra (quà không cần gán effect — chỉ show trên badge list) -->
+    <div id="extra-badge-modal" class="modal" hidden>
+        <div class="modal-card" style="max-width:460px">
             <div class="modal-head">
-                <div class="modal-title">➕ Thêm quà custom</div>
-                <button class="modal-close" id="cgm-close">✕</button>
+                <div class="modal-title">➕ Thêm badge thủ công</div>
+                <button class="modal-close" id="ebm-close">✕</button>
             </div>
             <div class="modal-body">
                 <div class="modal-section">
+                    <div class="modal-sec-title">Chọn từ danh sách quà có sẵn</div>
+                    <input type="text" id="ebm-search" class="text-input" placeholder="Tìm quà theo tên hoặc ID..." style="width:100%;margin-bottom:8px"/>
+                    <div id="ebm-picker" class="ef-gift-picker" style="max-height:220px;overflow-y:auto"></div>
+                </div>
+                <div class="modal-section">
+                    <div class="modal-sec-title">Hoặc nhập quà tùy chỉnh</div>
                     <div class="ef-param-row">
                         <label class="ef-param-lbl">Gift ID</label>
-                        <input type="text" id="cgm-id" class="text-input" placeholder="VD: 99001" style="flex:1"/>
+                        <input type="text" id="ebm-id" class="text-input" placeholder="VD: 99001" style="flex:1"/>
                     </div>
                     <div class="ef-param-row">
                         <label class="ef-param-lbl">Tên quà</label>
-                        <input type="text" id="cgm-name" class="text-input" placeholder="VD: Quà Test" style="flex:1"/>
+                        <input type="text" id="ebm-name" class="text-input" placeholder="VD: Quà Test" style="flex:1"/>
                     </div>
                     <div class="ef-param-row">
                         <label class="ef-param-lbl">URL ảnh</label>
-                        <input type="text" id="cgm-image" class="text-input" placeholder="https://... (có thể để trống)" style="flex:1"/>
+                        <input type="text" id="ebm-image" class="text-input" placeholder="https://... (có thể để trống)" style="flex:1"/>
+                    </div>
+                </div>
+                <div class="modal-section">
+                    <div class="modal-sec-title">Hiển thị badge</div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Tên hiển thị</label>
+                        <input type="text" id="ebm-label" class="text-input" placeholder="Mặc định = tên quà" style="flex:1"/>
                     </div>
                     <div class="ef-param-row">
-                        <label class="ef-param-lbl">Kim cương</label>
-                        <input type="number" id="cgm-diamond" class="text-input" placeholder="1" value="1" min="0" style="flex:1"/>
-                    </div>
-                    <div class="hint" style="margin-top:8px;font-size:11px;color:#6b7390">
-                        Quà custom vẫn TÍNH BỘ ĐẾM khi tặng (nếu không gán hiệu ứng thì rơi vào hũ như quà thường).
+                        <label class="ef-param-lbl">Vị trí tên</label>
+                        <select id="ebm-namepos" class="cfg-select">
+                            <option value="right">Phải icon</option>
+                            <option value="left">Trái icon</option>
+                            <option value="top">Trên icon</option>
+                            <option value="bottom">Dưới icon</option>
+                        </select>
                     </div>
                 </div>
             </div>
             <div class="modal-foot">
-                <button class="ghost" id="cgm-cancel">Đóng</button>
-                <button class="primary" id="cgm-save">Thêm</button>
+                <button class="ghost" id="ebm-cancel">Đóng</button>
+                <button class="primary" id="ebm-save">Thêm badge</button>
             </div>
         </div>
     </div>

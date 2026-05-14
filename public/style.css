@@ -331,6 +331,46 @@ input, button { font-family: inherit; }
 .range-with-val input[type="range"] { flex: 1; min-width: 0; }
 .range-with-val .cfg-val { font-size: 11px; min-width: 28px; text-align: right; }
 
+/* Badges extras row trong tab Quà */
+.badges-extras-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 8px;
+    border-top: 1px dashed #1f2533;
+}
+.badges-extras-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8b93a8;
+    letter-spacing: 0.3px;
+}
+.badges-extras-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.badges-extra-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px;
+    background: #0f1218;
+    border: 1px solid #1f2533;
+    border-radius: 6px;
+}
+.badges-extra-row img {
+    width: 28px; height: 28px; object-fit: contain;
+    background: #1a1f2b;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.badges-extra-row .be-info { flex: 1; min-width: 0; }
+.badges-extra-row .be-name {
+    font-size: 12px; font-weight: 600; color: #e6e8ee;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.badges-extra-row .be-id { font-size: 10px; color: #6b7390; }
+.badges-extra-row .be-toggle { cursor: pointer; }
+.badges-extra-row .be-remove {
+    padding: 4px 8px; color: #ef4444;
+}
+
 .conn-actions { display: flex; flex-direction: column; gap: 6px; }
 .status-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8b93a8; }
 .stats-row { display: flex; gap: 10px; font-size: 11px; color: #8b93a8; }
