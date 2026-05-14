@@ -241,6 +241,9 @@
         // Server gán seq monotonic. Overlay nhớ 50 seq cuối, skip nếu đã thấy.
         const seenSeqs = new Set();
         const seqOrder = [];
+        // Defensive dedup #2: cmd-type + payload-hash trong cửa sổ 800ms — chặn duplicate khi seq
+        // bị mất (vd server restart reset seq counter, OBS browser source duplicate).
+        const recentCmdHashes = new Map();   // hash → timestamp
         socket.on('gameCmd', ({ gameId, cmd, payload, seq }) => {
             if (gameId !== 'thuytinh' || !game) return;
             // Dedup nếu có seq (cmd cũ không có → vẫn process — backward compat)
@@ -252,6 +255,17 @@
                     const old = seqOrder.shift();
                     seenSeqs.delete(old);
                 }
+            }
+            // Dedup phụ: same cmd+payload trong 800ms → bỏ qua
+            const now = Date.now();
+            const hashKey = cmd + ':' + JSON.stringify(payload?.thieves?.map(t=>t.uid) || payload?.uid || payload?.name || '');
+            const lastTs = recentCmdHashes.get(hashKey);
+            if (lastTs && (now - lastTs) < 800) return;
+            recentCmdHashes.set(hashKey, now);
+            // Cleanup map cũ (giữ tối đa 30 entries)
+            if (recentCmdHashes.size > 30) {
+                const oldestKey = recentCmdHashes.keys().next().value;
+                recentCmdHashes.delete(oldestKey);
             }
             if (cmd === 'thief') {
                 // payload có thể là 1 object userInfo, hoặc {thieves:[...]}.

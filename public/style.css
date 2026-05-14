@@ -319,10 +319,18 @@ input, button { font-family: inherit; }
 .feat.compact { font-size: 12px; font-weight: 600; }
 .badges-cfg-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.2fr 1.2fr;
-    gap: 8px;
+    /* 2 hàng × 4 cột: hàng 1 = Layout (1) + Vị trí (3 cột rộng);
+       hàng 2 = Cỡ card / Cỡ icon / Khoảng cách / Cỡ chữ */
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
     align-items: end;
 }
+.badges-cfg-grid > .badges-cfg-col:nth-child(1) { grid-column: 1 / span 1; }   /* Layout */
+.badges-cfg-grid > .badges-cfg-col:nth-child(2) { grid-column: 2 / span 3; }   /* Vị trí — span 3 cols */
+.badges-cfg-grid > .badges-cfg-col:nth-child(3) { grid-column: 1 / span 1; }   /* Cỡ card */
+.badges-cfg-grid > .badges-cfg-col:nth-child(4) { grid-column: 2 / span 1; }   /* Cỡ icon */
+.badges-cfg-grid > .badges-cfg-col:nth-child(5) { grid-column: 3 / span 1; }   /* Khoảng cách */
+.badges-cfg-grid > .badges-cfg-col:nth-child(6) { grid-column: 4 / span 1; }   /* Cỡ chữ */
 .badges-cfg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .badges-cfg-col > label {
     font-size: 10px;
@@ -1062,6 +1070,24 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 }
 .context-menu .cm-list button:hover { background: #1f2533; }
 .context-menu .cm-list button.active { background: linear-gradient(90deg, rgba(255,107,61,0.25), transparent); color: #ffd166; }
+/* Effect đã có quà KHÁC gán — tone xanh nhạt phân biệt với 'active' (cam vàng = quà hiện tại) */
+.context-menu .cm-list button.assigned { color: #8be9a8; }
+.context-menu .cm-list button.assigned:hover { background: rgba(139,233,168,0.08); }
+/* Dấu tích — đẩy về cuối row */
+.context-menu .cm-list button .cm-check {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(139,233,168,0.15);
+    color: #8be9a8;
+    flex-shrink: 0;
+}
+.context-menu .cm-list button.active .cm-check {
+    background: rgba(255,209,102,0.2);
+    color: #ffd166;
+}
 .context-menu .cm-clear { color: #ef4444; }
 .context-menu .cm-clear:hover { background: rgba(239,68,68,0.1); }
 .context-menu hr { border: none; border-top: 1px solid #1f2533; margin: 4px 0; }
@@ -1525,9 +1551,9 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     line-height: 1.3;
 }
 
-/* Trigger row compact */
+/* Trigger row compact — 5 cột: ico | lbl | badge-toggle | preview | gear */
 .trigger-row {
-    grid-template-columns: 22px 1fr 32px 32px !important;
+    grid-template-columns: 22px 1fr 26px 32px 32px !important;
 }
 .trigger-row .preview { width: 28px; height: 28px; }
 .trigger-row .gear {
@@ -1538,6 +1564,46 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     display: flex; align-items: center; justify-content: center;
 }
 .trigger-row .gear:hover { background: #1f2533; color: #fff; }
+
+/* 🏷 Badge visibility toggle — checkbox custom, bật/tắt hiện badge trên overlay */
+.trigger-badge-toggle {
+    width: 100%; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    position: relative;
+}
+.trigger-badge-toggle input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border: 1.5px solid #3a4055;
+    border-radius: 5px;
+    background: #0f1218;
+    cursor: pointer;
+    margin: 0;
+    transition: all 0.15s ease;
+    position: relative;
+}
+.trigger-badge-toggle input[type="checkbox"]:hover:not(:disabled) {
+    border-color: #ff6b3d;
+}
+.trigger-badge-toggle input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, #ff6b3d, #ec4899);
+    border-color: #ff6b3d;
+}
+.trigger-badge-toggle input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px; top: 1px;
+    width: 5px; height: 10px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+.trigger-badge-toggle input[type="checkbox"]:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
 
 /* Welcome banner — trên đầu hũ */
 .tt-welcome {
@@ -2755,26 +2821,209 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     display: block;
 }
 
-/* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect === */
+/* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect ===
+   Structure: .tt-badges (drag wrapper) > [.tt-badges-counter, .tt-badges-list]
+   Counter NGOÀI vùng cuộn (vertical=trên, horizontal=trái) */
 .tt-badges {
     --badge-scale: 1;
     --icon-scale: 1;
+    --badge-gap: 0.8;
     position: absolute;
     display: flex;
-    gap: calc(0.8cqw * var(--badge-scale));
+    align-items: flex-start;
+    gap: calc(0.6cqw * var(--badge-scale));
     pointer-events: auto;
     cursor: grab;
     z-index: 8;
-    /* overflow: visible — icon to (iconScale>1) tràn ra ngoài card vẫn hiển thị đầy đủ */
-    overflow: visible;
-    /* Padding để icon có chỗ "thở" ra ngoài bounding box mà KHÔNG bị cắt bởi parent */
-    padding: calc(2cqw * var(--icon-scale));
 }
 .tt-badges.tt-dragging { cursor: grabbing; }
 /* Khi đã có vị trí user-saved (tt-positioned), bỏ các pos-* default */
 .tt-badges.tt-positioned { top: auto; left: auto; right: auto; bottom: auto; }
+/* Khóa: ngăn drag, ẩn cursor:grab */
+.tt-badges.tt-locked { cursor: default; }
+.tt-badges.tt-locked.tt-dragging { cursor: default; }
+/* Vertical: counter trên, list dưới */
 .tt-badges.layout-vertical   { flex-direction: column; top: 2%; left: 2%; }
-.tt-badges.layout-horizontal { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; top: 2%; left: 2%; }
+/* Horizontal: counter trái, list phải */
+.tt-badges.layout-horizontal { flex-direction: row; top: 2%; left: 2%; }
+
+/* .tt-badges-list — inner scroll/flex container chứa badges */
+.tt-badges-list {
+    display: flex;
+    gap: calc(var(--badge-gap) * 1cqw * var(--badge-scale));
+    overflow: visible;
+    padding: calc(2cqw * var(--icon-scale));
+}
+.tt-badges.layout-vertical  .tt-badges-list { flex-direction: column; }
+.tt-badges.layout-horizontal .tt-badges-list { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; }
+
+/* ===== 🎞 Auto-scroll marquee — danh sách quà tự cuộn vô hạn =====
+   Apply ON .tt-badges-list (inner scroll container) */
+.tt-badges-list.tt-auto-scroll {
+    overflow: hidden;
+    flex-wrap: nowrap !important;
+    max-width: none;
+}
+.tt-badges-list.tt-auto-scroll .tt-badges-track {
+    display: flex;
+    flex-shrink: 0;
+}
+.tt-badges.layout-vertical .tt-badges-list.tt-auto-scroll .tt-badges-track {
+    flex-direction: column;
+    gap: inherit;
+    animation: tt-marquee-y var(--scroll-duration, 30s) linear infinite;
+}
+.tt-badges.layout-horizontal .tt-badges-list.tt-auto-scroll .tt-badges-track {
+    flex-direction: row;
+    gap: inherit;
+    animation: tt-marquee-x var(--scroll-duration, 30s) linear infinite;
+}
+/* Đảo chiều */
+.tt-badges-list.tt-auto-scroll.tt-scroll-down .tt-badges-track,
+.tt-badges-list.tt-auto-scroll.tt-scroll-right .tt-badges-track {
+    animation-direction: reverse;
+}
+.tt-badges-list.tt-auto-scroll:hover .tt-badges-track {
+    animation-play-state: paused;
+}
+@keyframes tt-marquee-y {
+    0%   { transform: translateY(0); }
+    100% { transform: translateY(-50%); }
+}
+@keyframes tt-marquee-x {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+/* ===== ✨ Border Effects per Badge — 8 styles ===== */
+/* Gold pulse */
+.tt-badge.border-gold {
+    border-color: #ffd166 !important;
+    animation: tt-border-gold-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-gold-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(255,209,102,0.4), 0 0.2cqw 0.6cqw rgba(0,0,0,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(255,209,102,0.9), 0 0 28px rgba(255,209,102,0.5); }
+}
+/* Blue pulse */
+.tt-badge.border-blue {
+    border-color: #38bdf8 !important;
+    animation: tt-border-blue-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-blue-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(56,189,248,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(56,189,248,0.9), 0 0 28px rgba(56,189,248,0.5); }
+}
+/* Red pulse */
+.tt-badge.border-red {
+    border-color: #ef4444 !important;
+    animation: tt-border-red-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tt-border-red-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+    50%      { box-shadow: 0 0 20px rgba(239,68,68,1), 0 0 30px rgba(239,68,68,0.6); }
+}
+/* Purple neon */
+.tt-badge.border-purple {
+    border-color: #a78bfa !important;
+    animation: tt-border-purple-pulse 2.2s ease-in-out infinite;
+}
+@keyframes tt-border-purple-pulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(167,139,250,0.5); }
+    50%      { box-shadow: 0 0 22px rgba(167,139,250,0.95), 0 0 32px rgba(236,72,153,0.4); }
+}
+/* Green */
+.tt-badge.border-green {
+    border-color: #4ade80 !important;
+    animation: tt-border-green-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-green-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(74,222,128,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(74,222,128,0.9); }
+}
+/* Rainbow conic — viền cầu vồng xoay */
+.tt-badge.border-rainbow {
+    border: 2px solid transparent !important;
+    background:
+        linear-gradient(rgba(20,23,31,0.78), rgba(20,23,31,0.78)) padding-box,
+        conic-gradient(from var(--rainbow-angle, 0deg), #ff6b3d, #ffd166, #4ade80, #38bdf8, #a78bfa, #ec4899, #ff6b3d) border-box !important;
+    animation: tt-rainbow-spin 4s linear infinite;
+}
+@property --rainbow-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes tt-rainbow-spin {
+    to { --rainbow-angle: 360deg; }
+}
+/* Fallback nếu browser không support @property (transform rotate dùng pseudo) */
+@supports not (background: paint(something)) {
+    .tt-badge.border-rainbow {
+        background:
+            linear-gradient(rgba(20,23,31,0.78), rgba(20,23,31,0.78)) padding-box,
+            linear-gradient(90deg, #ff6b3d, #ffd166, #4ade80, #38bdf8, #a78bfa, #ec4899, #ff6b3d) border-box !important;
+        background-size: 100% 100%, 400% 100% !important;
+        animation: tt-rainbow-shift 4s linear infinite !important;
+    }
+    @keyframes tt-rainbow-shift {
+        0%   { background-position: 0% 50%, 0% 50%; }
+        100% { background-position: 0% 50%, 400% 50%; }
+    }
+}
+/* Sparkle — viền vàng + dấu sao động */
+.tt-badge.border-sparkle {
+    border-color: #fde047 !important;
+    box-shadow: 0 0 10px rgba(253,224,71,0.5);
+    position: relative;
+}
+.tt-badge.border-sparkle::before,
+.tt-badge.border-sparkle::after {
+    content: '✨';
+    position: absolute;
+    font-size: calc(1cqw * var(--badge-scale));
+    pointer-events: none;
+    animation: tt-sparkle-spin 1.6s ease-in-out infinite;
+    filter: drop-shadow(0 0 3px #fde047);
+    z-index: 3;
+}
+.tt-badge.border-sparkle::before { top: -0.4cqw; left: -0.4cqw; animation-delay: 0s; }
+.tt-badge.border-sparkle::after  { bottom: -0.4cqw; right: -0.4cqw; animation-delay: 0.8s; }
+@keyframes tt-sparkle-spin {
+    0%, 100% { opacity: 0.3; transform: scale(0.7) rotate(0deg); }
+    50%      { opacity: 1;   transform: scale(1.3) rotate(180deg); }
+}
+/* Fire — viền cam-đỏ flicker */
+.tt-badge.border-fire {
+    border-color: #f97316 !important;
+    animation: tt-border-fire 0.6s ease-in-out infinite alternate;
+}
+@keyframes tt-border-fire {
+    0%   { box-shadow: 0 0 10px rgba(249,115,22,0.6), 0 0 18px rgba(239,68,68,0.4); border-color: #f97316; }
+    50%  { box-shadow: 0 0 18px rgba(249,115,22,0.95), 0 0 28px rgba(239,68,68,0.7); border-color: #ef4444; }
+    100% { box-shadow: 0 0 14px rgba(253,224,71,0.7), 0 0 22px rgba(249,115,22,0.5); border-color: #fbbf24; }
+}
+
+/* 🔢 Counter quà — pill NGOÀI vùng cuộn (vertical=trên, horizontal=trái) */
+.tt-badges-counter {
+    z-index: 9;
+    background: linear-gradient(135deg, #ff6b3d, #ec4899);
+    color: #fff;
+    font-size: calc(1.2cqw * var(--badge-scale));
+    font-weight: 700;
+    padding: calc(0.4cqw * var(--badge-scale)) calc(1cqw * var(--badge-scale));
+    border-radius: calc(1.5cqw * var(--badge-scale));
+    line-height: 1.2;
+    pointer-events: none;
+    box-shadow: 0 0.2cqw 0.5cqw rgba(0,0,0,0.5);
+    min-width: calc(2.5cqw * var(--badge-scale));
+    text-align: center;
+    flex-shrink: 0;
+}
+/* Vertical: counter ở TRÊN list, căn giữa horizontally */
+.tt-badges.layout-vertical .tt-badges-counter {
+    align-self: center;
+}
+/* Horizontal: counter ở BÊN TRÁI list, căn giữa vertically */
+.tt-badges.layout-horizontal .tt-badges-counter {
+    align-self: center;
+}
 
 .tt-badge {
     /* KÍCH THƯỚC CỐ ĐỊNH cho TỪNG LAYOUT — namePos chỉ đổi vị trí text bên TRONG card */
@@ -2791,7 +3040,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     box-shadow: 0 0.2cqw 0.6cqw rgba(0,0,0,0.4);
 }
 .tt-badges.layout-vertical .tt-badge {
-    width:  calc(11cqw * var(--badge-scale));
+    width:  calc(7.5cqw * var(--badge-scale));
     height: calc(4.5cqw * var(--badge-scale));
 }
 .tt-badges.layout-horizontal .tt-badge {
@@ -2807,22 +3056,18 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     z-index: 2;
     pointer-events: none;
 }
-/* Text fills card, position relative cố định theo namePos — không bị icon đẩy */
 .tt-badge-name {
     position: absolute;
-    inset: calc(0.5cqw * var(--badge-scale));
-    font-size: calc(1cqw * var(--badge-scale));
+    /* --name-scale (0.5-2.0) — slider Cỡ chữ điều chỉnh độc lập với cỡ card/icon */
+    font-size: calc(1cqw * var(--badge-scale) * var(--name-scale, 1));
     font-weight: 700;
     line-height: 1.2;
-    text-align: center;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
     display: flex;
     align-items: center;
     justify-content: center;
+    text-align: center;
 }
 .tt-badge-name span {
     display: -webkit-box;
@@ -2832,49 +3077,114 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     word-break: break-word;
 }
 
-/* Position icon + text theo namePos — icon có thể overflow card mà KHÔNG che chữ */
-.tt-badge.name-right .tt-badge-ico {
-    left: calc(0.4cqw * var(--badge-scale));
+/* ===== VERTICAL LAYOUT — card hình chữ nhật rộng (icon trái/phải, text ngược lại) ===== */
+/* Card chia thành 2 nửa: icon nửa này, text nửa kia (giáp nhau) */
+
+/* name-right: icon SÁT TRÁI, text fill từ icon→viền phải */
+.tt-badges.layout-vertical .tt-badge.name-right .tt-badge-ico {
+    left: calc(0.3cqw * var(--badge-scale));
     top: 50%;
     transform: translateY(-50%);
 }
-.tt-badge.name-right .tt-badge-name {
-    left: calc(3.5cqw * var(--badge-scale));
+.tt-badges.layout-vertical .tt-badge.name-right .tt-badge-name {
+    /* text offset = icon-left + icon-width(scale-aware) + gap → tránh đè icon */
+    left: calc((0.5cqw + 3cqw * var(--icon-scale)) * var(--badge-scale));
+    right: calc(0.2cqw * var(--badge-scale));
+    top: 0; bottom: 0;
+    justify-content: flex-start;
+    text-align: left;
 }
 
-.tt-badge.name-left .tt-badge-ico {
-    right: calc(0.4cqw * var(--badge-scale));
+/* name-left: icon SÁT PHẢI, text fill từ viền trái→icon */
+.tt-badges.layout-vertical .tt-badge.name-left .tt-badge-ico {
+    right: calc(0.3cqw * var(--badge-scale));
     top: 50%;
     transform: translateY(-50%);
 }
-.tt-badge.name-left .tt-badge-name {
-    right: calc(3.5cqw * var(--badge-scale));
+.tt-badges.layout-vertical .tt-badge.name-left .tt-badge-name {
+    right: calc((0.5cqw + 3cqw * var(--icon-scale)) * var(--badge-scale));
+    left: calc(0.2cqw * var(--badge-scale));
+    top: 0; bottom: 0;
+    justify-content: flex-end;
+    text-align: right;
 }
 
-/* Bottom: icon ở TRÊN card (peek above), text dưới — fit user's reference image */
-.tt-badge.name-bottom .tt-badge-ico {
-    bottom: calc(50% + 0.5cqw * var(--badge-scale));
-    left: 50%;
-    transform: translateX(-50%);
-}
-.tt-badge.name-bottom .tt-badge-name {
-    top: 50%;
-    bottom: calc(0.3cqw * var(--badge-scale));
-    align-items: flex-start;
-    padding-top: calc(0.5cqw * var(--badge-scale));
-}
-
-/* Top: icon ở DƯỚI card, text trên */
-.tt-badge.name-top .tt-badge-ico {
-    top: calc(50% + 0.5cqw * var(--badge-scale));
-    left: 50%;
-    transform: translateX(-50%);
-}
-.tt-badge.name-top .tt-badge-name {
+/* name-top: text ở TRÊN, icon DƯỚI — split top/bottom 50% */
+.tt-badges.layout-vertical .tt-badge.name-top .tt-badge-name {
+    left: 0; right: 0;
+    top: calc(0.2cqw * var(--badge-scale));
     bottom: 50%;
-    top: calc(0.3cqw * var(--badge-scale));
     align-items: flex-end;
-    padding-bottom: calc(0.5cqw * var(--badge-scale));
+    padding-bottom: calc(0.1cqw * var(--badge-scale));
+}
+.tt-badges.layout-vertical .tt-badge.name-top .tt-badge-ico {
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+/* name-bottom: icon ở TRÊN, text DƯỚI */
+.tt-badges.layout-vertical .tt-badge.name-bottom .tt-badge-ico {
+    bottom: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+.tt-badges.layout-vertical .tt-badge.name-bottom .tt-badge-name {
+    left: 0; right: 0;
+    top: 50%;
+    bottom: calc(0.2cqw * var(--badge-scale));
+    align-items: flex-start;
+    padding-top: calc(0.1cqw * var(--badge-scale));
+}
+
+/* ===== HORIZONTAL LAYOUT — card vuông (icon trên/dưới text default) ===== */
+/* name-right + name-left: icon left/right edge, text fill other side */
+.tt-badges.layout-horizontal .tt-badge.name-right .tt-badge-ico,
+.tt-badges.layout-horizontal .tt-badge.name-left .tt-badge-ico {
+    top: 50%;
+    transform: translateY(-50%);
+}
+.tt-badges.layout-horizontal .tt-badge.name-right .tt-badge-ico { left: calc(0.3cqw * var(--badge-scale)); }
+.tt-badges.layout-horizontal .tt-badge.name-left .tt-badge-ico  { right: calc(0.3cqw * var(--badge-scale)); }
+.tt-badges.layout-horizontal .tt-badge.name-right .tt-badge-name {
+    left: calc((0.5cqw + 3cqw * var(--icon-scale)) * var(--badge-scale));
+    right: calc(0.2cqw * var(--badge-scale));
+    top: 0; bottom: 0;
+    justify-content: flex-start;
+    text-align: left;
+}
+.tt-badges.layout-horizontal .tt-badge.name-left .tt-badge-name {
+    right: calc((0.5cqw + 3cqw * var(--icon-scale)) * var(--badge-scale));
+    left: calc(0.2cqw * var(--badge-scale));
+    top: 0; bottom: 0;
+    justify-content: flex-end;
+    text-align: right;
+}
+
+/* name-top: text trên, icon dưới — split top/bottom */
+.tt-badges.layout-horizontal .tt-badge.name-top .tt-badge-name {
+    left: 0; right: 0;
+    top: calc(0.2cqw * var(--badge-scale));
+    bottom: 55%;
+    align-items: flex-end;
+}
+.tt-badges.layout-horizontal .tt-badge.name-top .tt-badge-ico {
+    top: 55%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+/* name-bottom: icon trên, text dưới */
+.tt-badges.layout-horizontal .tt-badge.name-bottom .tt-badge-ico {
+    bottom: 55%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+.tt-badges.layout-horizontal .tt-badge.name-bottom .tt-badge-name {
+    left: 0; right: 0;
+    top: 55%;
+    bottom: calc(0.2cqw * var(--badge-scale));
+    align-items: flex-start;
 }
 
 /* === UFO — VIP PRO version of OSIN: hút 5-10 quà ngẫu nhiên === */
