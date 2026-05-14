@@ -319,17 +319,42 @@ input, button { font-family: inherit; }
 .feat.compact { font-size: 12px; font-weight: 600; }
 .badges-cfg-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: 1fr 1fr 1.4fr;
+    gap: 10px;
+    align-items: end;
 }
-.badges-cfg-col { display: flex; flex-direction: column; gap: 4px; }
-.badges-cfg-col > label { font-size: 11px; color: #8b93a8; font-weight: 600; }
-.badges-cfg-col .cfg-select { min-width: 0; width: 100%; padding: 5px 8px; }
-.range-with-val {
-    display: flex; align-items: center; gap: 6px;
+.badges-cfg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.badges-cfg-col > label {
+    font-size: 10px;
+    color: #8b93a8;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
 }
-.range-with-val input[type="range"] { flex: 1; min-width: 0; }
-.range-with-val .cfg-val { font-size: 11px; min-width: 28px; text-align: right; }
+.badges-cfg-col > label .cfg-val {
+    font-size: 11px;
+    color: #ff6b3d;
+    font-weight: 700;
+    text-transform: none;
+}
+.badges-cfg-col .cfg-select {
+    min-width: 0;
+    width: 100%;
+    padding: 6px 28px 6px 10px;
+    font-size: 12px;
+    height: 32px;
+    background-color: #0f1218;
+}
+.badges-cfg-col-scale input[type="range"] {
+    width: 100%;
+    height: 32px;
+    accent-color: #ff6b3d;
+    margin: 0;
+}
 
 /* Badges extras row trong tab Quà */
 .badges-extras-row {

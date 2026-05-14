@@ -294,20 +294,17 @@
                                             </select>
                                         </div>
                                         <div class="badges-cfg-col" title="Vị trí chữ mặc định cho tất cả badge (per-card vẫn override được)">
-                                            <label>Vị trí chữ</label>
+                                            <label>Vị trí</label>
                                             <select id="cfg-badges-namepos" class="cfg-select">
-                                                <option value="right">Phải icon</option>
-                                                <option value="left">Trái icon</option>
-                                                <option value="top">Trên icon</option>
-                                                <option value="bottom">Dưới icon</option>
+                                                <option value="right">Phải</option>
+                                                <option value="left">Trái</option>
+                                                <option value="top">Trên</option>
+                                                <option value="bottom">Dưới</option>
                                             </select>
                                         </div>
-                                        <div class="badges-cfg-col" title="Kích thước badge (0.5x - 2.0x)">
-                                            <label>Cỡ</label>
-                                            <div class="range-with-val">
-                                                <input type="range" id="cfg-badges-scale" min="0.5" max="2.0" step="0.05"/>
-                                                <span class="cfg-val" id="cfg-badges-scale-v">1.0</span>
-                                            </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Kích thước badge (0.5x - 2.0x)">
+                                            <label>Cỡ <span class="cfg-val" id="cfg-badges-scale-v">1.0</span></label>
+                                            <input type="range" id="cfg-badges-scale" min="0.5" max="2.0" step="0.05"/>
                                         </div>
                                     </div>
                                     <div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">
@@ -876,24 +873,13 @@
             </div>
             <div class="modal-body">
                 <div class="modal-section">
-                    <div class="modal-sec-title">Chọn từ danh sách quà có sẵn</div>
+                    <div class="modal-sec-title">Chọn từ danh sách quà</div>
                     <input type="text" id="ebm-search" class="text-input" placeholder="Tìm quà theo tên hoặc ID..." style="width:100%;margin-bottom:8px"/>
-                    <div id="ebm-picker" class="ef-gift-picker" style="max-height:220px;overflow-y:auto"></div>
-                </div>
-                <div class="modal-section">
-                    <div class="modal-sec-title">Hoặc nhập quà tùy chỉnh</div>
-                    <div class="ef-param-row">
-                        <label class="ef-param-lbl">Gift ID</label>
-                        <input type="text" id="ebm-id" class="text-input" placeholder="VD: 99001" style="flex:1"/>
-                    </div>
-                    <div class="ef-param-row">
-                        <label class="ef-param-lbl">Tên quà</label>
-                        <input type="text" id="ebm-name" class="text-input" placeholder="VD: Quà Test" style="flex:1"/>
-                    </div>
-                    <div class="ef-param-row">
-                        <label class="ef-param-lbl">URL ảnh</label>
-                        <input type="text" id="ebm-image" class="text-input" placeholder="https://... (có thể để trống)" style="flex:1"/>
-                    </div>
+                    <div id="ebm-picker" class="ef-gift-picker" style="max-height:320px;overflow-y:auto"></div>
+                    <!-- hidden inputs kept for backward compat with save handler -->
+                    <input type="hidden" id="ebm-id"/>
+                    <input type="hidden" id="ebm-name"/>
+                    <input type="hidden" id="ebm-image"/>
                 </div>
                 <div class="modal-section">
                     <div class="modal-sec-title">Hiển thị badge</div>

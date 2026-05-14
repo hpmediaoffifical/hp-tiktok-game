@@ -1753,7 +1753,7 @@
         const f = (filter || '').trim().toLowerCase();
         const list = (giftSheet || []).filter(g =>
             !f || g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
-        ).slice(0, 60);   // limit
+        );   // KHÔNG limit — hiển thị toàn bộ giftSheet (600+ quà)
         const frag = document.createDocumentFragment();
         for (const g of list) {
             const card = document.createElement('div');
