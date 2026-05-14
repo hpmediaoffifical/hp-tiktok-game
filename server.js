@@ -1832,7 +1832,7 @@ app.post('/api/games/:id/test-gift', (req, res) => {
     const repeatCount = parseInt(body.count, 10) || 1;
     emitGift({
         uniqueId: body.uniqueId || 'tester',
-        nickname: body.nickname || 'Test',
+        nickname: body.nickname || 'HP Media',
         giftId,
         giftName: sheetItem?.name || body.giftName || 'Gift',
         giftPicture: sheetItem?.image,

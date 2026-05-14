@@ -1567,7 +1567,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 
 /* 🏷 Badge visibility toggle — checkbox custom, bật/tắt hiện badge trên overlay */
 .trigger-badge-toggle {
-    width: 26px; height: 26px;
+    width: 100%; height: 26px;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
     position: relative;
@@ -2821,65 +2821,69 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     display: block;
 }
 
-/* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect === */
+/* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect ===
+   Structure: .tt-badges (drag wrapper) > [.tt-badges-counter, .tt-badges-list]
+   Counter NGOÀI vùng cuộn (vertical=trên, horizontal=trái) */
 .tt-badges {
     --badge-scale: 1;
     --icon-scale: 1;
     --badge-gap: 0.8;
     position: absolute;
     display: flex;
-    gap: calc(var(--badge-gap) * 1cqw * var(--badge-scale));
+    align-items: flex-start;
+    gap: calc(0.6cqw * var(--badge-scale));
     pointer-events: auto;
     cursor: grab;
     z-index: 8;
-    /* overflow: visible — icon to (iconScale>1) tràn ra ngoài card vẫn hiển thị đầy đủ */
-    overflow: visible;
-    /* Padding để icon có chỗ "thở" ra ngoài bounding box mà KHÔNG bị cắt bởi parent */
-    padding: calc(2cqw * var(--icon-scale));
 }
 .tt-badges.tt-dragging { cursor: grabbing; }
 /* Khi đã có vị trí user-saved (tt-positioned), bỏ các pos-* default */
 .tt-badges.tt-positioned { top: auto; left: auto; right: auto; bottom: auto; }
+/* Khóa: ngăn drag, ẩn cursor:grab */
+.tt-badges.tt-locked { cursor: default; }
+.tt-badges.tt-locked.tt-dragging { cursor: default; }
+/* Vertical: counter trên, list dưới */
 .tt-badges.layout-vertical   { flex-direction: column; top: 2%; left: 2%; }
-.tt-badges.layout-horizontal { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; top: 2%; left: 2%; }
+/* Horizontal: counter trái, list phải */
+.tt-badges.layout-horizontal { flex-direction: row; top: 2%; left: 2%; }
+
+/* .tt-badges-list — inner scroll/flex container chứa badges */
+.tt-badges-list {
+    display: flex;
+    gap: calc(var(--badge-gap) * 1cqw * var(--badge-scale));
+    overflow: visible;
+    padding: calc(2cqw * var(--icon-scale));
+}
+.tt-badges.layout-vertical  .tt-badges-list { flex-direction: column; }
+.tt-badges.layout-horizontal .tt-badges-list { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; }
 
 /* ===== 🎞 Auto-scroll marquee — danh sách quà tự cuộn vô hạn =====
-   Khi cfg.autoScroll.enabled = true:
-   - Container clip cứng visibleCount cards
-   - Inner .tt-badges-track duplicate badges để loop seamless
-   - Direction: up/down (vertical) | left/right (horizontal) */
-.tt-badges.tt-auto-scroll {
+   Apply ON .tt-badges-list (inner scroll container) */
+.tt-badges-list.tt-auto-scroll {
     overflow: hidden;
     flex-wrap: nowrap !important;
     max-width: none;
 }
-.tt-badges.tt-auto-scroll .tt-badges-track {
+.tt-badges-list.tt-auto-scroll .tt-badges-track {
     display: flex;
     flex-shrink: 0;
 }
-.tt-badges.layout-vertical.tt-auto-scroll {
-    flex-direction: column;
-}
-.tt-badges.layout-vertical.tt-auto-scroll .tt-badges-track {
+.tt-badges.layout-vertical .tt-badges-list.tt-auto-scroll .tt-badges-track {
     flex-direction: column;
     gap: inherit;
     animation: tt-marquee-y var(--scroll-duration, 30s) linear infinite;
 }
-.tt-badges.layout-horizontal.tt-auto-scroll {
-    flex-direction: row;
-}
-.tt-badges.layout-horizontal.tt-auto-scroll .tt-badges-track {
+.tt-badges.layout-horizontal .tt-badges-list.tt-auto-scroll .tt-badges-track {
     flex-direction: row;
     gap: inherit;
     animation: tt-marquee-x var(--scroll-duration, 30s) linear infinite;
 }
-/* Đảo chiều: down (vertical từ trên xuống) | right (horizontal từ trái sang) */
-.tt-badges.tt-auto-scroll.tt-scroll-down .tt-badges-track,
-.tt-badges.tt-auto-scroll.tt-scroll-right .tt-badges-track {
+/* Đảo chiều */
+.tt-badges-list.tt-auto-scroll.tt-scroll-down .tt-badges-track,
+.tt-badges-list.tt-auto-scroll.tt-scroll-right .tt-badges-track {
     animation-direction: reverse;
 }
-/* Hover-pause: stream operator hover để đọc kỹ */
-.tt-badges.tt-auto-scroll:hover .tt-badges-track {
+.tt-badges-list.tt-auto-scroll:hover .tt-badges-track {
     animation-play-state: paused;
 }
 @keyframes tt-marquee-y {
@@ -2891,33 +2895,134 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     100% { transform: translateX(-50%); }
 }
 
-/* 🔢 Counter quà — sticky pill ở top-right (vertical) hoặc bottom-right (horizontal) */
+/* ===== ✨ Border Effects per Badge — 8 styles ===== */
+/* Gold pulse */
+.tt-badge.border-gold {
+    border-color: #ffd166 !important;
+    animation: tt-border-gold-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-gold-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(255,209,102,0.4), 0 0.2cqw 0.6cqw rgba(0,0,0,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(255,209,102,0.9), 0 0 28px rgba(255,209,102,0.5); }
+}
+/* Blue pulse */
+.tt-badge.border-blue {
+    border-color: #38bdf8 !important;
+    animation: tt-border-blue-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-blue-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(56,189,248,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(56,189,248,0.9), 0 0 28px rgba(56,189,248,0.5); }
+}
+/* Red pulse */
+.tt-badge.border-red {
+    border-color: #ef4444 !important;
+    animation: tt-border-red-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tt-border-red-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+    50%      { box-shadow: 0 0 20px rgba(239,68,68,1), 0 0 30px rgba(239,68,68,0.6); }
+}
+/* Purple neon */
+.tt-badge.border-purple {
+    border-color: #a78bfa !important;
+    animation: tt-border-purple-pulse 2.2s ease-in-out infinite;
+}
+@keyframes tt-border-purple-pulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(167,139,250,0.5); }
+    50%      { box-shadow: 0 0 22px rgba(167,139,250,0.95), 0 0 32px rgba(236,72,153,0.4); }
+}
+/* Green */
+.tt-badge.border-green {
+    border-color: #4ade80 !important;
+    animation: tt-border-green-pulse 2s ease-in-out infinite;
+}
+@keyframes tt-border-green-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(74,222,128,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(74,222,128,0.9); }
+}
+/* Rainbow conic — viền cầu vồng xoay */
+.tt-badge.border-rainbow {
+    border: 2px solid transparent !important;
+    background:
+        linear-gradient(rgba(20,23,31,0.78), rgba(20,23,31,0.78)) padding-box,
+        conic-gradient(from var(--rainbow-angle, 0deg), #ff6b3d, #ffd166, #4ade80, #38bdf8, #a78bfa, #ec4899, #ff6b3d) border-box !important;
+    animation: tt-rainbow-spin 4s linear infinite;
+}
+@property --rainbow-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes tt-rainbow-spin {
+    to { --rainbow-angle: 360deg; }
+}
+/* Fallback nếu browser không support @property (transform rotate dùng pseudo) */
+@supports not (background: paint(something)) {
+    .tt-badge.border-rainbow {
+        background:
+            linear-gradient(rgba(20,23,31,0.78), rgba(20,23,31,0.78)) padding-box,
+            linear-gradient(90deg, #ff6b3d, #ffd166, #4ade80, #38bdf8, #a78bfa, #ec4899, #ff6b3d) border-box !important;
+        background-size: 100% 100%, 400% 100% !important;
+        animation: tt-rainbow-shift 4s linear infinite !important;
+    }
+    @keyframes tt-rainbow-shift {
+        0%   { background-position: 0% 50%, 0% 50%; }
+        100% { background-position: 0% 50%, 400% 50%; }
+    }
+}
+/* Sparkle — viền vàng + dấu sao động */
+.tt-badge.border-sparkle {
+    border-color: #fde047 !important;
+    box-shadow: 0 0 10px rgba(253,224,71,0.5);
+    position: relative;
+}
+.tt-badge.border-sparkle::before,
+.tt-badge.border-sparkle::after {
+    content: '✨';
+    position: absolute;
+    font-size: calc(1cqw * var(--badge-scale));
+    pointer-events: none;
+    animation: tt-sparkle-spin 1.6s ease-in-out infinite;
+    filter: drop-shadow(0 0 3px #fde047);
+    z-index: 3;
+}
+.tt-badge.border-sparkle::before { top: -0.4cqw; left: -0.4cqw; animation-delay: 0s; }
+.tt-badge.border-sparkle::after  { bottom: -0.4cqw; right: -0.4cqw; animation-delay: 0.8s; }
+@keyframes tt-sparkle-spin {
+    0%, 100% { opacity: 0.3; transform: scale(0.7) rotate(0deg); }
+    50%      { opacity: 1;   transform: scale(1.3) rotate(180deg); }
+}
+/* Fire — viền cam-đỏ flicker */
+.tt-badge.border-fire {
+    border-color: #f97316 !important;
+    animation: tt-border-fire 0.6s ease-in-out infinite alternate;
+}
+@keyframes tt-border-fire {
+    0%   { box-shadow: 0 0 10px rgba(249,115,22,0.6), 0 0 18px rgba(239,68,68,0.4); border-color: #f97316; }
+    50%  { box-shadow: 0 0 18px rgba(249,115,22,0.95), 0 0 28px rgba(239,68,68,0.7); border-color: #ef4444; }
+    100% { box-shadow: 0 0 14px rgba(253,224,71,0.7), 0 0 22px rgba(249,115,22,0.5); border-color: #fbbf24; }
+}
+
+/* 🔢 Counter quà — pill NGOÀI vùng cuộn (vertical=trên, horizontal=trái) */
 .tt-badges-counter {
     z-index: 9;
     background: linear-gradient(135deg, #ff6b3d, #ec4899);
     color: #fff;
-    font-size: calc(0.9cqw * var(--badge-scale));
+    font-size: calc(1.2cqw * var(--badge-scale));
     font-weight: 700;
-    padding: calc(0.25cqw * var(--badge-scale)) calc(0.7cqw * var(--badge-scale));
-    border-radius: calc(1cqw * var(--badge-scale));
+    padding: calc(0.4cqw * var(--badge-scale)) calc(1cqw * var(--badge-scale));
+    border-radius: calc(1.5cqw * var(--badge-scale));
     line-height: 1.2;
     pointer-events: none;
     box-shadow: 0 0.2cqw 0.5cqw rgba(0,0,0,0.5);
-    min-width: calc(2cqw * var(--badge-scale));
+    min-width: calc(2.5cqw * var(--badge-scale));
     text-align: center;
     flex-shrink: 0;
 }
-/* Vertical: sticky top, đẩy sang phải bằng align-self */
+/* Vertical: counter ở TRÊN list, căn giữa horizontally */
 .tt-badges.layout-vertical .tt-badges-counter {
-    position: sticky;
-    top: 0;
-    align-self: flex-end;
+    align-self: center;
 }
-/* Horizontal: sticky left (counter là first child), lên trên bằng align-self */
+/* Horizontal: counter ở BÊN TRÁI list, căn giữa vertically */
 .tt-badges.layout-horizontal .tt-badges-counter {
-    position: sticky;
-    left: 0;
-    align-self: flex-start;
+    align-self: center;
 }
 
 .tt-badge {

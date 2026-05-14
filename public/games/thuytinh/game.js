@@ -145,6 +145,7 @@
                 iconScale: 1.6,            // 0.5-2.5 — icon to, tràn card
                 nameScale: 1.0,            // 0.5-2.0 — cỡ chữ tên quà (độc lập icon/card)
                 gap: 2.5,                  // 0-3cqw — khoảng cách rộng cho layout dọc
+                locked: false,             // true → khóa vị trí, không cho kéo thả
                 items: {},                 // giftId → { customLabel, namePos, enabled } — per-badge override
                 extras: [],                // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
                 // 🎞 Auto-scroll marquee — tự cuộn vô hạn (1 hàng/cột, chỉ hiện N quà)
@@ -2170,7 +2171,8 @@
             const keepDragging = el.classList.contains('tt-dragging');
             el.className = 'tt-badges tt-drag-panel layout-' + (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')
                 + (keepPositioned ? ' tt-positioned' : '')
-                + (keepDragging ? ' tt-dragging' : '');
+                + (keepDragging ? ' tt-dragging' : '')
+                + (cfg.locked ? ' tt-locked' : '');
             // Apply iconScale via CSS custom property — cascade tới mọi .tt-badge bên trong
             el.style.setProperty('--icon-scale', String(cfg.iconScale ?? 1));
             el.style.setProperty('--badge-scale', String(cfg.scale || 1));
@@ -2205,8 +2207,9 @@
                 if (!giftMeta) continue;
                 const label = (itemCfg.customLabel || actionLabel(action) || action).trim();
                 const namePos = itemCfg.namePos || globalNamePos;
+                const borderStyle = (itemCfg.borderStyle && itemCfg.borderStyle !== 'none') ? itemCfg.borderStyle : '';
                 const badge = document.createElement('div');
-                badge.className = 'tt-badge name-' + namePos;
+                badge.className = 'tt-badge name-' + namePos + (borderStyle ? ' border-' + borderStyle : '');
                 badge.title = `${giftMeta.name || ''} · ${label}`;
                 badge.innerHTML = `
                     <img class="tt-badge-ico" src="${escAttr(iconSrc(giftMeta.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
@@ -2221,8 +2224,9 @@
                 if (!ex.id || !ex.name) continue;
                 const label = (ex.customLabel || ex.name).trim();
                 const namePos = ex.namePos || globalNamePos;
+                const borderStyle = (ex.borderStyle && ex.borderStyle !== 'none') ? ex.borderStyle : '';
                 const badge = document.createElement('div');
-                badge.className = 'tt-badge name-' + namePos;
+                badge.className = 'tt-badge name-' + namePos + (borderStyle ? ' border-' + borderStyle : '');
                 badge.title = `${ex.name} · ${label}`;
                 badge.innerHTML = `
                     <img class="tt-badge-ico" src="${escAttr(iconSrc(ex.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
@@ -2233,57 +2237,52 @@
             // Đếm trước khi append (fragment.children.length = 0 sau khi append)
             const total = frag.children.length;
             el.innerHTML = '';
-            // 🔢 Counter pill — sticky top-right, hiển thị tổng số badge (chỉ khi ≥ 2)
+            // 🔢 Counter pill — ĐẶT NGOÀI vùng cuộn (vertical=trên, horizontal=trái)
             if (total >= 2) {
                 const counter = document.createElement('div');
                 counter.className = 'tt-badges-counter';
                 counter.textContent = String(total);
                 counter.title = `${total} quà có badge`;
-                el.appendChild(counter);  // FIRST child để sticky-top neo đúng
+                el.appendChild(counter);   // first child — ngoài scroll area
             }
+            // Inner list div — chứa badges + áp dụng scroll/auto-scroll
+            const listEl = document.createElement('div');
+            listEl.className = 'tt-badges-list';
             // 🎞 Auto-scroll marquee — render duplicated track nếu enabled + đủ badges
             const as = cfg.autoScroll || {};
             const visibleCount = Math.max(2, parseInt(as.visibleCount || 5, 10));
             if (as.enabled && total > visibleCount) {
-                // Reset wrap class — auto-scroll force 1 hàng
-                el.classList.add('tt-auto-scroll');
+                listEl.classList.add('tt-auto-scroll');
                 const dir = as.direction || 'up';
-                el.classList.remove('tt-scroll-up','tt-scroll-down','tt-scroll-left','tt-scroll-right');
-                el.classList.add('tt-scroll-' + dir);
+                listEl.classList.add('tt-scroll-' + dir);
                 // Track inner + duplicate badges để loop seamless
                 const track = document.createElement('div');
                 track.className = 'tt-badges-track';
-                track.appendChild(frag);    // original badges
-                // Clone từng badge sang track (frag đã empty sau appendChild)
+                track.appendChild(frag);
                 for (const card of [...track.children]) {
                     track.appendChild(card.cloneNode(true));
                 }
-                el.appendChild(track);
+                listEl.appendChild(track);
                 // Set animation duration: total badges × speed giây
                 const speed = parseFloat(as.speed) || 2;
-                el.style.setProperty('--scroll-duration', (total * speed) + 's');
-                // Size container = visibleCount cards (cqw-based, mọi dimension dùng cqw)
-                const cardSize = (cfg.layout === 'horizontal' ? 7 : 4.5);  // cardW horizontal, cardH vertical
+                listEl.style.setProperty('--scroll-duration', (total * speed) + 's');
+                // Size list = visibleCount cards (cqw-based)
+                const cardSize = (cfg.layout === 'horizontal' ? 7 : 4.5);
                 const scale = parseFloat(cfg.scale) || 1;
                 const gap = parseFloat(cfg.gap ?? 0.8);
                 const iconScale = parseFloat(cfg.iconScale) || 1;
                 const visibleSize = visibleCount * cardSize * scale
                                     + Math.max(0, visibleCount - 1) * gap * scale
-                                    + 4 * iconScale;  // 2× padding cho icon overflow
+                                    + 4 * iconScale;
                 if (cfg.layout === 'horizontal') {
-                    el.style.maxWidth  = visibleSize + 'cqw';
-                    el.style.maxHeight = 'none';
+                    listEl.style.maxWidth = visibleSize + 'cqw';
                 } else {
-                    el.style.maxHeight = visibleSize + 'cqw';
-                    el.style.maxWidth  = 'none';
+                    listEl.style.maxHeight = visibleSize + 'cqw';
                 }
             } else {
-                el.classList.remove('tt-auto-scroll','tt-scroll-up','tt-scroll-down','tt-scroll-left','tt-scroll-right');
-                el.style.removeProperty('--scroll-duration');
-                el.style.maxHeight = '';
-                el.style.maxWidth  = '';
-                el.appendChild(frag);
+                listEl.appendChild(frag);
             }
+            el.appendChild(listEl);
             // Apply user-saved position (nếu user đã kéo trước đó)
             applyPanelPosition('badges', el);
         }
@@ -2338,6 +2337,8 @@
                 panel.addEventListener('mousedown', (ev) => {
                     if (ev.button !== 0) return;
                     if (ev.target.closest('a, button, input, select, textarea')) return;
+                    // Khóa panel — không cho drag (vd badgesLocked = true cho .tt-badges)
+                    if (panel.classList.contains('tt-locked')) return;
                     const stage = overlayLayer.parentElement;
                     const r = stage.getBoundingClientRect();
                     const pr = panel.getBoundingClientRect();

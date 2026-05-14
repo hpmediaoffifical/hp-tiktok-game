@@ -282,8 +282,9 @@
                                 <!-- 🏷 Badge global config — đặt đầu tab Quà -->
                                 <div class="badges-cfg-section">
                                     <div class="badges-cfg-title">🏷 Badge hiệu ứng quà</div>
-                                    <div class="badges-cfg-row">
+                                    <div class="badges-cfg-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
                                         <label class="feat compact"><input type="checkbox" id="cfg-badges-enabled"/> Hiện badge trên overlay</label>
+                                        <label class="feat compact" title="Khóa vị trí badge — không ai kéo được"><input type="checkbox" id="cfg-badges-locked"/> 🔒 Khóa vị trí</label>
                                     </div>
                                     <div class="badges-cfg-grid">
                                         <div class="badges-cfg-col" title="Sắp xếp badge dọc hay ngang">
@@ -364,7 +365,7 @@
                                     <button id="btn-fx-shape" class="ghost small">🎨 Tạo hình</button>
                                 </div>
                                 <div class="quick-test-section">
-                                    <div class="quick-test-title">⚡ Test nhanh quà đã gán hiệu ứng</div>
+                                    <div class="quick-test-title">⚡ Có <span id="quick-test-count">0</span> hiệu ứng đã sẵn sàng</div>
                                     <div class="quick-test-grid" id="quick-test-grid"></div>
                                     <div class="quick-test-empty" id="quick-test-empty">Chưa gán hiệu ứng cho quà nào. Vào tab 🎯 Quà để gán.</div>
                                 </div>
@@ -888,6 +889,20 @@
                             <option value="bottom">Dưới icon</option>
                         </select>
                     </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">✨ Viền badge</label>
+                        <select id="ef-badge-border" class="cfg-select">
+                            <option value="none">Không viền</option>
+                            <option value="gold">🟡 Vàng sáng (pulse)</option>
+                            <option value="blue">🔵 Xanh dương</option>
+                            <option value="red">🔴 Đỏ rực</option>
+                            <option value="purple">🟣 Tím neon</option>
+                            <option value="green">🟢 Xanh lá</option>
+                            <option value="rainbow">🌈 Cầu vồng</option>
+                            <option value="sparkle">✨ Lấp lánh</option>
+                            <option value="fire">🔥 Lửa</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="modal-foot">
@@ -936,6 +951,20 @@
                             <option value="left">Trái icon</option>
                             <option value="top">Trên icon</option>
                             <option value="bottom">Dưới icon</option>
+                        </select>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">✨ Viền badge</label>
+                        <select id="ebm-border" class="cfg-select">
+                            <option value="none">Không viền</option>
+                            <option value="gold">🟡 Vàng sáng (pulse)</option>
+                            <option value="blue">🔵 Xanh dương</option>
+                            <option value="red">🔴 Đỏ rực</option>
+                            <option value="purple">🟣 Tím neon</option>
+                            <option value="green">🟢 Xanh lá</option>
+                            <option value="rainbow">🌈 Cầu vồng</option>
+                            <option value="sparkle">✨ Lấp lánh</option>
+                            <option value="fire">🔥 Lửa</option>
                         </select>
                     </div>
                 </div>

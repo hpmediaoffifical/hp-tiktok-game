@@ -185,6 +185,7 @@
         cfgBadgesGapV: $('#cfg-badges-gap-v'),
         cfgBadgesNameScale: $('#cfg-badges-name-scale'),
         cfgBadgesNameScaleV: $('#cfg-badges-name-scale-v'),
+        cfgBadgesLocked: $('#cfg-badges-locked'),
         cfgBadgesAutoscroll: $('#cfg-badges-autoscroll'),
         cfgBadgesVisible: $('#cfg-badges-visible'),
         cfgBadgesVisibleV: $('#cfg-badges-visible-v'),
@@ -655,6 +656,7 @@
         if (dom.cfgJarTheme) dom.cfgJarTheme.value = cfg.jarTheme || 'default';
         const bdg = cfg.badges || {};
         if (dom.cfgBadgesEnabled) dom.cfgBadgesEnabled.checked = !!bdg.enabled;
+        if (dom.cfgBadgesLocked)  dom.cfgBadgesLocked.checked  = !!bdg.locked;
         if (dom.cfgBadgesLayout) dom.cfgBadgesLayout.value = bdg.layout || 'vertical';
         if (dom.cfgBadgesNamepos) dom.cfgBadgesNamepos.value = bdg.defaultNamePos || (bdg.layout === 'horizontal' ? 'top' : 'right');
         const bScale = bdg.scale ?? 1;
@@ -773,6 +775,7 @@
             jarTheme: dom.cfgJarTheme?.value || 'default',
             badges: {
                 enabled: !!dom.cfgBadgesEnabled?.checked,
+                locked: !!dom.cfgBadgesLocked?.checked,
                 layout: dom.cfgBadgesLayout?.value || 'vertical',
                 defaultNamePos: dom.cfgBadgesNamepos?.value || 'right',
                 scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
@@ -874,9 +877,11 @@
     function renderQuickTestGrid() {
         const grid = document.getElementById('quick-test-grid');
         const empty = document.getElementById('quick-test-empty');
+        const countEl = document.getElementById('quick-test-count');
         if (!grid) return;
         grid.innerHTML = '';
         const entries = Object.entries(currentTriggers || {});
+        if (countEl) countEl.textContent = String(entries.length);
         if (!entries.length) {
             if (empty) empty.hidden = false;
             return;
@@ -909,7 +914,7 @@
                 if (!currentGame) return;
                 fetch(`/api/games/${currentGame.id}/test-gift`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ giftId, count: 1, nickname: 'Test' })
+                    body: JSON.stringify({ giftId, count: 1, nickname: 'HP Media' })
                 }).catch(() => {});
             });
             frag.appendChild(card);
@@ -1038,15 +1043,17 @@
             return;
         }
         section.hidden = false;
-        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: '', enabled: true };
+        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: '', enabled: true, borderStyle: 'none' };
         const enabledEl = document.getElementById('ef-badge-enabled');
         const labelEl = document.getElementById('ef-badge-label');
         const nameposEl = document.getElementById('ef-badge-namepos');
+        const borderEl = document.getElementById('ef-badge-border');
         if (enabledEl) enabledEl.checked = item.enabled !== false;
         if (labelEl) labelEl.value = item.customLabel || '';
         if (labelEl) labelEl.placeholder = ef.label;
         // Default = '' (theo global). User chỉ chọn override khi muốn khác global.
         if (nameposEl) nameposEl.value = item.namePos || '';
+        if (borderEl) borderEl.value = item.borderStyle || 'none';
     }
     // Lưu badge config từ modal vào currentBadgeItems — chỉ lưu namePos nếu KHÔNG rỗng
     function saveBadgeFieldsFromModal() {
@@ -1055,13 +1062,16 @@
         const enabledEl = document.getElementById('ef-badge-enabled');
         const labelEl = document.getElementById('ef-badge-label');
         const nameposEl = document.getElementById('ef-badge-namepos');
+        const borderEl = document.getElementById('ef-badge-border');
         const namePosValue = nameposEl?.value || '';
+        const borderValue = borderEl?.value || 'none';
         const entry = {
             enabled: enabledEl ? !!enabledEl.checked : true,
             customLabel: (labelEl?.value || '').trim()
         };
         // Chỉ lưu namePos nếu user explicit chọn (KHÔNG là "Theo mặc định")
         if (namePosValue) entry.namePos = namePosValue;
+        if (borderValue && borderValue !== 'none') entry.borderStyle = borderValue;
         currentBadgeItems[giftId] = entry;
     }
     function closeEffectModal() {
@@ -1777,6 +1787,7 @@
     dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
     dom.cfgBadgesEnabled?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesLocked?.addEventListener('change', pushConfigUpdate);
     // Preset cỡ card / icon / gap / chữ đẹp cho từng combo layout — auto-fill khi đổi layout
     const BADGE_PRESETS = {
         vertical:   { scale: 1.25, iconScale: 1.6,  gap: 2.5, nameScale: 1.0 },
@@ -1840,6 +1851,8 @@
         document.getElementById('ebm-image').value = '';
         document.getElementById('ebm-label').value = '';
         document.getElementById('ebm-namepos').value = '';   // 'Theo mặc định'
+        const ebmBorder = document.getElementById('ebm-border');
+        if (ebmBorder) ebmBorder.value = 'none';
         document.getElementById('ebm-search').value = '';
         ebmMinDiamond = 0;
         renderDiamondChips();
@@ -1930,12 +1943,14 @@
         const image = (document.getElementById('ebm-image').value || '').trim();
         const customLabel = (document.getElementById('ebm-label').value || '').trim();
         const namePosValue = document.getElementById('ebm-namepos').value || '';
+        const borderValue = document.getElementById('ebm-border')?.value || 'none';
         if (!id || !name) return flashTriggerToast('⚠ Cần Gift ID và Tên quà (chọn từ danh sách hoặc nhập tay)');
         // Avoid duplicate by id
         const existsIdx = currentBadgeExtras.findIndex(e => String(e.id) === id);
         const entry = { id, name, image, customLabel, enabled: true };
         // Chỉ lưu namePos nếu user explicit chọn (không là 'Theo mặc định')
         if (namePosValue) entry.namePos = namePosValue;
+        if (borderValue && borderValue !== 'none') entry.borderStyle = borderValue;
         if (existsIdx >= 0) currentBadgeExtras[existsIdx] = entry;
         else currentBadgeExtras.push(entry);
         renderBadgeExtrasList();
@@ -2017,8 +2032,8 @@
         const list = recent.length ? recent : pool;
         const pick = list.length ? list[Math.floor(Math.random() * list.length)] : null;
         const thief = pick
-            ? { name: pick.nickname || pick.uniqueId || 'Khách', avatar: pick.avatar, uid: pick.uid }
-            : { name: 'Khách' };
+            ? { name: pick.nickname || pick.uniqueId || 'HP Media', avatar: pick.avatar, uid: pick.uid }
+            : { name: 'HP Media' };
         // triggerThief mutate thief.mode (rope/runner) — sendCmd sau đó sẽ gồm mode cho OBS
         gameInstance.triggerThief(thief);
         sendCmd('thief', { thieves: [thief] });
