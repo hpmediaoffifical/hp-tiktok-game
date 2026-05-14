@@ -293,13 +293,13 @@
                                                 <option value="horizontal">Ngang</option>
                                             </select>
                                         </div>
-                                        <div class="badges-cfg-col" title="Vị trí container badge trên canvas (reset drag)">
-                                            <label>Vị trí</label>
-                                            <select id="cfg-badges-position" class="cfg-select">
-                                                <option value="top-left">Trên-trái</option>
-                                                <option value="top-right">Trên-phải</option>
-                                                <option value="bottom-left">Dưới-trái</option>
-                                                <option value="bottom-right">Dưới-phải</option>
+                                        <div class="badges-cfg-col" title="Vị trí chữ mặc định cho tất cả badge (per-card vẫn override được)">
+                                            <label>Vị trí chữ</label>
+                                            <select id="cfg-badges-namepos" class="cfg-select">
+                                                <option value="right">Phải icon</option>
+                                                <option value="left">Trái icon</option>
+                                                <option value="top">Trên icon</option>
+                                                <option value="bottom">Dưới icon</option>
                                             </select>
                                         </div>
                                         <div class="badges-cfg-col" title="Kích thước badge (0.5x - 2.0x)">
@@ -309,6 +309,9 @@
                                                 <span class="cfg-val" id="cfg-badges-scale-v">1.0</span>
                                             </div>
                                         </div>
+                                    </div>
+                                    <div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">
+                                        💡 Vị trí container: kéo thả trên overlay app để di chuyển tự do.
                                     </div>
                                     <div class="badges-extras-row">
                                         <div class="badges-extras-title">Badge thủ công bổ sung</div>

@@ -176,7 +176,7 @@
         cfgJarTheme: $('#cfg-jar-theme'),
         cfgBadgesEnabled: $('#cfg-badges-enabled'),
         cfgBadgesLayout: $('#cfg-badges-layout'),
-        cfgBadgesPosition: $('#cfg-badges-position'),
+        cfgBadgesNamepos: $('#cfg-badges-namepos'),
         cfgBadgesScale: $('#cfg-badges-scale'),
         cfgBadgesScaleV: $('#cfg-badges-scale-v'),
         saveStatus: $('#save-status'),
@@ -644,7 +644,7 @@
         const bdg = cfg.badges || {};
         if (dom.cfgBadgesEnabled) dom.cfgBadgesEnabled.checked = !!bdg.enabled;
         if (dom.cfgBadgesLayout) dom.cfgBadgesLayout.value = bdg.layout || 'vertical';
-        if (dom.cfgBadgesPosition) dom.cfgBadgesPosition.value = bdg.position || 'top-left';
+        if (dom.cfgBadgesNamepos) dom.cfgBadgesNamepos.value = bdg.defaultNamePos || (bdg.layout === 'horizontal' ? 'top' : 'right');
         const bScale = bdg.scale ?? 1;
         if (dom.cfgBadgesScale) dom.cfgBadgesScale.value = String(bScale);
         if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = bScale;
@@ -743,7 +743,7 @@
             badges: {
                 enabled: !!dom.cfgBadgesEnabled?.checked,
                 layout: dom.cfgBadgesLayout?.value || 'vertical',
-                position: dom.cfgBadgesPosition?.value || 'top-left',
+                defaultNamePos: dom.cfgBadgesNamepos?.value || 'right',
                 scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
                 items: JSON.parse(JSON.stringify(currentBadgeItems || {})),
                 extras: JSON.parse(JSON.stringify(currentBadgeExtras || []))
@@ -1709,17 +1709,7 @@
         }
         pushConfigUpdate();
     });
-    dom.cfgBadgesPosition?.addEventListener('change', () => {
-        // Same: reset drag pos để dropdown control vị trí
-        if (currentGame) {
-            const cfg = gameInstance?.getConfig() || {};
-            if (cfg.panelPositions?.badges) {
-                cfg.panelPositions.badges = null;
-                gameInstance.setConfig(cfg);
-            }
-        }
-        pushConfigUpdate();
-    });
+    dom.cfgBadgesNamepos?.addEventListener('change', pushConfigUpdate);
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
 
     // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
@@ -1751,16 +1741,19 @@
         const frag = document.createDocumentFragment();
         for (const g of list) {
             const card = document.createElement('div');
-            card.className = 'ef-gift-pick-card';
+            card.className = 'pg';
             card.innerHTML = `
                 <img src="${g.image || ''}" onerror="this.style.display='none'"/>
-                <div class="ef-gp-name">${(g.name || '').replace(/[<>]/g,'')}</div>
-                <div class="ef-gp-id">ID ${g.id}</div>
+                <div class="nm">${(g.name || '').replace(/[<>]/g,'')}</div>
+                <div class="di">ID ${g.id}</div>
             `;
             card.addEventListener('click', () => {
                 document.getElementById('ebm-id').value = g.id;
                 document.getElementById('ebm-name').value = g.name || '';
                 document.getElementById('ebm-image').value = g.image || '';
+                // highlight selected
+                picker.querySelectorAll('.pg.pg-active').forEach(el => el.classList.remove('pg-active'));
+                card.classList.add('pg-active');
             });
             frag.appendChild(card);
         }

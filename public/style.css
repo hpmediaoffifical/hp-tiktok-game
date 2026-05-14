@@ -2690,12 +2690,8 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .tt-badges.tt-dragging { cursor: grabbing; }
 /* Khi đã có vị trí user-saved (tt-positioned), bỏ các pos-* default */
 .tt-badges.tt-positioned { top: auto; left: auto; right: auto; bottom: auto; }
-.tt-badges.layout-vertical   { flex-direction: column; }
-.tt-badges.layout-horizontal { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; }
-.tt-badges.pos-top-left      { top: 2%; left: 2%; }
-.tt-badges.pos-top-right     { top: 2%; right: 2%; }
-.tt-badges.pos-bottom-left   { bottom: 2%; left: 2%; }
-.tt-badges.pos-bottom-right  { bottom: 2%; right: 2%; }
+.tt-badges.layout-vertical   { flex-direction: column; top: 2%; left: 2%; }
+.tt-badges.layout-horizontal { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; top: 2%; left: 2%; }
 
 .tt-badge {
     /* KÍCH THƯỚC CỐ ĐỊNH cho TỪNG LAYOUT — namePos chỉ đổi vị trí text bên TRONG card */

@@ -140,9 +140,10 @@
             badges: {
                 enabled: false,            // master switch: hiện badges trên overlay
                 layout: 'vertical',        // 'vertical' (stacked) | 'horizontal' (row)
-                position: 'top-left',      // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+                defaultNamePos: 'right',   // 'left'|'right'|'top'|'bottom' — vị trí chữ default
                 scale: 1.0,                // 0.5-2.0
-                items: {}                  // giftId → { customLabel, namePos: 'left'|'right'|'top'|'bottom', enabled }
+                items: {},                 // giftId → { customLabel, namePos, enabled } — per-badge override
+                extras: []                 // [{id, name, image, customLabel, namePos, enabled}] — thủ công bổ sung
             }
         };
     }
@@ -2154,10 +2155,10 @@
             if (!cfg.enabled) { el.style.display = 'none'; el.innerHTML = ''; return; }
             el.style.display = '';
             // Reset & apply container class — GIỮ tt-drag-panel + class tt-positioned cho drag
+            // Container vị trí default top-left, user drag để move tự do
             const keepPositioned = el.classList.contains('tt-positioned');
             const keepDragging = el.classList.contains('tt-dragging');
             el.className = 'tt-badges tt-drag-panel layout-' + (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')
-                + ' pos-' + (cfg.position || 'top-left')
                 + (keepPositioned ? ' tt-positioned' : '')
                 + (keepDragging ? ' tt-dragging' : '');
             el.style.setProperty('--badge-scale', String(cfg.scale || 1));
@@ -2175,6 +2176,8 @@
                     localMap[String(b.gm.id)] = { id: b.gm.id, name: b.gm.name, image: b.gm.img?.src || '' };
                 }
             }
+            // Default namePos cho tất cả badges nếu per-card không set
+            const globalNamePos = cfg.defaultNamePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
             const frag = document.createDocumentFragment();
             // 1. Badges từ triggers (effects đã gán)
             for (const giftId of Object.keys(triggers)) {
@@ -2184,7 +2187,7 @@
                 const giftMeta = localMap[String(giftId)];
                 if (!giftMeta) continue;
                 const label = (itemCfg.customLabel || actionLabel(action) || action).trim();
-                const namePos = itemCfg.namePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
+                const namePos = itemCfg.namePos || globalNamePos;
                 const badge = document.createElement('div');
                 badge.className = 'tt-badge name-' + namePos;
                 badge.title = `${giftMeta.name || ''} · ${label}`;
@@ -2200,7 +2203,7 @@
                 if (ex.enabled === false) continue;
                 if (!ex.id || !ex.name) continue;
                 const label = (ex.customLabel || ex.name).trim();
-                const namePos = ex.namePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
+                const namePos = ex.namePos || globalNamePos;
                 const badge = document.createElement('div');
                 badge.className = 'tt-badge name-' + namePos;
                 badge.title = `${ex.name} · ${label}`;
