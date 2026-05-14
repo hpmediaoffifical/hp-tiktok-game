@@ -972,27 +972,31 @@
             return;
         }
         section.hidden = false;
-        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: 'right', enabled: true };
+        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: '', enabled: true };
         const enabledEl = document.getElementById('ef-badge-enabled');
         const labelEl = document.getElementById('ef-badge-label');
         const nameposEl = document.getElementById('ef-badge-namepos');
         if (enabledEl) enabledEl.checked = item.enabled !== false;
         if (labelEl) labelEl.value = item.customLabel || '';
         if (labelEl) labelEl.placeholder = ef.label;
-        if (nameposEl) nameposEl.value = item.namePos || 'right';
+        // Default = '' (theo global). User chỉ chọn override khi muốn khác global.
+        if (nameposEl) nameposEl.value = item.namePos || '';
     }
-    // Lưu badge config từ modal vào currentBadgeItems
+    // Lưu badge config từ modal vào currentBadgeItems — chỉ lưu namePos nếu KHÔNG rỗng
     function saveBadgeFieldsFromModal() {
         const giftId = editingDraft?.giftId;
         if (!giftId || editingEffect?.multi) return;
         const enabledEl = document.getElementById('ef-badge-enabled');
         const labelEl = document.getElementById('ef-badge-label');
         const nameposEl = document.getElementById('ef-badge-namepos');
-        currentBadgeItems[giftId] = {
+        const namePosValue = nameposEl?.value || '';
+        const entry = {
             enabled: enabledEl ? !!enabledEl.checked : true,
-            customLabel: (labelEl?.value || '').trim(),
-            namePos: nameposEl?.value || 'right'
+            customLabel: (labelEl?.value || '').trim()
         };
+        // Chỉ lưu namePos nếu user explicit chọn (KHÔNG là "Theo mặc định")
+        if (namePosValue) entry.namePos = namePosValue;
+        currentBadgeItems[giftId] = entry;
     }
     function closeEffectModal() {
         modal.hidden = true;
@@ -1709,7 +1713,19 @@
         }
         pushConfigUpdate();
     });
-    dom.cfgBadgesNamepos?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesNamepos?.addEventListener('change', () => {
+        // Khi đổi GLOBAL namePos → clear all per-card overrides (cả items + extras)
+        // để TẤT CẢ badges đồng loạt theo global. Nếu user muốn per-card khác, edit lại.
+        // Fix vấn đề: card cũ giữ namePos override → không follow global khi đổi.
+        for (const id of Object.keys(currentBadgeItems)) {
+            if (currentBadgeItems[id]) delete currentBadgeItems[id].namePos;
+        }
+        for (const ex of currentBadgeExtras) {
+            if (ex) delete ex.namePos;
+        }
+        renderBadgeExtrasList();   // refresh extras list display
+        pushConfigUpdate(true);
+    });
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
 
     // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
@@ -1769,11 +1785,13 @@
         const name = (document.getElementById('ebm-name').value || '').trim();
         const image = (document.getElementById('ebm-image').value || '').trim();
         const customLabel = (document.getElementById('ebm-label').value || '').trim();
-        const namePos = document.getElementById('ebm-namepos').value || 'right';
+        const namePosValue = document.getElementById('ebm-namepos').value || '';
         if (!id || !name) return flashTriggerToast('⚠ Cần Gift ID và Tên quà (chọn từ danh sách hoặc nhập tay)');
         // Avoid duplicate by id
         const existsIdx = currentBadgeExtras.findIndex(e => String(e.id) === id);
-        const entry = { id, name, image, customLabel, namePos, enabled: true };
+        const entry = { id, name, image, customLabel, enabled: true };
+        // Chỉ lưu namePos nếu user explicit chọn (không là 'Theo mặc định')
+        if (namePosValue) entry.namePos = namePosValue;
         if (existsIdx >= 0) currentBadgeExtras[existsIdx] = entry;
         else currentBadgeExtras.push(entry);
         renderBadgeExtrasList();
