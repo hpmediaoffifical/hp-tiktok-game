@@ -3394,10 +3394,22 @@
 
             // ===== 10. Chờ 3s rồi respawn jar tại vị trí gốc =====
             setTimeout(() => {
-                // Restore jar element styles
-                if (jarBottomEl) jarBottomEl.style.cssText = jbStyle;
-                if (jarGlassEl) jarGlassEl.style.cssText = jgStyle;
-                if (_accessoryEl) _accessoryEl.style.cssText = accStyle;
+                // EXPLICIT clear transform trước khi restore — fix bug jar bị nghiêng
+                if (jarBottomEl) {
+                    jarBottomEl.style.transform = '';
+                    jarBottomEl.style.cssText = jbStyle;
+                    jarBottomEl.style.transform = '';   // safety: clear lại sau cssText
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.transform = '';
+                    jarGlassEl.style.cssText = jgStyle;
+                    jarGlassEl.style.transform = '';
+                }
+                if (_accessoryEl) {
+                    _accessoryEl.style.transform = '';
+                    _accessoryEl.style.cssText = accStyle;
+                    _accessoryEl.style.transform = '';
+                }
                 positionJar();
                 positionAccessory();
             }, 3200);
@@ -3405,11 +3417,6 @@
             // OSIN remove after walks off
             setTimeout(() => wrap.remove(), 2400);
             kickJarBusy = false;
-
-            showComboToast(
-                `😡 <b>OSIN tức giận ĐÁ vỡ hũ!</b> 🤣`,
-                'linear-gradient(135deg, #dc2626, #f59e0b)'
-            );
         }
         // ===== 💪 OSIN KÉO + NÉM hũ — drag to middle then throw up =====
         // Flow: OSIN tới hũ → grab → kéo về giữa canvas → wind-up → NÉM lên cao
@@ -3600,27 +3607,34 @@
             engine.timing.timeScale = savedTimeScale;
             shatterJarAt(targetCx, targetCy, insideBodies);
 
-            // 9. Sau 3s respawn jar
+            // 9. Sau 3s respawn jar — EXPLICIT clear transform (fix bug nghiêng)
             setTimeout(() => {
-                if (jarBottomEl) jarBottomEl.style.cssText = jbStyle;
-                if (jarGlassEl) jarGlassEl.style.cssText = jgStyle;
-                if (_accessoryEl) _accessoryEl.style.cssText = accStyle;
+                if (jarBottomEl) {
+                    jarBottomEl.style.transform = '';
+                    jarBottomEl.style.cssText = jbStyle;
+                    jarBottomEl.style.transform = '';
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.transform = '';
+                    jarGlassEl.style.cssText = jgStyle;
+                    jarGlassEl.style.transform = '';
+                }
+                if (_accessoryEl) {
+                    _accessoryEl.style.transform = '';
+                    _accessoryEl.style.cssText = accStyle;
+                    _accessoryEl.style.transform = '';
+                }
                 positionJar();
                 positionAccessory();
             }, 3200);
             setTimeout(() => wrap.remove(), 1400);
             throwJarBusy = false;
-
-            showComboToast(
-                `💪 <b>OSIN NÉM HŨ LÊN TRỜI!</b> 🚀`,
-                'linear-gradient(135deg, #f59e0b, #dc2626)'
-            );
         }
 
         // Variant của shatterJar nhận vị trí explosion center custom
         // targetBodies (optional): chỉ scatter mảng bodies này (default: all bodies)
         function shatterJarAt(cx, cy, targetBodies) {
-            flashShatterToast(`💥 <b>HŨ VỠ TAN!</b> Quà rơi tung toé`);
+            // KHÔNG hiện shatter toast — user không muốn note chữ cho Kick/Throw effects
             if (config.features.audio) { audio.fanfare(); audio.big(); }
             if (jarBottomEl) jarBottomEl.style.transition = 'opacity 0.4s, filter 0.4s';
             if (jarGlassEl) jarGlassEl.style.transition = 'opacity 0.4s, filter 0.4s';
@@ -3643,7 +3657,7 @@
             });
             fxAnimations.push({ type: 'megaboom', x: cx, y: cy, age: 0, life: 50 });
 
-            // Rebuild jar walls + restore visual sau 3s — sẽ chạy sau khi positionJar() restore
+            // Rebuild jar walls + restore visual sau 3s — KHÔNG toast
             setTimeout(() => {
                 buildJarWalls();
                 if (jarBottomEl) { jarBottomEl.style.opacity = '1'; }
@@ -3651,7 +3665,6 @@
                 crackElements.forEach(c => c.remove());
                 crackElements.length = 0;
                 crackLevel = 0;
-                flashShatterToast(`✨ Hũ phục hồi nguyên vẹn`, 'linear-gradient(135deg, #22c55e, #10b981)');
             }, 3000);
         }
 

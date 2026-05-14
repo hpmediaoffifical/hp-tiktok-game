@@ -2762,15 +2762,13 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     position: absolute;
     display: flex;
     gap: calc(0.8cqw * var(--badge-scale));
-    /* App preview: cho drag → cursor + pointer-events.
-       OBS overlay: tt-positioned không có hover effect; pointer-events vẫn auto vì
-       wireDragPanels chỉ chạy ở mirrorMode=false. CSS cursor sẽ chỉ ảnh hưởng app. */
     pointer-events: auto;
     cursor: grab;
     z-index: 8;
-    max-width: 30cqw;
-    max-height: 80cqh;
-    overflow: hidden;
+    /* overflow: visible — icon to (iconScale>1) tràn ra ngoài card vẫn hiển thị đầy đủ */
+    overflow: visible;
+    /* Padding để icon có chỗ "thở" ra ngoài bounding box mà KHÔNG bị cắt bởi parent */
+    padding: calc(2cqw * var(--icon-scale));
 }
 .tt-badges.tt-dragging { cursor: grabbing; }
 /* Khi đã có vị trí user-saved (tt-positioned), bỏ các pos-* default */
