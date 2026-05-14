@@ -1313,14 +1313,42 @@ app.post('/api/games/:id/config', (req, res) => {
 });
 
 // Cache trạng thái game từng game — đẩy lên overlay khi (re)connect VÀ push realtime mỗi POST.
+// PERSISTENCE: lưu vào disk → restart app không mất quà đã tặng.
 // QUAN TRỌNG: app preview là authoritative source. Khi caughtList/policeForce/totalDiamonds đổi,
 // app POST state → server cache + broadcast tới room 'overlay' → OBS gọi loadState → render lại.
-// → OBS LUÔN khớp app, không bị stale, không cần Reset Browser trong OBS.
-const gameStateCache = {};
+const GAME_STATE_FILE = path.join(DATA_DIR, 'game-state.json');
+let gameStateCache = {};
+function loadGameStateCache() {
+    try {
+        if (fs.existsSync(GAME_STATE_FILE)) {
+            const raw = fs.readFileSync(GAME_STATE_FILE, 'utf8');
+            const parsed = JSON.parse(raw || '{}');
+            if (parsed && typeof parsed === 'object') gameStateCache = parsed;
+            console.log(`[game-state] Loaded ${Object.keys(gameStateCache).length} games từ disk`);
+        }
+    } catch (e) {
+        console.warn('[game-state] Load fail:', e.message);
+        gameStateCache = {};
+    }
+}
+let _gameStateSaveTimer = null;
+function scheduleSaveGameState() {
+    clearTimeout(_gameStateSaveTimer);
+    _gameStateSaveTimer = setTimeout(() => {
+        try {
+            fs.writeFileSync(GAME_STATE_FILE, JSON.stringify(gameStateCache), 'utf8');
+        } catch (e) {
+            console.warn('[game-state] Save fail:', e.message);
+        }
+    }, 1500);
+}
+loadGameStateCache();
+
 app.post('/api/games/:id/state', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     gameStateCache[g.id] = req.body || {};
+    scheduleSaveGameState();   // persist to disk debounced
     // Live broadcast tới room 'overlay' (KHÔNG echo về 'preview' để tránh ghi đè edits đang gõ)
     io.to('overlay').emit('gameStateSnapshot', { gameId: g.id, state: gameStateCache[g.id] });
     res.json({ ok: true });

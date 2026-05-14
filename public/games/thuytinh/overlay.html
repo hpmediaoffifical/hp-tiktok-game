@@ -222,6 +222,15 @@
         // Chỉ listen 1 event để tránh duplicate (server emit cả 'gift' broadcast + 'gameGift' vào room overlay)
         socket.on('gift', handleGift);
 
+        // Cache giftSheet để renderBadges() lookup metadata (image, name) cho gifts đã gán effect
+        socket.on('giftSheet', (data) => {
+            window.__giftSheet = Array.isArray(data) ? data : [];
+            // Trigger re-render badges nếu game đã ready
+            if (game && typeof game.setConfig === 'function') {
+                try { game.setConfig({}); } catch (e) {}
+            }
+        });
+
         // Lệnh điều khiển từ App (authoritative) — OBS replay 1:1 mọi action.
         // App đẩy đủ payload (user info, mode...) để OBS hiển thị cùng nội dung.
         //

@@ -116,7 +116,8 @@
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
             panelPositions: {
                 leaderboard: null,
-                caught: null
+                caught: null,
+                badges: null
             },
             // Tỉ lệ scale panel (1 = 100%)
             panelScales: {
@@ -134,7 +135,15 @@
             jarAccessory: 'none',
             // 🎨 Theme màu hũ — đổi ảnh jar-glass theo PNG khác màu (bên-ngoai folder)
             // Các option: default | blue | cam | green | pink | tim | yellow
-            jarTheme: 'default'
+            jarTheme: 'default',
+            // 🏷 Badge hiệu ứng quà — hiển thị quà đã gán effect trên overlay
+            badges: {
+                enabled: false,            // master switch: hiện badges trên overlay
+                layout: 'vertical',        // 'vertical' (stacked) | 'horizontal' (row)
+                position: 'top-left',      // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+                scale: 1.0,                // 0.5-2.0
+                items: {}                  // giftId → { customLabel, namePos: 'left'|'right'|'top'|'bottom', enabled }
+            }
         };
     }
     // Map theme → file PNG hũ ngoài (bên-ngoai folder)
@@ -2124,6 +2133,85 @@
             _accessoryEl.style.width  = (accW / CANVAS_W * 100) + '%';
             _accessoryEl.style.height = (accH / CANVAS_H * 100) + '%';
         }
+
+        // ===== 🏷 Badge hiệu ứng quà — render danh sách quà đã gán effect lên overlay =====
+        let _badgesContainer = null;
+        function ensureBadgesContainer() {
+            if (_badgesContainer) return _badgesContainer;
+            if (!overlayLayer) return null;
+            _badgesContainer = document.createElement('div');
+            _badgesContainer.className = 'tt-badges tt-drag-panel';
+            _badgesContainer.dataset.panel = 'badges';
+            overlayLayer.appendChild(_badgesContainer);
+            // Wire drag — chỉ trong app preview (mirrorMode=false), OBS static
+            if (!mirrorMode) wireDragPanels();
+            return _badgesContainer;
+        }
+        function renderBadges() {
+            const cfg = config.badges || {};
+            const el = ensureBadgesContainer();
+            if (!el) return;
+            if (!cfg.enabled) { el.style.display = 'none'; el.innerHTML = ''; return; }
+            el.style.display = '';
+            // Reset & apply container class — GIỮ tt-drag-panel + class tt-positioned cho drag
+            const keepPositioned = el.classList.contains('tt-positioned');
+            const keepDragging = el.classList.contains('tt-dragging');
+            el.className = 'tt-badges tt-drag-panel layout-' + (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')
+                + ' pos-' + (cfg.position || 'top-left')
+                + (keepPositioned ? ' tt-positioned' : '')
+                + (keepDragging ? ' tt-dragging' : '');
+            el.style.setProperty('--badge-scale', String(cfg.scale || 1));
+            // Render từng badge từ config.triggers + config.badges.items
+            const triggers = config.triggers || {};
+            const items = cfg.items || {};
+            // Lookup gift metadata qua window.__giftSheet (app.js cache giftSheet vào đây)
+            // Hoặc fallback dùng bodies[].gm trong physics world (đã spawn quà rồi)
+            const sheet = (typeof window !== 'undefined' && window.__giftSheet) || [];
+            const localMap = {};
+            for (const g of sheet) if (g?.id) localMap[String(g.id)] = g;
+            // Bổ sung từ bodies (case mới spawn, chưa có trong sheet)
+            for (const b of bodies) {
+                if (b.gm?.id && !localMap[String(b.gm.id)]) {
+                    localMap[String(b.gm.id)] = { id: b.gm.id, name: b.gm.name, image: b.gm.img?.src || '' };
+                }
+            }
+            const frag = document.createDocumentFragment();
+            for (const giftId of Object.keys(triggers)) {
+                const action = triggers[giftId];
+                const itemCfg = items[giftId] || {};
+                if (itemCfg.enabled === false) continue;
+                const giftMeta = localMap[String(giftId)];
+                if (!giftMeta) continue;
+                const label = (itemCfg.customLabel || actionLabel(action) || action).trim();
+                const namePos = itemCfg.namePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
+                const badge = document.createElement('div');
+                badge.className = 'tt-badge name-' + namePos;
+                badge.title = `${giftMeta.name || ''} · ${label}`;
+                badge.innerHTML = `
+                    <img class="tt-badge-ico" src="${escAttr(giftMeta.image || '')}" alt=""/>
+                    <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
+                `;
+                frag.appendChild(badge);
+            }
+            el.innerHTML = '';
+            el.appendChild(frag);
+            // Apply user-saved position (nếu user đã kéo trước đó)
+            applyPanelPosition('badges', el);
+        }
+        // Lookup action label từ EFFECTS list (defined ngoài scope, dùng config.triggers)
+        // Map tĩnh cho fallback nếu không có context EFFECTS:
+        function actionLabel(action) {
+            const M = {
+                thief: 'Trộm', joinPolice: 'Gia nhập CS', osin: 'Osin nhặt quà', ufo: 'UFO hút quà',
+                shape: 'Tạo hình', fireworks: 'Pháo hoa', megaboom: 'Megaboom', tornado: 'Lốc xoáy',
+                tilt: 'Nghiêng hũ', pourOut: 'Dốc ngược hũ', gravflip: 'Đảo trọng lực',
+                shake: 'Lắc hũ', slow: 'Slow motion', rain: 'Mưa quà', geyser: 'Phun trào',
+                magnet: 'Nam châm', crackJar: 'Nứt hũ', stealJar: 'Trộm cả hũ',
+                combo: 'Combo', clear: 'Xoá hết hũ', kickJar: 'OSIN đá hũ', throwJar: 'OSIN ném hũ'
+            };
+            return M[action] || action;
+        }
+
         function bailUser(uid) {
             if (!uid) return;
             bannedUntilByUid.delete(String(uid));
@@ -2142,12 +2230,13 @@
                 el.classList.add('tt-positioned');
             }
         }
-        // Cho phép kéo thả 2 panel (chỉ trong preview app, overlay OBS thì static)
-        let dragWired = false;
+        // Cho phép kéo thả các panel (chỉ trong preview app, overlay OBS thì static)
+        // Dùng WeakSet để track panel đã wire — cho phép gọi nhiều lần (khi panel mới được tạo)
+        const _wiredPanels = new WeakSet();
         function wireDragPanels() {
-            if (dragWired) return;
-            dragWired = true;
             overlayLayer.querySelectorAll('.tt-drag-panel').forEach(panel => {
+                if (_wiredPanels.has(panel)) return;
+                _wiredPanels.add(panel);
                 let dragging = false, startX, startY, baseLeft, baseTop;
                 panel.style.pointerEvents = 'auto';
                 panel.addEventListener('mousedown', (ev) => {
@@ -3908,6 +3997,7 @@
             applyActorScales();
             applyJarTheme();
             applyJarAccessory();
+            renderBadges();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -3942,7 +4032,23 @@
                 caughtList: JSON.parse(JSON.stringify(stats.caughtList)),
                 bannedUntilByUid: Array.from(bannedUntilByUid.entries()),
                 policeForce: Array.from(policeForce.entries()),
-                goalReached: !!stats.goalReached
+                goalReached: !!stats.goalReached,
+                // PERSIST bodies — quà đang trong hũ (giữ qua restart)
+                // gm có circular refs (img is HTMLImageElement) → chỉ save fields cần thiết
+                bodies: bodies.map(b => ({
+                    x: b.position.x,
+                    y: b.position.y,
+                    sz: b.gm?.sz || 40,
+                    gm: b.gm ? {
+                        id: b.gm.id,
+                        name: b.gm.name,
+                        coins: b.gm.coins,
+                        tier: b.gm.tier,
+                        sz: b.gm.sz,
+                        imgSrc: b.gm.img?.src || '',
+                        tipperUid: b.gm.tipperUid
+                    } : null
+                }))
             };
         }
         function loadState(state) {
@@ -3961,6 +4067,46 @@
                 for (const [k, v] of state.policeForce) policeForce.set(String(k), v);
             }
             stats.goalReached = !!state.goalReached;
+
+            // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart)
+            // Chỉ restore nếu state.bodies có và bodies hiện tại đang trống (tránh duplicate)
+            if (Array.isArray(state.bodies) && state.bodies.length && bodies.length === 0) {
+                for (const b of state.bodies) {
+                    if (!b.gm) continue;
+                    const sz = Math.max(20, b.sz || b.gm.sz || 40);
+                    // Re-create image từ saved src
+                    let img = null;
+                    if (b.gm.imgSrc) {
+                        if (imgCache.has(b.gm.imgSrc)) {
+                            img = imgCache.get(b.gm.imgSrc);
+                        } else {
+                            img = new Image();
+                            img.src = b.gm.imgSrc;
+                            imgCache.set(b.gm.imgSrc, img);
+                        }
+                    }
+                    const body = Bodies.circle(b.x, b.y, sz / 2, {
+                        restitution: config.physics.bounce,
+                        friction: config.physics.friction,
+                        density: 0.002
+                    });
+                    body.gm = {
+                        id: b.gm.id,
+                        name: b.gm.name,
+                        coins: b.gm.coins || 1,
+                        tier: b.gm.tier,
+                        sz: sz,
+                        img: img,
+                        tipperUid: b.gm.tipperUid
+                    };
+                    Composite.add(engine.world, body);
+                    bodies.push(body);
+                }
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                console.log(`[loadState] Restored ${state.bodies.length} bodies từ disk`);
+            }
+
             updateCrown(); updateLeaderboard(); updateSessionTotals(); updateGoalBar();
             updateCaughtList(); updatePoliceForcePanel();
             // QUAN TRỌNG: re-position toàn bộ overlay sau loadState — đảm bảo display flags

@@ -174,11 +174,17 @@
         cfgScaleUfoV: $('#cfg-scale-ufo-v'),
         cfgJarAccessory: $('#cfg-jar-accessory'),
         cfgJarTheme: $('#cfg-jar-theme'),
+        cfgBadgesEnabled: $('#cfg-badges-enabled'),
+        cfgBadgesLayout: $('#cfg-badges-layout'),
+        cfgBadgesPosition: $('#cfg-badges-position'),
+        cfgBadgesScale: $('#cfg-badges-scale'),
+        cfgBadgesScaleV: $('#cfg-badges-scale-v'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
     };
     let currentTriggers = {};  // giftId → action
+    let currentBadgeItems = {};   // giftId → { customLabel, namePos, enabled }
     // Track thứ tự gán mới nhất (giftId) — dùng để sort catalog: quà mới gán lên đầu.
     // Tồn tại trong phiên app, không persist. Mở app lại thì dùng thứ tự key trong triggers.
     let recentAssignments = [];   // giftIds, mới nhất ở đầu
@@ -467,6 +473,18 @@
         applyConfigToUI(game.config);
         enableJarDragging();
         socket.emit('subscribe', 'preview');
+
+        // RESTORE state from disk on first load (persist qua restart)
+        // Server đã loadGameStateCache() từ disk vào memory rồi → fetch về và loadState
+        fetch(`/api/games/${currentGame.id}/state`)
+            .then(r => r.json())
+            .then(state => {
+                if (state && typeof state === 'object') {
+                    try { gameInstance.loadState(state); } catch (e) { console.warn('loadState fail:', e); }
+                }
+            })
+            .catch(() => {});
+
         startStateSync();
     }
 
@@ -481,7 +499,8 @@
             state.totalDiamonds, state.totalGifts,
             (state.caughtList || []).length,
             (state.policeForce || []).length,
-            (state.tippers || []).length
+            (state.tippers || []).length,
+            (state.bodies || []).length   // include bodies count → state push khi quà thêm/bớt
         ]);
         if (hash === lastStateHash) return;
         lastStateHash = hash;
@@ -622,6 +641,15 @@
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = sUf;
         if (dom.cfgJarAccessory) dom.cfgJarAccessory.value = cfg.jarAccessory || 'none';
         if (dom.cfgJarTheme) dom.cfgJarTheme.value = cfg.jarTheme || 'default';
+        const bdg = cfg.badges || {};
+        if (dom.cfgBadgesEnabled) dom.cfgBadgesEnabled.checked = !!bdg.enabled;
+        if (dom.cfgBadgesLayout) dom.cfgBadgesLayout.value = bdg.layout || 'vertical';
+        if (dom.cfgBadgesPosition) dom.cfgBadgesPosition.value = bdg.position || 'top-left';
+        const bScale = bdg.scale ?? 1;
+        if (dom.cfgBadgesScale) dom.cfgBadgesScale.value = String(bScale);
+        if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = bScale;
+        // Lưu items để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
+        currentBadgeItems = JSON.parse(JSON.stringify(bdg.items || {}));
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -710,6 +738,13 @@
             },
             jarAccessory: dom.cfgJarAccessory?.value || 'none',
             jarTheme: dom.cfgJarTheme?.value || 'default',
+            badges: {
+                enabled: !!dom.cfgBadgesEnabled?.checked,
+                layout: dom.cfgBadgesLayout?.value || 'vertical',
+                position: dom.cfgBadgesPosition?.value || 'top-left',
+                scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
+                items: JSON.parse(JSON.stringify(currentBadgeItems || {}))
+            },
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
         };
@@ -738,6 +773,7 @@
         if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = cfg.actorScales.police;
         if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = cfg.actorScales.osin;
         if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = cfg.actorScales.ufo;
+        if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = cfg.badges?.scale ?? 1;
         setSaveStatus('saving');
         clearTimeout(saveCfgTimer);
         const doSave = () => {
@@ -919,8 +955,41 @@
         modalName.textContent = ef.label;
         renderModalGift();
         renderModalParams();
+        renderBadgeFields(ef);
         efPicker.hidden = true;
         modal.hidden = false;
+    }
+    // Render trường badge config cho gift đang gán (chỉ hiện nếu có gift được chỉ định)
+    function renderBadgeFields(ef) {
+        const section = document.getElementById('ef-badge-section');
+        if (!section) return;
+        const giftId = editingDraft?.giftId;
+        if (!giftId || ef.multi) {
+            section.hidden = true;
+            return;
+        }
+        section.hidden = false;
+        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: 'right', enabled: true };
+        const enabledEl = document.getElementById('ef-badge-enabled');
+        const labelEl = document.getElementById('ef-badge-label');
+        const nameposEl = document.getElementById('ef-badge-namepos');
+        if (enabledEl) enabledEl.checked = item.enabled !== false;
+        if (labelEl) labelEl.value = item.customLabel || '';
+        if (labelEl) labelEl.placeholder = ef.label;
+        if (nameposEl) nameposEl.value = item.namePos || 'right';
+    }
+    // Lưu badge config từ modal vào currentBadgeItems
+    function saveBadgeFieldsFromModal() {
+        const giftId = editingDraft?.giftId;
+        if (!giftId || editingEffect?.multi) return;
+        const enabledEl = document.getElementById('ef-badge-enabled');
+        const labelEl = document.getElementById('ef-badge-label');
+        const nameposEl = document.getElementById('ef-badge-namepos');
+        currentBadgeItems[giftId] = {
+            enabled: enabledEl ? !!enabledEl.checked : true,
+            customLabel: (labelEl?.value || '').trim(),
+            namePos: nameposEl?.value || 'right'
+        };
     }
     function closeEffectModal() {
         modal.hidden = true;
@@ -1207,6 +1276,7 @@
                 pg.addEventListener('click', () => {
                     editingDraft.giftId = String(g.id);
                     renderModalGift();
+                    renderBadgeFields(editingEffect);   // refresh badge fields cho gift mới
                     efPicker.hidden = true;
                 });
             }
@@ -1255,6 +1325,8 @@
         }
         // 2) Cập nhật effects params
         currentEffectsConfig[editingEffect.key] = editingDraft.params;
+        // 2b) Cập nhật badge config cho gift này (nếu single + có gift)
+        saveBadgeFieldsFromModal();
         // 3) Save NGAY
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
@@ -1621,6 +1693,10 @@
     dom.cfgJarLocked?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesEnabled?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesLayout?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesPosition?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);

@@ -2557,6 +2557,77 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     display: block;
 }
 
+/* === 🏷 Badge hiệu ứng quà — hiển thị danh sách quà đã gán effect === */
+.tt-badges {
+    --badge-scale: 1;
+    position: absolute;
+    display: flex;
+    gap: calc(0.8cqw * var(--badge-scale));
+    /* App preview: cho drag → cursor + pointer-events.
+       OBS overlay: tt-positioned không có hover effect; pointer-events vẫn auto vì
+       wireDragPanels chỉ chạy ở mirrorMode=false. CSS cursor sẽ chỉ ảnh hưởng app. */
+    pointer-events: auto;
+    cursor: grab;
+    z-index: 8;
+    max-width: 30cqw;
+    max-height: 80cqh;
+    overflow: hidden;
+}
+.tt-badges.tt-dragging { cursor: grabbing; }
+/* Khi đã có vị trí user-saved (tt-positioned), bỏ các pos-* default */
+.tt-badges.tt-positioned { top: auto; left: auto; right: auto; bottom: auto; }
+.tt-badges.layout-vertical   { flex-direction: column; }
+.tt-badges.layout-horizontal { flex-direction: row; flex-wrap: wrap; max-width: 80cqw; }
+.tt-badges.pos-top-left      { top: 2%; left: 2%; }
+.tt-badges.pos-top-right     { top: 2%; right: 2%; }
+.tt-badges.pos-bottom-left   { bottom: 2%; left: 2%; }
+.tt-badges.pos-bottom-right  { bottom: 2%; right: 2%; }
+
+.tt-badge {
+    display: flex;
+    align-items: center;
+    background: rgba(20,23,31,0.78);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,107,61,0.4);
+    border-radius: calc(0.8cqw * var(--badge-scale));
+    padding: calc(0.4cqw * var(--badge-scale)) calc(0.8cqw * var(--badge-scale));
+    gap: calc(0.5cqw * var(--badge-scale));
+    color: #fff;
+    box-shadow: 0 0.2cqw 0.6cqw rgba(0,0,0,0.4);
+}
+.tt-badge-ico {
+    width: calc(3.2cqw * var(--badge-scale));
+    height: calc(3.2cqw * var(--badge-scale));
+    object-fit: contain;
+    flex-shrink: 0;
+}
+.tt-badge-name {
+    font-size: calc(1.1cqw * var(--badge-scale));
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    max-width: calc(12cqw * var(--badge-scale));
+}
+.tt-badge-name span { display: inline-block; }
+/* Marquee scroll khi text quá dài (single-line mode) */
+.tt-badge-name:hover span { animation: badgeMarquee 6s linear infinite; }
+
+@keyframes badgeMarquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+/* Position name relative to icon */
+.tt-badge.name-left  { flex-direction: row-reverse; }
+.tt-badge.name-right { flex-direction: row; }
+.tt-badge.name-top    { flex-direction: column-reverse; text-align: center; }
+.tt-badge.name-bottom { flex-direction: column; text-align: center; }
+.tt-badge.name-top .tt-badge-name,
+.tt-badge.name-bottom .tt-badge-name { max-width: calc(8cqw * var(--badge-scale)); }
+
 /* === UFO — VIP PRO version of OSIN: hút 5-10 quà ngẫu nhiên === */
 .tt-ufo {
     position: absolute;
