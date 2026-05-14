@@ -2228,6 +2228,13 @@
                 el.style.right = 'auto';
                 el.style.bottom = 'auto';
                 el.classList.add('tt-positioned');
+            } else {
+                // pos null/undefined → reset → để pos-* class (top-left/etc) hoạt động
+                el.classList.remove('tt-positioned');
+                el.style.left = '';
+                el.style.top = '';
+                el.style.right = '';
+                el.style.bottom = '';
             }
         }
         // Cho phép kéo thả các panel (chỉ trong preview app, overlay OBS thì static)
@@ -3964,14 +3971,13 @@
 
         function updateCountDisplay() {
             if (!countDisplay) return;
-            if (config.gift.showCount && bodies.length > 0) {
+            // Hiện counter khi feature on, BẤT KỂ bodies = 0 (user thấy '0' khi hũ trống)
+            if (config.gift.showCount) {
                 countDisplay.style.display = 'block';
                 countDisplay.textContent = String(bodies.length);
                 const r = jarRect();
                 countDisplay.style.left = (r.cx / CANVAS_W * 100) + '%';
-                // đặt trong hũ ở vị trí ~88% chiều cao để KHÔNG đè goal bar (dưới đáy hũ)
                 countDisplay.style.top = ((r.y + r.h * 0.88) / CANVAS_H * 100) + '%';
-                // tự co theo chiều cao hũ
                 const fontPx = Math.max(14, Math.min(72, r.h * 0.055));
                 countDisplay.style.fontSize = fontPx + 'px';
             } else countDisplay.style.display = 'none';

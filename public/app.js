@@ -1440,6 +1440,7 @@
         for (const g of list) {
             const card = document.createElement('div');
             card.className = 'gift-card';
+            if (g.custom) card.classList.add('is-custom');
             const im = document.createElement('img');
             im.loading = 'lazy';
             im.src = g.image || placeholderImg;
@@ -1694,9 +1695,80 @@
     dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
     dom.cfgBadgesEnabled?.addEventListener('change', pushConfigUpdate);
-    dom.cfgBadgesLayout?.addEventListener('change', pushConfigUpdate);
-    dom.cfgBadgesPosition?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesLayout?.addEventListener('change', () => {
+        // Khi đổi layout (dọc/ngang) — clear panelPositions.badges để pos-* dropdown re-take effect
+        // (nếu user đã drag badge tới vị trí khác, drag pos sẽ override pos-* class)
+        if (currentGame) {
+            const cfg = gameInstance?.getConfig() || {};
+            if (cfg.panelPositions?.badges) {
+                cfg.panelPositions.badges = null;
+            }
+        }
+        pushConfigUpdate();
+    });
+    dom.cfgBadgesPosition?.addEventListener('change', () => {
+        // Same: reset drag pos để dropdown control vị trí
+        if (currentGame) {
+            const cfg = gameInstance?.getConfig() || {};
+            if (cfg.panelPositions?.badges) {
+                cfg.panelPositions.badges = null;
+                gameInstance.setConfig(cfg);
+            }
+        }
+        pushConfigUpdate();
+    });
     dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
+
+    // ===== Custom gift insertion =====
+    // Cho phép user thêm quà tự định nghĩa vào giftSheet (in-memory + persist localStorage)
+    // Vẫn tính bộ đếm khi tặng (test-gift), không cần gán hiệu ứng cụ thể.
+    const cgmModal = document.getElementById('custom-gift-modal');
+    function openCustomGiftModal() {
+        if (!cgmModal) return;
+        document.getElementById('cgm-id').value = '';
+        document.getElementById('cgm-name').value = '';
+        document.getElementById('cgm-image').value = '';
+        document.getElementById('cgm-diamond').value = '1';
+        cgmModal.hidden = false;
+    }
+    function closeCustomGiftModal() { if (cgmModal) cgmModal.hidden = true; }
+    document.getElementById('btn-add-custom-gift')?.addEventListener('click', openCustomGiftModal);
+    document.getElementById('cgm-close')?.addEventListener('click', closeCustomGiftModal);
+    document.getElementById('cgm-cancel')?.addEventListener('click', closeCustomGiftModal);
+    document.getElementById('cgm-save')?.addEventListener('click', () => {
+        const id = (document.getElementById('cgm-id').value || '').trim();
+        const name = (document.getElementById('cgm-name').value || '').trim();
+        const image = (document.getElementById('cgm-image').value || '').trim();
+        const diamond = parseInt(document.getElementById('cgm-diamond').value, 10) || 1;
+        if (!id) return flashTriggerToast('⚠ Cần nhập Gift ID');
+        if (!name) return flashTriggerToast('⚠ Cần nhập tên quà');
+        // Save vào localStorage để persist qua restart
+        const customGifts = JSON.parse(localStorage.getItem('hp_custom_gifts') || '[]');
+        const existsIdx = customGifts.findIndex(g => String(g.id) === id);
+        const entry = { id, name, image, diamond, custom: true };
+        if (existsIdx >= 0) customGifts[existsIdx] = entry; else customGifts.push(entry);
+        localStorage.setItem('hp_custom_gifts', JSON.stringify(customGifts));
+        // Merge vào giftSheet + giftMap
+        const sIdx = giftSheet.findIndex(g => String(g.id) === id);
+        if (sIdx >= 0) giftSheet[sIdx] = entry; else giftSheet.push(entry);
+        giftMap[id] = entry;
+        window.__giftSheet = giftSheet;
+        renderGiftCatalog(dom.giftSearchInput?.value || '');
+        flashTriggerToast(`✓ Đã thêm quà custom "${name}" (ID ${id})`);
+        closeCustomGiftModal();
+    });
+    // Load custom gifts khi giftSheet load — merge vào danh sách
+    function mergeCustomGiftsIntoSheet() {
+        const customGifts = JSON.parse(localStorage.getItem('hp_custom_gifts') || '[]');
+        for (const cg of customGifts) {
+            if (!cg.id) continue;
+            const sIdx = giftSheet.findIndex(g => String(g.id) === String(cg.id));
+            if (sIdx >= 0) giftSheet[sIdx] = { ...giftSheet[sIdx], ...cg };
+            else giftSheet.push(cg);
+            giftMap[String(cg.id)] = giftSheet.find(g => String(g.id) === String(cg.id));
+        }
+        window.__giftSheet = giftSheet;
+    }
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);
@@ -1773,6 +1845,8 @@
         giftSheet = (data || []).slice().sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
         giftMap = {};
         for (const g of giftSheet) giftMap[String(g.id)] = g;
+        // Merge custom gifts (user-added) vào sheet
+        mergeCustomGiftsIntoSheet();
         renderGiftCatalog(dom.giftSearchInput.value);
         populateGiftDatalist();
         renderTriggerList();

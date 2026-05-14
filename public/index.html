@@ -245,36 +245,6 @@
                                     </div>
                                 </div>
                                 <div class="feat-section">
-                                    <div class="feat-section-title">🏷 Badge hiệu ứng quà</div>
-                                    <div class="feat-grid">
-                                        <label class="feat"><input type="checkbox" id="cfg-badges-enabled"/> Hiện badge trên overlay</label>
-                                    </div>
-                                    <div class="cfg-row" title="Sắp xếp badge: dọc (stacked) hoặc ngang (side-by-side)">
-                                        <label>Layout</label>
-                                        <select id="cfg-badges-layout" class="cfg-select">
-                                            <option value="vertical">Dọc (stacked)</option>
-                                            <option value="horizontal">Ngang (cùng hàng)</option>
-                                        </select>
-                                    </div>
-                                    <div class="cfg-row" title="Vị trí container badge trên canvas">
-                                        <label>Vị trí</label>
-                                        <select id="cfg-badges-position" class="cfg-select">
-                                            <option value="top-left">Trên - trái</option>
-                                            <option value="top-right">Trên - phải</option>
-                                            <option value="bottom-left">Dưới - trái</option>
-                                            <option value="bottom-right">Dưới - phải</option>
-                                        </select>
-                                    </div>
-                                    <div class="cfg-row" title="Kích thước badge (0.5x - 2.0x)">
-                                        <label>Cỡ</label>
-                                        <input type="range" id="cfg-badges-scale" min="0.5" max="2.0" step="0.05"/>
-                                        <span class="cfg-val" id="cfg-badges-scale-v">1.0</span>
-                                    </div>
-                                    <div class="hint" style="padding:6px 12px 0;font-size:11px;color:#6b7390">
-                                        Sửa tên/vị trí từng badge ở tab 🎯 Quà — bấm nút 🏷 cạnh quà đã gán.
-                                    </div>
-                                </div>
-                                <div class="feat-section">
                                     <div class="feat-section-title">Mục tiêu</div>
                                     <div class="cfg-row">
                                         <label>Mục tiêu</label>
@@ -309,6 +279,38 @@
 
                             <!-- 🎯 Quà kích hoạt -->
                             <div class="tab-pane" data-pane="trig">
+                                <!-- 🏷 Badge global config — đặt đầu tab Quà -->
+                                <div class="badges-cfg-section">
+                                    <div class="badges-cfg-title">🏷 Badge hiệu ứng quà</div>
+                                    <div class="badges-cfg-row">
+                                        <label class="feat compact"><input type="checkbox" id="cfg-badges-enabled"/> Hiện badge trên overlay</label>
+                                    </div>
+                                    <div class="badges-cfg-grid">
+                                        <div class="badges-cfg-col" title="Sắp xếp badge dọc hay ngang">
+                                            <label>Layout</label>
+                                            <select id="cfg-badges-layout" class="cfg-select">
+                                                <option value="vertical">Dọc</option>
+                                                <option value="horizontal">Ngang</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col" title="Vị trí container badge trên canvas (reset drag)">
+                                            <label>Vị trí</label>
+                                            <select id="cfg-badges-position" class="cfg-select">
+                                                <option value="top-left">Trên-trái</option>
+                                                <option value="top-right">Trên-phải</option>
+                                                <option value="bottom-left">Dưới-trái</option>
+                                                <option value="bottom-right">Dưới-phải</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col" title="Kích thước badge (0.5x - 2.0x)">
+                                            <label>Cỡ</label>
+                                            <div class="range-with-val">
+                                                <input type="range" id="cfg-badges-scale" min="0.5" max="2.0" step="0.05"/>
+                                                <span class="cfg-val" id="cfg-badges-scale-v">1.0</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="hint" style="padding:6px 12px 0">Quà chỉ định KHÔNG rơi vào hũ. Bấm ⚙ để cài thông số.</div>
                                 <div class="trigger-list" id="trigger-list"></div>
                                 <datalist id="gift-options"></datalist>
@@ -360,6 +362,7 @@
                         <div class="card stretch">
                             <div class="card-title">📦 Danh sách quà
                                 <input id="gift-search" type="text" placeholder="Tìm..." class="search-mini"/>
+                                <button id="btn-add-custom-gift" class="ghost mini" title="Thêm quà custom tự định nghĩa">➕ Thêm</button>
                             </div>
                             <div id="gift-catalog" class="gift-catalog"></div>
                             <div class="hint catalog-hint">Bấm 1 quà để rơi thử vào hũ →</div>
@@ -852,6 +855,43 @@
             <div class="modal-foot">
                 <button class="ghost" id="ef-modal-cancel">Đóng</button>
                 <button class="primary" id="ef-modal-save">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal thêm quà custom -->
+    <div id="custom-gift-modal" class="modal" hidden>
+        <div class="modal-card" style="max-width:420px">
+            <div class="modal-head">
+                <div class="modal-title">➕ Thêm quà custom</div>
+                <button class="modal-close" id="cgm-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Gift ID</label>
+                        <input type="text" id="cgm-id" class="text-input" placeholder="VD: 99001" style="flex:1"/>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Tên quà</label>
+                        <input type="text" id="cgm-name" class="text-input" placeholder="VD: Quà Test" style="flex:1"/>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">URL ảnh</label>
+                        <input type="text" id="cgm-image" class="text-input" placeholder="https://... (có thể để trống)" style="flex:1"/>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Kim cương</label>
+                        <input type="number" id="cgm-diamond" class="text-input" placeholder="1" value="1" min="0" style="flex:1"/>
+                    </div>
+                    <div class="hint" style="margin-top:8px;font-size:11px;color:#6b7390">
+                        Quà custom vẫn TÍNH BỘ ĐẾM khi tặng (nếu không gán hiệu ứng thì rơi vào hũ như quà thường).
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="ghost" id="cgm-cancel">Đóng</button>
+                <button class="primary" id="cgm-save">Thêm</button>
             </div>
         </div>
     </div>

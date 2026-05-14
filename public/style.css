@@ -302,6 +302,35 @@ input, button { font-family: inherit; }
 }
 .cfg-select:focus { border-color: #ff6b3d; }
 
+/* Badge config section trong tab Quà */
+.badges-cfg-section {
+    padding: 10px 12px;
+    background: linear-gradient(135deg, rgba(255,107,61,0.05), rgba(236,72,153,0.03));
+    border-bottom: 1px solid #1f2533;
+}
+.badges-cfg-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #ff6b3d;
+    margin-bottom: 8px;
+    letter-spacing: 0.3px;
+}
+.badges-cfg-row { margin-bottom: 8px; }
+.feat.compact { font-size: 12px; font-weight: 600; }
+.badges-cfg-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.badges-cfg-col { display: flex; flex-direction: column; gap: 4px; }
+.badges-cfg-col > label { font-size: 11px; color: #8b93a8; font-weight: 600; }
+.badges-cfg-col .cfg-select { min-width: 0; width: 100%; padding: 5px 8px; }
+.range-with-val {
+    display: flex; align-items: center; gap: 6px;
+}
+.range-with-val input[type="range"] { flex: 1; min-width: 0; }
+.range-with-val .cfg-val { font-size: 11px; min-width: 28px; text-align: right; }
+
 .conn-actions { display: flex; flex-direction: column; gap: 6px; }
 .status-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8b93a8; }
 .stats-row { display: flex; gap: 10px; font-size: 11px; color: #8b93a8; }
@@ -467,7 +496,20 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     width: 100%;
 }
 .cfg-row.cfg-row-text input[type="text"]:focus { border-color: #ff6b3d; }
-.cfg-actions { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid #1f2533; flex-wrap: wrap; }
+.cfg-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid #1f2533;
+}
+.cfg-actions .ghost.small {
+    padding: 6px 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 /* Quick-test panel: trigger gifts đã gán hiệu ứng → click để test ngay */
 .quick-test-section { padding: 10px 12px; border-top: 1px dashed #1f2533; }
@@ -634,15 +676,47 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     align-content: start;
 }
 .gift-card {
-    background: #0f1218;
-    border: 1px solid #1f2533;
+    --card-border: 1px solid #1f2533;
+    --card-bg: #0f1218;
+    --card-glow: none;
+    background: var(--card-bg);
+    border: var(--card-border);
     border-radius: 8px;
     padding: 5px;
     text-align: center;
     cursor: pointer;
-    transition: transform .1s ease, border-color .15s ease;
+    transition: transform .1s ease, border-color .15s ease, box-shadow .15s ease;
+    box-shadow: var(--card-glow);
+    position: relative;
 }
 .gift-card:hover { border-color: #ff6b3d; transform: translateY(-2px); }
+/* Card variants — dùng cho border styling sau này (per-gift hoặc per-tier) */
+.gift-card.border-gold    { --card-border: 1.5px solid #fbbf24; --card-glow: 0 0 8px rgba(251,191,36,0.4); }
+.gift-card.border-silver  { --card-border: 1.5px solid #cbd5e1; --card-glow: 0 0 6px rgba(203,213,225,0.3); }
+.gift-card.border-diamond { --card-border: 1.5px solid #06b6d4; --card-glow: 0 0 10px rgba(6,182,212,0.5); }
+.gift-card.border-pulse   { animation: cardBorderPulse 1.8s ease-in-out infinite; }
+.gift-card.border-rainbow { animation: cardRainbow 3s linear infinite; }
+@keyframes cardBorderPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(255,107,61,0.3); }
+    50%      { box-shadow: 0 0 16px rgba(255,107,61,0.8); }
+}
+@keyframes cardRainbow {
+    0%   { border-color: #ff6b3d; }
+    33%  { border-color: #06b6d4; }
+    66%  { border-color: #ec4899; }
+    100% { border-color: #ff6b3d; }
+}
+.gift-card.is-custom::after {
+    content: 'custom';
+    position: absolute;
+    top: 2px; left: 2px;
+    background: rgba(99, 102, 241, 0.85);
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
 .gift-card img { width: 48px; height: 48px; object-fit: contain; pointer-events: none; }
 .gift-card .name { font-size: 10px; color: #c8cee0; margin-top: 2px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gift-card .id { font-size: 9px; color: #ffd166; }
@@ -2584,49 +2658,59 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .tt-badges.pos-bottom-right  { bottom: 2%; right: 2%; }
 
 .tt-badge {
+    /* KÍCH THƯỚC CỐ ĐỊNH cho TỪNG LAYOUT — namePos chỉ đổi vị trí text bên TRONG card */
+    box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     background: rgba(20,23,31,0.78);
     backdrop-filter: blur(4px);
-    border: 1px solid rgba(255,107,61,0.4);
+    border: 1.5px solid rgba(255,107,61,0.45);
     border-radius: calc(0.8cqw * var(--badge-scale));
-    padding: calc(0.4cqw * var(--badge-scale)) calc(0.8cqw * var(--badge-scale));
-    gap: calc(0.5cqw * var(--badge-scale));
+    padding: calc(0.5cqw * var(--badge-scale));
+    gap: calc(0.4cqw * var(--badge-scale));
     color: #fff;
     box-shadow: 0 0.2cqw 0.6cqw rgba(0,0,0,0.4);
 }
+/* Card size tùy theo LAYOUT (dọc/ngang). namePos KHÔNG ảnh hưởng kích thước.
+   Dọc: badges stack down → card wide rectangle (icon side-by-side text default)
+   Ngang: badges in row → card square (icon top/bottom text default) */
+.tt-badges.layout-vertical .tt-badge {
+    width:  calc(11cqw * var(--badge-scale));
+    height: calc(4.5cqw * var(--badge-scale));
+}
+.tt-badges.layout-horizontal .tt-badge {
+    width:  calc(7cqw * var(--badge-scale));
+    height: calc(7cqw * var(--badge-scale));
+}
 .tt-badge-ico {
-    width: calc(3.2cqw * var(--badge-scale));
-    height: calc(3.2cqw * var(--badge-scale));
+    width: calc(3cqw * var(--badge-scale));
+    height: calc(3cqw * var(--badge-scale));
     object-fit: contain;
     flex-shrink: 0;
 }
 .tt-badge-name {
-    font-size: calc(1.1cqw * var(--badge-scale));
+    font-size: calc(1cqw * var(--badge-scale));
     font-weight: 700;
-    line-height: 1.25;
-    overflow: hidden;
+    line-height: 1.2;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    text-align: center;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    max-width: calc(12cqw * var(--badge-scale));
+    overflow: hidden;
+    word-break: break-word;
 }
-.tt-badge-name span { display: inline-block; }
-/* Marquee scroll khi text quá dài (single-line mode) */
-.tt-badge-name:hover span { animation: badgeMarquee 6s linear infinite; }
+.tt-badge-name span { display: inline; }
 
-@keyframes badgeMarquee {
-    0%   { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-}
-
-/* Position name relative to icon */
-.tt-badge.name-left  { flex-direction: row-reverse; }
-.tt-badge.name-right { flex-direction: row; }
-.tt-badge.name-top    { flex-direction: column-reverse; text-align: center; }
-.tt-badge.name-bottom { flex-direction: column; text-align: center; }
-.tt-badge.name-top .tt-badge-name,
-.tt-badge.name-bottom .tt-badge-name { max-width: calc(8cqw * var(--badge-scale)); }
+/* Position name relative to icon — chỉ đổi flex-direction, KHÔNG đổi size */
+.tt-badge.name-left   { flex-direction: row-reverse; }
+.tt-badge.name-right  { flex-direction: row; }
+.tt-badge.name-top    { flex-direction: column-reverse; }
+.tt-badge.name-bottom { flex-direction: column; }
 
 /* === UFO — VIP PRO version of OSIN: hút 5-10 quà ngẫu nhiên === */
 .tt-ufo {
