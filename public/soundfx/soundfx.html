@@ -92,8 +92,14 @@
         <div class="sfx-modal-body">
             <label class="sfx-set-row"><span>Sử dụng phím tắt</span>
                 <input type="checkbox" id="set-useHotkeys" /></label>
+            <label class="sfx-set-row"><span>⌨️ Phím tắt hoạt động MỌI NƠI (không cần focus app)</span>
+                <input type="checkbox" id="set-globalHotkeys" /></label>
             <label class="sfx-set-row"><span>Hiển thị phím tắt trên nút</span>
                 <input type="checkbox" id="set-showHotkeys" /></label>
+            <div class="sfx-set-row"><span>▶ Phím tắt Phát lại</span>
+                <button class="sfx-btn-ghost" id="set-hk-play-btn"><b id="set-hk-play">Chưa đặt</b></button></div>
+            <div class="sfx-set-row"><span>■ Phím tắt Dừng</span>
+                <button class="sfx-btn-ghost" id="set-hk-stop-btn"><b id="set-hk-stop">Chưa đặt</b></button></div>
             <label class="sfx-set-row"><span>Trộn âm thanh (cho phát chồng)</span>
                 <input type="checkbox" id="set-mix" /></label>
             <label class="sfx-set-row"><span>🌙 Chế độ tối</span>
@@ -152,7 +158,8 @@
         <div class="sfx-modal-body">
             <div class="sfx-hk-target" id="sfx-hk-target"></div>
             <div class="sfx-hk-display" id="sfx-hk-display">Bấm tổ hợp phím...</div>
-            <div class="sfx-hk-hint">Vd: Ctrl+1, Alt+Shift+A. Phím tắt hoạt động khi cửa sổ này focus.</div>
+            <div class="sfx-hk-hint" id="sfx-hk-scope" style="font-weight:700"></div>
+            <div class="sfx-hk-hint">💡 Nên dùng <b>Ctrl</b> hoặc <b>Alt</b> + phím (vd Ctrl+1, Alt+Q) để chạy MỌI NƠI mà KHÔNG chặn gõ chữ. Phím đơn (a, 1) sẽ chiếm bàn phím nên chỉ chạy khi cửa sổ này mở.</div>
             <div class="sfx-modal-foot">
                 <button id="sfx-hk-clear" class="sfx-btn-ghost">Xoá</button>
                 <button id="sfx-hk-save" class="sfx-btn-primary">Lưu</button>

@@ -1,4 +1,12 @@
 /* ===== HP Media SoundFX — modern soundboard, white default ===== */
+
+/* 🔧 FIX TRIỆT ĐỂ (class bug tái diễn): thuộc tính HTML [hidden] chỉ set
+   display:none ở UA stylesheet (specificity thấp). Bất kỳ class nào có
+   `display: flex/block/grid` sẽ ĐÈ → element không ẩn được dù el.hidden=true
+   → modal/drawer không đóng được. Reset chuẩn (normalize.css pattern) +
+   !important để chặn MỌI class display hiện tại lẫn tương lai. */
+[hidden] { display: none !important; }
+
 :root {
     --bg: #ffffff;
     --surface: #f6f7fb;
@@ -42,13 +50,13 @@ html, body {
 
 /* ===== Top bar ===== */
 .sfx-top {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     -webkit-app-region: drag;
 }
-.sfx-logo img { height: 28px; display: block; border-radius: 6px; }
+.sfx-logo img { height: 24px; display: block; border-radius: 6px; }
 .sfx-top-spacer { flex: 1; }
 .sfx-vol {
     display: flex; align-items: center; gap: 6px;
@@ -58,49 +66,52 @@ html, body {
 .sfx-vol-val { font-size: 11px; color: var(--text-dim); width: 22px; text-align: right; }
 .sfx-icon-btn {
     -webkit-app-region: no-drag;
-    width: 32px; height: 32px;
+    width: 28px; height: 28px;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: 1px solid transparent;
-    border-radius: 8px; cursor: pointer; font-size: 15px;
+    border-radius: 7px; cursor: pointer; font-size: 14px;
     color: var(--text); transition: background .12s, border-color .12s;
 }
 .sfx-icon-btn:hover { background: var(--surface-2); }
 .sfx-icon-btn.active { color: var(--accent); background: var(--accent-soft); }
 .sfx-icon-btn.sfx-close:hover { background: rgba(239,68,68,0.14); color: var(--danger); }
 
-/* ===== Tabs ===== */
+/* ===== Tabs — pill, tự xuống dòng, KHÔNG scrollbar (UX gọn) ===== */
 .sfx-tabs {
-    display: flex; gap: 4px; padding: 8px 10px 0;
+    display: flex; flex-wrap: wrap; gap: 5px;
+    padding: 8px 10px;
     background: var(--surface);
-    overflow-x: auto; scrollbar-width: thin;
+    border-bottom: 1px solid var(--border);
 }
 .sfx-tab {
-    flex-shrink: 0;
-    padding: 8px 14px;
-    border: none; background: transparent;
-    color: var(--text-dim); font-weight: 700; font-size: 12.5px;
-    border-radius: 8px 8px 0 0; cursor: pointer;
-    border-bottom: 2.5px solid transparent;
-    display: flex; align-items: center; gap: 6px;
-    transition: color .12s, background .12s;
+    flex: 0 0 auto;
+    padding: 6px 11px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text-dim); font-weight: 700; font-size: 11.5px;
+    border-radius: 999px; cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+    transition: color .12s, background .12s, border-color .12s;
 }
-.sfx-tab:hover { color: var(--text); background: var(--surface-2); }
-.sfx-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.sfx-tab:hover { color: var(--text); border-color: var(--accent); }
+.sfx-tab.active {
+    color: #fff; background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-soft);
+}
 .sfx-tab .cnt {
-    font-size: 10px; background: var(--surface-2); color: var(--text-dim);
-    padding: 1px 6px; border-radius: 999px;
+    font-size: 9.5px; background: var(--surface-2); color: var(--text-dim);
+    padding: 0 5px; border-radius: 999px; font-weight: 700;
 }
-.sfx-tab.active .cnt { background: var(--accent-soft); color: var(--accent); }
+.sfx-tab.active .cnt { background: rgba(255,255,255,0.25); color: #fff; }
 
 /* ===== Search ===== */
 .sfx-searchbar {
-    display: flex; gap: 8px; padding: 10px 12px;
+    display: flex; gap: 7px; padding: 8px 10px;
     border-bottom: 1px solid var(--border);
 }
 .sfx-searchbar input {
-    flex: 1; padding: 8px 12px;
+    flex: 1; padding: 7px 11px;
     border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg); color: var(--text); font-size: 13px; outline: none;
+    background: var(--bg); color: var(--text); font-size: 12.5px; outline: none;
 }
 .sfx-searchbar input:focus { border-color: var(--accent); }
 .sfx-tts-toggle {
@@ -137,27 +148,35 @@ html, body {
     border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 12.5px;
 }
 
-/* ===== Grid ===== */
-.sfx-grid-wrap { flex: 1; overflow-y: auto; padding: 12px; scrollbar-width: thin; }
+/* ===== Grid — cố định 3 cột × 8 hàng, KHÔNG thanh cuộn (cuộn bằng lăn chuột) ===== */
+.sfx-grid-wrap {
+    flex: 1; overflow-y: auto; padding: 10px;
+    scrollbar-width: none;            /* Firefox: ẩn scrollbar */
+}
+.sfx-grid-wrap::-webkit-scrollbar { width: 0; height: 0; display: none; }  /* Chromium: ẩn */
 .sfx-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
 }
 .sfx-cell {
     position: relative;
-    min-height: 52px;
-    padding: 10px 10px;
+    height: 58px;
+    padding: 6px 8px;
     background: var(--bg);
     border: 1.5px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: 10px;
     color: var(--text);
-    cursor: pointer; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; font-size: 12px; font-weight: 600;
     display: flex; align-items: center; justify-content: center;
-    text-align: center; line-height: 1.25;
+    text-align: center; line-height: 1.2;
     transition: transform .08s, border-color .12s, box-shadow .12s, background .12s;
     box-shadow: var(--shadow);
-    word-break: break-word;
+    overflow: hidden;
+}
+.sfx-cell .lbl {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; word-break: break-word;
 }
 .sfx-cell:hover { border-color: var(--accent); transform: translateY(-1px); }
 .sfx-cell:active { transform: scale(0.97); }
@@ -175,6 +194,20 @@ html, body {
     background: var(--surface-2); padding: 0 4px; border-radius: 4px;
     font-weight: 700;
 }
+/* Ô trống ➕ thêm âm thanh */
+.sfx-cell.sfx-add {
+    border: 1.5px dashed var(--border);
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-dim);
+}
+.sfx-cell.sfx-add:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.sfx-add-plus { font-size: 20px; font-weight: 400; line-height: 1; opacity: .7; }
+.sfx-cell.sfx-add:hover .sfx-add-plus { opacity: 1; }
 .sfx-cell.cloud { border-style: dashed; }
 .sfx-cell.cloud::after {
     content: '☁'; position: absolute; top: 4px; right: 6px; font-size: 10px; opacity: .6;
@@ -189,16 +222,16 @@ html, body {
 
 /* ===== Bottom bar ===== */
 .sfx-bottom {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px; background: var(--surface);
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 10px; background: var(--surface);
     border-top: 1px solid var(--border);
 }
 .sfx-pbtn {
-    width: 38px; height: 38px; border-radius: 50%;
+    width: 32px; height: 32px; border-radius: 50%;
     border: 1.5px solid var(--border); background: var(--bg);
-    color: var(--text); cursor: pointer; font-size: 14px;
+    color: var(--text); cursor: pointer; font-size: 13px;
     display: flex; align-items: center; justify-content: center;
-    transition: background .12s, border-color .12s;
+    transition: background .12s, border-color .12s; flex-shrink: 0;
 }
 .sfx-pbtn:hover { border-color: var(--accent); color: var(--accent); }
 .sfx-now {
