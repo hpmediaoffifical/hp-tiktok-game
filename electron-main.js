@@ -2,7 +2,7 @@
  * HP Action LIVE — Electron Desktop Wrapper
  * Khởi động server Express + mở cửa sổ Chromium tới http://localhost:PORT
  */
-const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -13,6 +13,7 @@ const APP_NAME = 'HP Action LIVE';
 
 let mainWindow = null;
 let splashWindow = null;
+let soundfxWindow = null;
 let tray = null;
 let serverStarted = false;
 let isQuitting = false;
@@ -168,6 +169,11 @@ function createMainWindow() {
 
     // Hyperlinks trỏ ra ngoài → mở bằng trình duyệt mặc định
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // /soundfx → mở cửa sổ soundboard nổi riêng (always-on-top, resize)
+        if (url === `${APP_URL}/soundfx` || url.startsWith(`${APP_URL}/soundfx`)) {
+            openSoundfxWindow();
+            return { action: 'deny' };
+        }
         if (url.startsWith(APP_URL)) {
             return { action: 'allow' };
         }
@@ -216,6 +222,7 @@ function buildTray() {
         tray = new Tray(getIcon().resize({ width: 16, height: 16 }));
         const contextMenu = Menu.buildFromTemplate([
             { label: 'Mở HP Action LIVE', click: showMainWindow },
+            { label: '🔊 Mở Sound Effects', click: () => openSoundfxWindow() },
             { label: 'Mở overlay OBS trong trình duyệt', click: () => shell.openExternal(`${APP_URL}/overlay/thuytinh`) },
             { type: 'separator' },
             { label: 'Thoát', click: () => fullQuit() }
@@ -419,6 +426,78 @@ function actualFullQuit() {
         }, 800);
     }, 200);
 }
+
+// ============================================================
+// 🔊 SoundFX — cửa sổ soundboard nổi, always-on-top, resize có giới hạn
+// ============================================================
+async function loadSfxWinPrefs() {
+    // Đọc bounds đã lưu từ soundfx.json (server lưu qua /api/soundfx/config)
+    try {
+        const j = await new Promise((resolve) => {
+            http.get(`${APP_URL}/api/soundfx/library`, (res) => {
+                let d = ''; res.on('data', c => d += c);
+                res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+            }).on('error', () => resolve(null));
+        });
+        return (j && j.settings && j.settings.win) ? j.settings.win : {};
+    } catch { return {}; }
+}
+async function openSoundfxWindow() {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) {
+        soundfxWindow.show(); soundfxWindow.focus(); return;
+    }
+    const win = await loadSfxWinPrefs();
+    const opts = {
+        width: Math.max(420, Math.min(1200, win.w || 700)),
+        height: Math.max(480, Math.min(1400, win.h || 880)),
+        minWidth: 420, minHeight: 480,
+        maxWidth: 1200, maxHeight: 1400,
+        title: 'HP Media — Sound Effects',
+        icon: getIcon(),
+        backgroundColor: '#ffffff',
+        alwaysOnTop: win.alwaysOnTop !== false,
+        autoHideMenuBar: true,
+        skipTaskbar: false,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            sandbox: false,
+            preload: path.join(__dirname, 'sfx-preload.js')
+        }
+    };
+    if (typeof win.x === 'number' && typeof win.y === 'number') { opts.x = win.x; opts.y = win.y; }
+    soundfxWindow = new BrowserWindow(opts);
+    soundfxWindow.loadURL(`${APP_URL}/soundfx`);
+    soundfxWindow.once('ready-to-show', () => soundfxWindow.show());
+    soundfxWindow.on('closed', () => { soundfxWindow = null; });
+    soundfxWindow.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url); return { action: 'deny' };
+    });
+}
+ipcMain.on('sfx:setAlwaysOnTop', (e, on) => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) soundfxWindow.setAlwaysOnTop(!!on);
+});
+ipcMain.on('sfx:close', () => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) soundfxWindow.close();
+});
+ipcMain.on('sfx:getBounds', (e) => {
+    try {
+        const b = soundfxWindow && !soundfxWindow.isDestroyed() ? soundfxWindow.getBounds() : null;
+        e.returnValue = b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null;
+    } catch { e.returnValue = null; }
+});
+ipcMain.on('sfx:setBounds', (e, b) => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed() && b) {
+        try { soundfxWindow.setBounds({
+            x: b.x ?? soundfxWindow.getBounds().x,
+            y: b.y ?? soundfxWindow.getBounds().y,
+            width: b.w ?? soundfxWindow.getBounds().width,
+            height: b.h ?? soundfxWindow.getBounds().height
+        }); } catch {}
+    }
+});
+// Main app mở SoundFX qua IPC
+ipcMain.on('open-soundfx', () => openSoundfxWindow());
 
 app.whenReady().then(async () => {
     startServer();

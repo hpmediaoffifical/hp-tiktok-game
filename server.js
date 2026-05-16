@@ -2539,6 +2539,18 @@ app.get('/api/games/vipwelcome/queue', (req, res) => {
     });
 });
 
+// ====== 🔊 SoundFX module — soundboard streamer ======
+try {
+    const { createSoundfxModule } = require('./soundfx-server.js');
+    const soundfx = createSoundfxModule(DATA_DIR);
+    app.use('/api/soundfx', soundfx.router);
+    app.get('/soundfx', (req, res) =>
+        res.sendFile(path.join(__dirname, 'public', 'soundfx', 'soundfx.html')));
+    console.log('[soundfx] module mounted at /soundfx');
+} catch (e) {
+    console.warn('[soundfx] không mount được:', e.message);
+}
+
 // Default index
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
