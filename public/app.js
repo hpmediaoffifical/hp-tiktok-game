@@ -438,6 +438,7 @@
     // ===== Thuytinh game =====
     function openThuytinh(game) {
         showView('view-thuytinh');
+        mountThuySidePanel?.('police');
         dom.gTitle.textContent = `${game.icon} ${game.name}`;
         dom.gSub.textContent = game.description;
         const overlayUrl = location.origin + game.overlayPath;
@@ -2461,9 +2462,11 @@
     const ltTts = document.getElementById('lt-tts');
     const ltIgnoreIcons = document.getElementById('lt-ignore-icons');
     const ltCleanUnreadable = document.getElementById('lt-clean-unreadable');
+    const ltAiFilter = document.getElementById('lt-ai-filter');
     const ltSource = document.getElementById('lt-source');
     const ltTarget = document.getElementById('lt-target');
     const ltVoice = document.getElementById('lt-voice');
+    const ltTtsPreset = document.getElementById('lt-tts-preset');
     const ltReadMode = document.getElementById('lt-read-mode');
     const ltPriority = document.getElementById('lt-priority');
     const ltCooldown = document.getElementById('lt-cooldown');
@@ -2481,6 +2484,10 @@
     const btnTranslateTestVoice = document.getElementById('btn-translate-test-voice');
     const btnTranslateSave = document.getElementById('btn-translate-save');
     const btnTranslateCopy = document.getElementById('btn-translate-copy');
+    const btnCopyDashboard = document.getElementById('btn-copy-dashboard');
+    const btnBackupExport = document.getElementById('btn-backup-export');
+    const btnBackupImport = document.getElementById('btn-backup-import');
+    const backupImportFile = document.getElementById('backup-import-file');
     const ccEnabled = document.getElementById('cc-enabled');
     const ccOriginal = document.getElementById('cc-original');
     const ccSource = document.getElementById('cc-source');
@@ -2558,9 +2565,11 @@
         if (ltTts) ltTts.checked = !!liveTranslateConfig.ttsEnabled;
         if (ltIgnoreIcons) ltIgnoreIcons.checked = liveTranslateConfig.ignoreIcons !== false;
         if (ltCleanUnreadable) ltCleanUnreadable.checked = liveTranslateConfig.cleanUnreadable !== false;
+        if (ltAiFilter) ltAiFilter.checked = liveTranslateConfig.aiFilterEnabled !== false;
         if (ltSource) ltSource.value = liveTranslateConfig.sourceLang || 'auto';
         if (ltTarget) ltTarget.value = liveTranslateConfig.targetLang || 'vi';
         if (ltVoice) ltVoice.value = liveTranslateConfig.ttsVoice || 'auto';
+        if (ltTtsPreset) ltTtsPreset.value = liveTranslateConfig.ttsPreset || 'auto';
         if (ltReadMode) ltReadMode.value = liveTranslateConfig.ttsReadMode || (liveTranslateConfig.readUsername === false ? 'commentOnly' : 'nameAndComment');
         if (ltPriority) ltPriority.value = liveTranslateConfig.ttsPriority || 'all';
         if (ltCooldown) ltCooldown.value = String(liveTranslateConfig.ttsCooldownSeconds == null ? 4 : liveTranslateConfig.ttsCooldownSeconds);
@@ -2599,10 +2608,12 @@
             ttsEnabled: !!ltTts?.checked,
             ignoreIcons: ltIgnoreIcons ? !!ltIgnoreIcons.checked : true,
             cleanUnreadable: ltCleanUnreadable ? !!ltCleanUnreadable.checked : true,
+            aiFilterEnabled: ltAiFilter ? !!ltAiFilter.checked : true,
             readUsername: (ltReadMode?.value || 'nameAndComment') === 'nameAndComment',
             sourceLang: ltSource?.value || 'auto',
             targetLang: ltTarget?.value || 'vi',
             ttsVoice: ltVoice?.value || 'auto',
+            ttsPreset: ltTtsPreset?.value || 'auto',
             ttsReadMode: ltReadMode?.value || 'nameAndComment',
             ttsPriority: ltPriority?.value || 'all',
             ttsCooldownSeconds: parseInt(ltCooldown?.value || '4', 10) || 0,
@@ -2650,6 +2661,39 @@
         const url = ltOverlayUrl?.value || (location.origin + '/overlay/translate');
         try { await navigator.clipboard.writeText(url); setTranslateStatus('Đã copy link OBS dịch', 'ok'); }
         catch (e) { if (ltOverlayUrl) ltOverlayUrl.select(); setTranslateStatus('Không copy tự động được', 'err'); }
+    }
+    async function copyDashboardOverlayUrl() {
+        const url = location.origin + '/overlay/dashboard';
+        try { await navigator.clipboard.writeText(url); setTranslateStatus('Đã copy link OBS dashboard', 'ok'); }
+        catch (e) { setTranslateStatus(url, 'ok'); }
+    }
+    async function exportBackupConfig() {
+        try {
+            const data = await (await fetch('/api/backup/export')).json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `hp-action-live-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            URL.revokeObjectURL(a.href);
+            a.remove();
+            setTranslateStatus('Đã export backup cấu hình', 'ok');
+        } catch (e) { setTranslateStatus('Export backup lỗi: ' + e.message, 'err'); }
+    }
+    async function importBackupConfig(file) {
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            const res = await fetch('/api/backup/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.error || 'import_failed');
+            await loadLiveTranslateConfig();
+            await loadCreatorCaptionConfig();
+            setTranslateStatus('Đã import backup cấu hình', 'ok');
+        } catch (e) { setTranslateStatus('Import backup lỗi: ' + e.message, 'err'); }
+        finally { if (backupImportFile) backupImportFile.value = ''; }
     }
     async function syncTranslateSheetRules() {
         if (btnTranslateSyncSheet) btnTranslateSyncSheet.disabled = true;
@@ -2823,12 +2867,20 @@
     btnTranslateTestVoice?.addEventListener('click', testTranslateVoice);
     btnTranslateSave?.addEventListener('click', saveLiveTranslateConfig);
     btnTranslateCopy?.addEventListener('click', copyTranslateOverlayUrl);
+    btnCopyDashboard?.addEventListener('click', copyDashboardOverlayUrl);
+    btnBackupExport?.addEventListener('click', exportBackupConfig);
+    btnBackupImport?.addEventListener('click', () => backupImportFile?.click());
+    backupImportFile?.addEventListener('change', () => importBackupConfig(backupImportFile.files?.[0]));
     btnCcToggle?.addEventListener('click', toggleCreatorCaptionListening);
     btnCcCopy?.addEventListener('click', copyCreatorCaptionOverlayUrl);
     btnCcTest?.addEventListener('click', testCreatorCaption);
     btnCcMicTest?.addEventListener('click', testCreatorCaptionMicrophone);
     ltVolume?.addEventListener('input', () => { if (ltVolumeV) ltVolumeV.textContent = (ltVolume.value || '0') + '%'; });
     ltRate?.addEventListener('input', () => { if (ltRateV) ltRateV.textContent = (parseFloat(ltRate.value || '1') || 1).toFixed(1) + 'x'; });
+    ltTtsPreset?.addEventListener('change', () => {
+        const preset = ltTtsPreset.value;
+        if (preset && preset !== 'auto' && ltTarget) ltTarget.value = preset;
+    });
     ccSilence?.addEventListener('input', () => { if (ccSilenceV) ccSilenceV.textContent = (parseFloat(ccSilence.value || '2') || 2) + 's'; });
     socket.on('translate:config', applyLiveTranslateConfig);
     socket.on('translate:rules', updateTranslateSheetStatus);
@@ -3090,6 +3142,29 @@
     fetchVersionInfo();  // điền version hiện tại ngay khi load
 
     // ===== Police Force popup (FAB) =====
+    function mountThuySidePanel(active = 'police') {
+        const host = document.getElementById('thuy-side-panel-host');
+        const police = document.getElementById('police-popup');
+        const caught = document.getElementById('caught-popup');
+        if (!host || !police || !caught) return;
+        if (police.parentElement !== host) host.appendChild(police);
+        if (caught.parentElement !== host) host.appendChild(caught);
+        setThuySidePanel(active);
+    }
+    function setThuySidePanel(active) {
+        const police = document.getElementById('police-popup');
+        const caught = document.getElementById('caught-popup');
+        const policeTab = document.getElementById('thuy-police-tab');
+        const caughtTab = document.getElementById('thuy-caught-tab');
+        const showCaught = active === 'caught';
+        if (police) police.hidden = showCaught;
+        if (caught) caught.hidden = !showCaught;
+        policeTab?.classList.toggle('active', !showCaught);
+        caughtTab?.classList.toggle('active', showCaught);
+    }
+    document.getElementById('thuy-police-tab')?.addEventListener('click', () => setThuySidePanel('police'));
+    document.getElementById('thuy-caught-tab')?.addEventListener('click', () => setThuySidePanel('caught'));
+
     const policeFab = document.getElementById('police-fab');
     const policePopup = document.getElementById('police-popup');
     const policeBadge = document.getElementById('police-badge');
@@ -3110,12 +3185,16 @@
         if (!members.length) {
             policeListEl.innerHTML = '<div class="police-empty">Chưa có ai gia nhập lực lượng cảnh sát.</div>';
             if (policeBadge) policeBadge.hidden = true;
+            const thuyPoliceCount = document.getElementById('thuy-police-count');
+            if (thuyPoliceCount) thuyPoliceCount.textContent = '0';
             return;
         }
         if (policeBadge) {
             policeBadge.hidden = false;
             policeBadge.textContent = String(members.length);
         }
+        const thuyPoliceCount = document.getElementById('thuy-police-count');
+        if (thuyPoliceCount) thuyPoliceCount.textContent = String(members.length);
         policeListEl.innerHTML = members.map(p => {
             const since = p.joinedAt ? new Date(p.joinedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
             const av = p.avatar
@@ -3170,12 +3249,16 @@
         if (!active.length) {
             caughtListEl.innerHTML = '<div class="caught-empty">Chưa có ai bị tóm.</div>';
             if (caughtBadge) caughtBadge.hidden = true;
+            const thuyCaughtCount = document.getElementById('thuy-caught-count');
+            if (thuyCaughtCount) thuyCaughtCount.textContent = '0';
             return;
         }
         if (caughtBadge) {
             caughtBadge.hidden = false;
             caughtBadge.textContent = String(active.length);
         }
+        const thuyCaughtCount = document.getElementById('thuy-caught-count');
+        if (thuyCaughtCount) thuyCaughtCount.textContent = String(active.length);
         caughtListEl.innerHTML = active.map(c => {
             const left = Math.max(0, Math.ceil((c.releaseAt - now) / 1000));
             const av = c.avatar
@@ -3331,25 +3414,11 @@
         const sidebar = document.querySelector('.sidebar');
         const app = document.querySelector('.app');
         if (!btn || !sidebar || !app) return;
-        const KEY = 'hp-sidebar-collapsed';
-        // Default thu gọn khi lần đầu mở app (chưa có localStorage entry).
-        // User toggle 1 lần → preference được nhớ qua KEY ('0' = mở rộng, '1' = thu).
-        const savedRaw = localStorage.getItem(KEY);
-        const saved = savedRaw === null ? true : savedRaw === '1';
-        applyState(saved);
-        btn.addEventListener('click', () => {
-            const willCollapse = !sidebar.classList.contains('collapsed');
-            applyState(willCollapse);
-            localStorage.setItem(KEY, willCollapse ? '1' : '0');
-        });
-        function applyState(collapsed) {
-            sidebar.classList.toggle('collapsed', collapsed);
-            app.classList.toggle('sidebar-collapsed', collapsed);
-            // Toggle ở body để FAB ngoài .app cũng pick up --fab-base-left.
-            document.body.classList.toggle('sidebar-collapsed', collapsed);
-            btn.textContent = collapsed ? '›' : '‹';
-            btn.title = collapsed ? 'Mở rộng menu' : 'Thu gọn menu';
-        }
+        localStorage.setItem('hp-sidebar-collapsed', '0');
+        sidebar.classList.remove('collapsed');
+        app.classList.remove('sidebar-collapsed');
+        document.body.classList.remove('sidebar-collapsed');
+        btn.hidden = true;
     }
 
     // ===== Init: license gate trước, app sau =====

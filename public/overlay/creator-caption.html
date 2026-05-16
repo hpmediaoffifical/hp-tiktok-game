@@ -19,20 +19,32 @@
         }
         .line {
             max-width: 100%;
-            padding: 14px 22px;
-            border-radius: 18px;
-            background: rgba(5, 8, 14, 0.72);
-            border: 1px solid rgba(37, 244, 238, 0.38);
-            box-shadow: 0 14px 44px rgba(0,0,0,0.45), 0 0 26px rgba(37,244,238,0.12);
+            padding: 16px 24px 18px;
+            border-radius: 22px;
+            background: linear-gradient(135deg, rgba(5, 8, 14, 0.78), rgba(18, 24, 38, 0.62));
+            border: 1px solid rgba(37, 244, 238, 0.42);
+            box-shadow: 0 18px 54px rgba(0,0,0,0.52), 0 0 34px rgba(37,244,238,0.16);
+            backdrop-filter: blur(16px) saturate(1.25);
             color: #fff;
             text-align: center;
-            animation: pop .18s ease-out;
+            animation: captionIn .34s cubic-bezier(.2,.9,.2,1.1);
         }
         .translated {
             font-size: clamp(28px, 3.4vw, 54px);
             line-height: 1.16;
             font-weight: 900;
             text-shadow: 0 3px 10px rgba(0,0,0,0.75);
+        }
+        .word {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(0.38em) scale(0.96);
+            filter: blur(4px);
+            animation: karaokeWord .42s cubic-bezier(.2,.9,.2,1) forwards;
+        }
+        .word.active {
+            color: #fff6a6;
+            text-shadow: 0 0 16px rgba(255, 209, 102, 0.45), 0 3px 10px rgba(0,0,0,0.78);
         }
         .translated + .translated { margin-top: 8px; }
         .lang-label {
@@ -57,8 +69,9 @@
             letter-spacing: 0.4px;
             text-transform: uppercase;
         }
-        .line.leaving { opacity: 0; transform: translateY(16px) scale(0.98); transition: opacity .24s ease, transform .24s ease; }
-        @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+        .line.leaving { opacity: 0; transform: translateY(18px) scale(0.96); filter: blur(8px); transition: opacity .28s ease, transform .28s ease, filter .28s ease; }
+        @keyframes captionIn { from { opacity: 0; transform: translateY(24px) scale(0.94); filter: blur(10px); } to { opacity: 1; transform: none; filter: none; } }
+        @keyframes karaokeWord { to { opacity: 1; transform: none; filter: none; } }
     </style>
 </head>
 <body>
@@ -72,6 +85,23 @@
 
         function trimItems(max) {
             while (wrap.children.length > max) wrap.removeChild(wrap.firstElementChild);
+        }
+        function appendKaraokeText(parent, text) {
+            const words = String(text || '').split(/(\s+)/).filter(Boolean);
+            let wordIndex = 0;
+            for (const part of words) {
+                if (/^\s+$/.test(part)) {
+                    parent.appendChild(document.createTextNode(part));
+                    continue;
+                }
+                const span = document.createElement('span');
+                span.className = 'word';
+                span.textContent = part;
+                span.style.animationDelay = Math.min(wordIndex * 0.055, 1.8) + 's';
+                if (wordIndex < 7) span.classList.add('active');
+                parent.appendChild(span);
+                wordIndex += 1;
+            }
         }
         function addLine(item) {
             const el = document.createElement('div');
@@ -88,7 +118,7 @@
                 label.className = 'lang-label';
                 label.textContent = row.targetLangLabel || row.targetLang || '';
                 translated.appendChild(label);
-                translated.appendChild(document.createTextNode(row.translatedText || item.originalText || ''));
+                appendKaraokeText(translated, row.translatedText || item.originalText || '');
                 el.appendChild(translated);
             }
             if ((item.showOriginal ?? config.showOriginal) && item.originalText && item.originalText !== item.translatedText) {

@@ -524,7 +524,17 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .game-item.disabled-game { opacity: 0.6; }
 .sidebar.collapsed .game-toggle { display: none; }
 
-.side-footer { text-align: center; font-size: 10px; color: #5b6378; padding: 4px; line-height: 1.4; }
+.side-bottom-card {
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    display: contents;
+}
+.side-soundfx-btn { width: auto; min-width: 44px; padding: 9px 11px; border-radius: 12px; }
+.side-footer { text-align: right; font-size: 10px; color: #5b6378; padding: 0; line-height: 1.4; min-width: 0; }
 .side-footer-author { font-size: 9px; color: #6b7390; margin-top: 1px; font-style: italic; }
 .hint { font-size: 11px; color: #8b93a8; }
 
@@ -1147,6 +1157,9 @@ body.sidebar-collapsed { --fab-base-left: 76px; }  /* sidebar 60 + gap 16 */
     display: flex; align-items: center; justify-content: center;
 }
 .comments-fab:hover { transform: scale(1.05); }
+.comments-fab,
+.police-fab,
+.caught-fab { font-size: 27px; }
 .comments-fab .badge {
     position: absolute;
     top: -4px; right: -4px;
@@ -2853,6 +2866,66 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 }
 .caught-popup .cp-bail:hover { filter: brightness(1.1); }
 .caught-popup .cp-bail:active { transform: translateY(1px); }
+
+.thuy-side-panel {
+    margin-top: 14px;
+    padding: 0;
+    overflow: hidden;
+}
+.thuy-side-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-bottom: 1px solid #232936;
+    background: #10141e;
+}
+.thuy-side-switch button {
+    min-height: 50px;
+    border: 0;
+    border-right: 1px solid #232936;
+    background: transparent;
+    color: #8b93a8;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.thuy-side-switch button:last-child { border-right: 0; }
+.thuy-side-switch button.active {
+    color: #e6e8ee;
+    background: linear-gradient(180deg, rgba(255,107,61,0.16), rgba(37,244,238,0.06));
+    box-shadow: inset 0 -2px 0 #ff6b3d;
+}
+.thuy-side-switch span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    color: #ffd166;
+    font-size: 11px;
+}
+.thuy-side-panel-host {
+    min-height: 190px;
+    background: linear-gradient(180deg, #161a23, #121722);
+}
+.thuy-side-panel-host .police-popup,
+.thuy-side-panel-host .caught-popup {
+    position: static !important;
+    width: auto !important;
+    max-height: 360px !important;
+    min-height: 190px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+    z-index: auto;
+}
+.thuy-side-panel-host .modal-close { display: none; }
+.thuy-side-panel-host .police-popup-head,
+.thuy-side-panel-host .caught-popup-head { display: none; }
 
 /* === OSIN — nhân vật người nhặt quà văng ra ngoài hũ === */
 .tt-osin {
@@ -4694,7 +4767,7 @@ body.game-caro #caught-popup {
 }
 .app.sidebar-collapsed { --sidebar-w: 60px; }
 
-.sidebar { position: relative; padding-bottom: 44px; }
+.sidebar { position: relative; padding-bottom: 12px; }
 
 .sidebar-toggle {
     position: absolute;
@@ -4730,6 +4803,7 @@ body.game-caro #caught-popup {
 .sidebar.collapsed .game-item { padding: 8px 0; justify-content: center; }
 .sidebar.collapsed .game-item .meta { display: none; }
 .sidebar.collapsed .game-item .ico { font-size: 22px; }
+.sidebar.collapsed .side-bottom-card { grid-template-columns: auto 1fr; padding: 8px 12px; }
 .sidebar.collapsed #btn-open-soundfx {
     width: 44px;
     height: 44px;
@@ -4737,9 +4811,10 @@ body.game-caro #caught-popup {
     margin: 0 auto;
     border-radius: 14px;
 }
+.sidebar-toggle { display: none !important; }
 .sidebar.collapsed #btn-open-soundfx .soundfx-btn-ico { font-size: 20px; }
 .sidebar.collapsed #btn-open-soundfx .soundfx-btn-text { display: none; }
-.sidebar.collapsed .side-footer { display: none; }
+.sidebar.collapsed .side-footer { display: block; }
 
 /* ===== Status dot khi collapsed — to hơn + màu rõ ràng ===== */
 .sidebar.collapsed .dot {
@@ -4770,10 +4845,11 @@ body.game-caro #caught-popup {
    Game-specific: Cảnh sát/Bị tóm chỉ hiện ở Hũ Thủy Tinh. */
 body {
     --popup-dock-left: calc(var(--fab-base-left) + 8px);
+    --popup-dock-icon-left: calc(var(--popup-dock-left) + 14px);
     --popup-dock-right: 14px;
     --popup-dock-bottom: 12px;
     --popup-dock-gap: 10px;
-    --popup-dock-size: 48px;
+    --popup-dock-size: 50px;
     --popup-dock-card-h: 72px;
 }
 body::after {
@@ -4797,7 +4873,8 @@ body::after {
 .comments-fab.unknown-fab,
 .comments-fab.translate-fab,
 .police-fab,
-.caught-fab {
+.caught-fab,
+#btn-open-soundfx {
     width: var(--popup-dock-size);
     height: var(--popup-dock-size);
     bottom: calc(var(--popup-dock-bottom) + (var(--popup-dock-card-h) - var(--popup-dock-size)) / 2) !important;
@@ -4806,12 +4883,35 @@ body::after {
     opacity: 1;
     z-index: 9600;
 }
-#comments-fab { left: var(--popup-dock-left) !important; }
-#unknown-fab { left: calc(var(--popup-dock-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 1) !important; }
-#translate-fab { left: calc(var(--popup-dock-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 2) !important; }
-#creator-caption-fab { left: calc(var(--popup-dock-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 3) !important; }
-#police-fab { left: calc(var(--popup-dock-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 4) !important; }
-#caught-fab { left: calc(var(--popup-dock-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 5) !important; }
+#comments-fab { left: var(--popup-dock-icon-left) !important; }
+#unknown-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 1) !important; }
+#btn-open-soundfx {
+    position: fixed !important;
+    left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 2) !important;
+    right: auto !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #241b5a, #7c3aed) !important;
+    border: 1px solid rgba(167, 139, 250, 0.4) !important;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 0 3px rgba(124,58,237,0.14);
+}
+#btn-open-soundfx .soundfx-btn-ico { font-size: 28px; line-height: 1; }
+#btn-open-soundfx .soundfx-btn-text { display: none; }
+#translate-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 3) !important; }
+#creator-caption-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 4) !important; }
+#police-fab,
+#caught-fab { display: none !important; }
+.side-footer {
+    position: fixed;
+    right: 30px;
+    bottom: calc(var(--popup-dock-bottom) + 21px);
+    z-index: 9601;
+    pointer-events: none;
+    background: transparent;
+    border: 0;
+}
 .comments-popup,
 .comments-popup.unknown-popup,
 .comments-popup.translate-popup,
@@ -4828,8 +4928,6 @@ body::after {
 .comments-popup.unknown-popup { width: 460px; }
 .police-popup { width: 340px; }
 .caught-popup { width: 380px; }
-body:not(.game-thuytinh) #police-fab,
-body:not(.game-thuytinh) #caught-fab,
 body:not(.game-thuytinh) #police-popup,
 body:not(.game-thuytinh) #caught-popup { display: none !important; }
 

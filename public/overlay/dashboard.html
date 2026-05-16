@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HP Action LIVE Dashboard</title>
+<style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: "Segoe UI", Arial, sans-serif; color: #fff; }
+    #dash { position: fixed; right: 28px; top: 28px; width: min(430px, 42vw); display: grid; gap: 12px; pointer-events: none; }
+    .card { border: 1px solid rgba(37,244,238,.28); border-radius: 20px; background: linear-gradient(135deg, rgba(6,10,20,.78), rgba(18,24,38,.62)); box-shadow: 0 18px 50px rgba(0,0,0,.42); backdrop-filter: blur(14px); padding: 14px 16px; animation: in .24s ease-out; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { font-weight: 950; letter-spacing: .3px; color: #25F4EE; }
+    .status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 900; color: #fca5a5; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #ef4444; box-shadow: 0 0 18px rgba(239,68,68,.65); }
+    .online .status { color: #8bffbd; }
+    .online .dot { background: #22c55e; box-shadow: 0 0 18px rgba(34,197,94,.8); }
+    .user { margin-top: 8px; color: #ffd166; font-size: 22px; font-weight: 950; text-shadow: 0 3px 12px rgba(0,0,0,.7); }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .stat { text-align: center; padding: 10px 8px; border-radius: 16px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); }
+    .stat .ico { font-size: 18px; }
+    .stat .val { margin-top: 3px; font-size: 18px; font-weight: 950; }
+    .label { color: rgba(255,255,255,.62); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .35px; }
+    .gift { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; }
+    .gift-img { width: 54px; height: 54px; border-radius: 15px; background: linear-gradient(135deg, #ff2d55, #25F4EE); display: grid; place-items: center; font-size: 24px; overflow: hidden; }
+    .gift-img img { width: 100%; height: 100%; object-fit: cover; }
+    .name { color: #fff; font-size: 17px; font-weight: 950; }
+    .sub { color: rgba(255,255,255,.72); font-size: 13px; margin-top: 2px; }
+    .comment .name { color: #ffd166; }
+    .comment-text { margin-top: 6px; font-size: 19px; line-height: 1.18; font-weight: 850; text-shadow: 0 3px 10px rgba(0,0,0,.78); overflow-wrap: anywhere; }
+    .muted { color: rgba(255,255,255,.48); font-style: italic; }
+    @keyframes in { from { opacity: 0; transform: translateY(-12px) scale(.98); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+    <div id="dash">
+        <section class="card" id="status-card">
+            <div class="top"><div class="brand">HP Action LIVE</div><div class="status"><span class="dot"></span><span id="status">OFFLINE</span></div></div>
+            <div class="user" id="user">Chưa kết nối LIVE</div>
+        </section>
+        <section class="stats">
+            <div class="stat"><div class="ico">👀</div><div class="val" id="viewer">0</div><div class="label">Viewer</div></div>
+            <div class="stat"><div class="ico">💎</div><div class="val" id="diamond">0</div><div class="label">Diamond</div></div>
+            <div class="stat"><div class="ico">➕</div><div class="val" id="follow">0</div><div class="label">Follow</div></div>
+            <div class="stat"><div class="ico">📤</div><div class="val" id="share">0</div><div class="label">Share</div></div>
+        </section>
+        <section class="card gift" id="gift-card">
+            <div class="gift-img" id="gift-img">🎁</div>
+            <div><div class="label">Quà gần nhất</div><div class="name muted" id="gift-name">Chưa có quà</div><div class="sub" id="gift-sub"></div></div>
+        </section>
+        <section class="card comment">
+            <div class="label">Bình luận dịch mới nhất</div>
+            <div class="name muted" id="comment-name">Chưa có bình luận dịch</div>
+            <div class="comment-text" id="comment-text"></div>
+        </section>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    (function () {
+        const $ = id => document.getElementById(id);
+        const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
+        function fmt(n) { n = Number(n) || 0; if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'; if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K'; return String(n); }
+        function render(state) {
+            state = state || {};
+            const online = !!state.connected;
+            $('status-card').classList.toggle('online', online);
+            $('status').textContent = online ? 'LIVE' : 'OFFLINE';
+            $('user').textContent = online ? '@' + (state.username || '') : 'Chưa kết nối LIVE';
+            const s = state.stats || {};
+            $('viewer').textContent = fmt(s.viewerCount);
+            $('diamond').textContent = fmt(s.totalDiamond);
+            $('follow').textContent = fmt(s.totalFollows);
+            $('share').textContent = fmt(s.totalShares);
+            const g = state.lastGift;
+            $('gift-img').innerHTML = g?.image ? `<img src="${g.image}" alt="">` : '🎁';
+            $('gift-name').textContent = g ? (g.giftName || 'Quà TikTok') : 'Chưa có quà';
+            $('gift-name').classList.toggle('muted', !g);
+            $('gift-sub').textContent = g ? `${g.nickname || g.uniqueId || 'Viewer'} x${g.repeatCount || 1} · ${fmt(g.diamond)} 💎` : '';
+            const c = state.lastTranslatedComment;
+            $('comment-name').textContent = c ? (c.nickname || c.uniqueId || 'Viewer') : 'Chưa có bình luận dịch';
+            $('comment-name').classList.toggle('muted', !c);
+            $('comment-text').textContent = c ? (c.translatedText || c.originalText || '') : '';
+        }
+        fetch('/api/dashboard/state').then(r => r.json()).then(render).catch(() => {});
+        socket.on('connect', () => socket.emit('subscribe', 'dashboardOverlay'));
+        socket.on('liveDashboard', render);
+    })();
+    </script>
+</body>
+</html>

@@ -22,6 +22,7 @@ function isWorkerConfigured() {
 // Khi chạy dev / node trực tiếp: fallback về data/ cạnh server.js
 const DATA_DIR = process.env.HP_DATA_DIR || path.join(__dirname, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'app-config.json');
+const CONFIG_BACKUP_DIR = path.join(DATA_DIR, 'config-backups');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -42,7 +43,7 @@ app.use((req, res, next) => {
     next();
 });
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 
 // ====== Game registry ======
 const GAMES = {
@@ -245,6 +246,10 @@ function loadAppConfig() {
 }
 function saveAppConfig() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2));
+    try {
+        if (!fs.existsSync(CONFIG_BACKUP_DIR)) fs.mkdirSync(CONFIG_BACKUP_DIR, { recursive: true });
+        fs.writeFileSync(path.join(CONFIG_BACKUP_DIR, 'app-config-autobackup.json'), JSON.stringify({ exportedAt: new Date().toISOString(), config: appConfig }, null, 2));
+    } catch (e) { /* backup is best-effort */ }
 }
 const appConfig = loadAppConfig();
 const DEFAULT_LIVE_TRANSLATE_CONFIG = {
@@ -256,8 +261,10 @@ const DEFAULT_LIVE_TRANSLATE_CONFIG = {
     ttsReadMode: 'nameAndComment',
     ttsCooldownSeconds: 4,
     ttsPriority: 'all',
+    ttsPreset: 'auto',
     ttsVolume: 85,
     ttsRate: 1,
+    aiFilterEnabled: true,
     ignoreIcons: true,
     cleanUnreadable: true,
     readUsername: true,
@@ -327,11 +334,26 @@ const liveTranslateRecentMembers = new Map();
 const liveTranslateLastSpoken = new Map();
 const LIVE_TRANSLATE_PRIORITY_WINDOW_MS = 10 * 60 * 1000;
 const LIVE_TRANSLATE_TEST_PHRASE = 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.';
+const LIVE_TRANSLATE_TTS_PRESETS = {
+    auto: { lang: '', label: 'Tự chọn' },
+    vi: { lang: 'vi', label: 'Giọng Việt' },
+    en: { lang: 'en', label: 'English voice' },
+    zh: { lang: 'zh', label: 'Chinese voice' },
+    ko: { lang: 'ko', label: 'Korean voice' },
+    ja: { lang: 'ja', label: 'Japanese voice' }
+};
+const LIVE_TRANSLATE_TOXIC_PATTERNS = [
+    /\b(dm|dmm|dit|djt|clm|vl|vcl|cc|lon|cac|buoi)\b/i,
+    /\b(fuck|shit|bitch|asshole|cunt|dick|pussy)\b/i,
+    /\b(kill yourself|kys|die|tự tử|tu tu|chết đi|chet di)\b/i,
+    /\b(ngu|oc cho|óc chó|súc vật|suc vat|đồ chó|do cho)\b/i
+];
 const liveTranslateStats = {
     chatSeen: 0,
     skippedDisabled: 0,
     skippedEmpty: 0,
     skippedBlocked: 0,
+    skippedToxic: 0,
     emitted: 0,
     translateErrors: 0,
     lastChatAt: 0,
@@ -340,6 +362,58 @@ const liveTranslateStats = {
     lastBlockedWord: '',
     lastError: ''
 };
+
+let liveDashboardState = {
+    connected: false,
+    username: '',
+    roomId: '',
+    stats: {},
+    lastGift: null,
+    lastTranslatedComment: null,
+    updatedAt: Date.now()
+};
+
+function emitLiveDashboard() {
+    liveDashboardState = { ...liveDashboardState, stats: { ...liveStats }, updatedAt: Date.now() };
+    io.emit('liveDashboard', liveDashboardState);
+}
+
+function setLiveDashboardStatus(connected, extra = {}) {
+    liveDashboardState = {
+        ...liveDashboardState,
+        connected: !!connected,
+        username: extra.username ?? currentUsername ?? '',
+        roomId: extra.roomId ?? currentRoomId ?? '',
+        updatedAt: Date.now()
+    };
+    emitLiveDashboard();
+}
+
+function setLiveDashboardGift(gift) {
+    liveDashboardState.lastGift = gift ? {
+        nickname: gift.nickname || gift.uniqueId || '',
+        uniqueId: gift.uniqueId || '',
+        giftName: gift.giftName || gift.sheetItem?.name || '',
+        image: gift.image || gift.giftPicture || '',
+        repeatCount: gift.repeatCount || 1,
+        diamond: gift.coinValue || gift.diamondCount || 0,
+        ts: Date.now()
+    } : null;
+    emitLiveDashboard();
+}
+
+function setLiveDashboardTranslatedComment(item) {
+    liveDashboardState.lastTranslatedComment = item ? {
+        nickname: item.nickname || item.uniqueId || '',
+        uniqueId: item.uniqueId || '',
+        originalText: item.originalText || '',
+        translatedText: item.translatedText || '',
+        targetLangLabel: item.targetLangLabel || '',
+        toxic: !!item.toxic,
+        ts: Date.now()
+    } : null;
+    emitLiveDashboard();
+}
 
 function normalizeModerationText(value) {
     return String(value || '')
@@ -395,10 +469,12 @@ function sanitizeLiveTranslateConfig(input) {
     cfg.ttsEnabled = !!cfg.ttsEnabled;
     cfg.ignoreIcons = cfg.ignoreIcons !== false;
     cfg.cleanUnreadable = cfg.cleanUnreadable !== false;
+    cfg.aiFilterEnabled = cfg.aiFilterEnabled !== false;
     cfg.readUsername = cfg.readUsername !== false;
     cfg.sourceLang = String(cfg.sourceLang || 'auto').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'auto';
     cfg.targetLang = String(cfg.targetLang || 'vi').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'vi';
     cfg.ttsVoice = ['auto', 'male', 'female', 'random', 'randomGender', 'variant1', 'variant2', 'variant3', 'variant4', 'variant5'].includes(cfg.ttsVoice) ? cfg.ttsVoice : 'auto';
+    cfg.ttsPreset = Object.prototype.hasOwnProperty.call(LIVE_TRANSLATE_TTS_PRESETS, cfg.ttsPreset) ? cfg.ttsPreset : 'auto';
     cfg.ttsReadMode = ['nameAndComment', 'commentOnly', 'nameOnly'].includes(cfg.ttsReadMode) ? cfg.ttsReadMode : (cfg.readUsername === false ? 'commentOnly' : 'nameAndComment');
     cfg.ttsPriority = ['all', 'gifters', 'members', 'giftersOrMembers'].includes(cfg.ttsPriority) ? cfg.ttsPriority : 'all';
     const cooldown = parseInt(cfg.ttsCooldownSeconds, 10);
@@ -559,6 +635,18 @@ function findLiveTranslateBlockedWord(chat, cfg) {
     return '';
 }
 
+function detectLiveTranslateToxicText(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const normalized = normalizeModerationText(raw)
+        .replace(/[@#$%^&*_+=~`|\\/]+/g, ' ')
+        .replace(/\s{2,}/g, ' ');
+    for (const re of LIVE_TRANSLATE_TOXIC_PATTERNS) {
+        if (re.test(raw) || re.test(normalized)) return re.source;
+    }
+    return '';
+}
+
 function shouldSpeakLiveTranslate(chat, cfg) {
     if (!cfg.ttsEnabled) return false;
     const user = { userId: chat.userId, uniqueId: chat.uniqueId };
@@ -646,13 +734,18 @@ function processLiveTranslateChat(chat) {
         liveTranslateStats.lastSkipReason = 'empty_after_glossary';
         return;
     }
+    const toxicReason = cfg.aiFilterEnabled ? detectLiveTranslateToxicText(normalizedComment) : '';
+    if (toxicReason) {
+        liveTranslateStats.skippedToxic += 1;
+        liveTranslateStats.lastSkipReason = 'ai_toxic_read_filter';
+    }
     translateTextToTarget(normalizedComment, cfg.sourceLang, cfg.targetLang)
         .then(result => {
             const sourceLang = result.detectedLang || cfg.sourceLang || 'auto';
             liveTranslateStats.emitted += 1;
             liveTranslateStats.lastEmitAt = Date.now();
             liveTranslateStats.lastSkipReason = '';
-            io.emit('translate:comment', {
+            const item = {
                 id: crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(12).toString('hex'),
                 uniqueId: chat.uniqueId,
                 nickname: chat.nickname,
@@ -668,19 +761,23 @@ function processLiveTranslateChat(chat) {
                 readUsername: cfg.readUsername,
                 ttsEnabled: cfg.ttsEnabled,
                 ttsVoice: cfg.ttsVoice,
+                ttsPreset: cfg.ttsPreset,
                 ttsReadMode: cfg.ttsReadMode,
                 ttsVolume: cfg.ttsVolume,
                 ttsRate: cfg.ttsRate,
-                canSpeak: shouldSpeakLiveTranslate(chat, cfg),
+                toxic: !!toxicReason,
+                canSpeak: !toxicReason && shouldSpeakLiveTranslate(chat, cfg),
                 createTime: chat.createTime || Date.now()
-            });
+            };
+            io.emit('translate:comment', item);
+            setLiveDashboardTranslatedComment(item);
         })
         .catch(err => {
             liveTranslateStats.translateErrors += 1;
             liveTranslateStats.lastError = err?.message || 'translate_failed';
             liveTranslateStats.emitted += 1;
             liveTranslateStats.lastEmitAt = Date.now();
-            io.emit('translate:comment', {
+            const item = {
                 id: crypto.randomBytes(12).toString('hex'),
                 uniqueId: chat.uniqueId,
                 nickname: chat.nickname,
@@ -696,13 +793,17 @@ function processLiveTranslateChat(chat) {
                 readUsername: cfg.readUsername,
                 ttsEnabled: cfg.ttsEnabled,
                 ttsVoice: cfg.ttsVoice,
+                ttsPreset: cfg.ttsPreset,
                 ttsReadMode: cfg.ttsReadMode,
                 ttsVolume: cfg.ttsVolume,
                 ttsRate: cfg.ttsRate,
-                canSpeak: shouldSpeakLiveTranslate(chat, cfg),
+                toxic: !!toxicReason,
+                canSpeak: !toxicReason && shouldSpeakLiveTranslate(chat, cfg),
                 error: err?.message || 'translate_failed',
                 createTime: chat.createTime || Date.now()
-            });
+            };
+            io.emit('translate:comment', item);
+            setLiveDashboardTranslatedComment(item);
         });
 }
 
@@ -914,10 +1015,12 @@ function emitLiveStatsThrottled() {
     if (now - lastStatsEmit < 500) return;
     lastStatsEmit = now;
     io.emit('liveStats', liveStats);
+    emitLiveDashboard();
 }
 function emitLiveStatsImmediate() {
     lastStatsEmit = Date.now();
     io.emit('liveStats', liveStats);
+    emitLiveDashboard();
 }
 
 function broadcast(type, payload) { io.emit(type, payload); }
@@ -928,16 +1031,19 @@ function attachConnectionEvents(conn) {
         liveConnected = true;
         currentRoomId = state?.roomId;
         broadcast('status', { connected: true, username: currentUsername, roomId: currentRoomId });
+        setLiveDashboardStatus(true, { username: currentUsername, roomId: currentRoomId });
         console.log(`[tiktok] Connected to roomId=${currentRoomId}`);
     });
     conn.on(ControlEvent.DISCONNECTED, () => {
         liveConnected = false;
         broadcast('status', { connected: false, username: currentUsername });
+        setLiveDashboardStatus(false, { username: currentUsername });
         console.log('[tiktok] Disconnected');
     });
     conn.on(ControlEvent.STREAM_END, () => {
         liveConnected = false;
         broadcast('status', { connected: false, username: currentUsername, reason: 'streamEnd' });
+        setLiveDashboardStatus(false, { username: currentUsername });
     });
     conn.on(ControlEvent.ERROR, (err) => {
         console.error('[tiktok] error:', err?.message || err);
@@ -1497,6 +1603,7 @@ function emitGift(g) {
         ts: Date.now()
     };
     io.emit('gift', enriched);
+    setLiveDashboardGift(enriched);
     // Push to all game overlays
     io.to('overlay').emit('gameGift', enriched);
     io.to('preview').emit('gameGift', enriched);
@@ -1533,6 +1640,76 @@ function emitGift(g) {
     } catch (e) { /* non-fatal */ }
 }
 
+function makeTikTokConnectOptions(extra = {}) {
+    return {
+        processInitialData: false,
+        enableExtendedGiftInfo: true,
+        fetchRoomInfoOnConnect: true,
+        wsClientHeaders: {
+            Origin: 'https://www.tiktok.com',
+            Referer: 'https://www.tiktok.com/',
+            ...(extra.wsClientHeaders || {})
+        },
+        webClientHeaders: {
+            Origin: 'https://www.tiktok.com',
+            Referer: 'https://www.tiktok.com/',
+            ...(extra.webClientHeaders || {})
+        },
+        wsClientOptions: { timeout: 20000, ...(extra.wsClientOptions || {}) },
+        webClientOptions: { timeout: 20000, ...(extra.webClientOptions || {}) },
+        ...extra
+    };
+}
+
+function isRetryableTikTokConnectError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    if (!msg) return false;
+    if (msg.includes("isn't online") || msg.includes('not online') || msg.includes('offline')) return false;
+    if (msg.includes('already connected') || msg.includes('already connecting')) return false;
+    return msg.includes('websocket') || msg.includes('unexpected server response') || msg.includes('not responding') || msg.includes('sign server') || msg.includes('fetch failed') || msg.includes('timeout');
+}
+
+function normalizeTikTokConnectError(err, attempts = []) {
+    const msg = String(err?.message || err || 'connect_failed');
+    if (/unexpected server response:\s*200/i.test(msg)) {
+        return 'TikTok trả HTTP 200 thay vì nâng cấp WebSocket. Thường do TikTok/sign-server đổi route tạm thời hoặc mạng/proxy chặn WebSocket. App đã thử fallback nhưng vẫn chưa kết nối được, hãy thử lại sau vài giây.';
+    }
+    if (/websocket not responding/i.test(msg)) return 'WebSocket TikTok không phản hồi trong thời gian chờ. Hãy thử kết nối lại.';
+    if (attempts.length > 1) return `${msg} (đã thử ${attempts.length} đường kết nối)`;
+    return msg;
+}
+
+async function createTikTokConnectionWithFallback(username) {
+    const attempts = [
+        { label: 'web', options: makeTikTokConnectOptions() },
+        { label: 'web-mobile-sign', options: makeTikTokConnectOptions({ useMobile: true }) },
+        { label: 'uniqueid-mobile-sign', options: makeTikTokConnectOptions({ connectWithUniqueId: true, useMobile: true }) }
+    ];
+    const errors = [];
+    for (let i = 0; i < attempts.length; i++) {
+        const attempt = attempts[i];
+        const conn = new TikTokLiveConnection(username, attempt.options);
+        attachConnectionEvents(conn);
+        try {
+            console.log(`[tiktok] Connect attempt ${i + 1}/${attempts.length}: ${attempt.label}`);
+            const state = await conn.connect();
+            return { conn, state, attempt: attempt.label, errors };
+        } catch (err) {
+            const message = String(err?.message || err || 'connect_failed');
+            errors.push({ attempt: attempt.label, message });
+            console.warn(`[tiktok] Connect attempt failed (${attempt.label}): ${message}`);
+            try { await conn.disconnect(); } catch (e) {}
+            if (!isRetryableTikTokConnectError(err) || i === attempts.length - 1) {
+                const out = new Error(normalizeTikTokConnectError(err, errors));
+                out.cause = err;
+                out.attempts = errors;
+                throw out;
+            }
+            await new Promise(resolve => setTimeout(resolve, 900 + i * 700));
+        }
+    }
+}
+
 async function connectToUser(username) {
     if (connecting) throw new Error('Đang kết nối, vui lòng chờ...');
     if (connection) { try { await connection.disconnect(); } catch (e) {} connection = null; }
@@ -1561,13 +1738,10 @@ async function connectToUser(username) {
         }
     } catch (e) {}
     try {
-        connection = new TikTokLiveConnection(currentUsername, {
-            processInitialData: false,
-            enableExtendedGiftInfo: true,
-            fetchRoomInfoOnConnect: true
-        });
-        attachConnectionEvents(connection);
-        const state = await connection.connect();
+        const connected = await createTikTokConnectionWithFallback(currentUsername);
+        connection = connected.conn;
+        const state = connected.state;
+        console.log(`[tiktok] Connected via ${connected.attempt}`);
         liveConnected = true;
         currentRoomId = state?.roomId;
         // Synthetic "host vào phòng" event — TikTok không fire MEMBER cho HOST tự kết nối live của mình.
@@ -1638,6 +1812,7 @@ app.post('/api/live-translate/test-tts', (req, res) => {
         targetLangLabel: liveTranslateLangLabel(cfg.targetLang),
         readUsername: cfg.readUsername,
         ttsReadMode: cfg.ttsReadMode,
+        ttsPreset: cfg.ttsPreset,
         ttsRate: cfg.ttsRate,
         canSpeak: true,
         createTime: Date.now()
@@ -1666,6 +1841,38 @@ app.get('/api/live-translate/debug', (req, res) => {
         stats: liveTranslateStats,
         rules: getCommentRulesMeta()
     });
+});
+
+app.get('/api/dashboard/state', (req, res) => {
+    res.json({ ...liveDashboardState, stats: { ...liveStats } });
+});
+
+app.get('/api/backup/export', (req, res) => {
+    res.json({
+        ok: true,
+        exportedAt: new Date().toISOString(),
+        app: 'HP Action LIVE',
+        version: require('./package.json').version,
+        config: appConfig
+    });
+});
+
+app.post('/api/backup/import', (req, res) => {
+    const incoming = req.body?.config || req.body;
+    if (!incoming || typeof incoming !== 'object') return res.status(400).json({ ok: false, error: 'invalid_backup' });
+    const nextGames = incoming.games && typeof incoming.games === 'object' ? incoming.games : {};
+    appConfig.games = { ...(appConfig.games || {}), ...nextGames };
+    for (const gId of Object.keys(GAMES)) {
+        if (!appConfig.games[gId]) appConfig.games[gId] = { ...GAMES[gId].defaultConfig };
+    }
+    if (appConfig.games.vipwelcome) appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
+    appConfig.liveTranslate = sanitizeLiveTranslateConfig(incoming.liveTranslate || appConfig.liveTranslate || {});
+    appConfig.creatorCaption = sanitizeCreatorCaptionConfig(incoming.creatorCaption || appConfig.creatorCaption || {});
+    if (incoming.license && typeof incoming.license === 'object') appConfig.license = { ...(appConfig.license || {}), ...incoming.license };
+    saveAppConfig();
+    io.emit('translate:config', appConfig.liveTranslate);
+    io.emit('creatorCaption:config', appConfig.creatorCaption);
+    res.json({ ok: true, config: appConfig });
 });
 
 app.get('/api/creator-caption/config', (req, res) => {
@@ -2365,6 +2572,7 @@ app.post('/api/disconnect', async (req, res) => {
         if (connection) await connection.disconnect();
         connection = null; liveConnected = false; currentUsername = null; currentRoomId = null;
         broadcast('status', { connected: false });
+        setLiveDashboardStatus(false, { username: '', roomId: '' });
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -2422,6 +2630,9 @@ app.get('/overlay/translate', (req, res) => {
 });
 app.get('/overlay/creator-caption', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'overlay', 'creator-caption.html'));
+});
+app.get('/overlay/dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'overlay', 'dashboard.html'));
 });
 
 // ============================================================

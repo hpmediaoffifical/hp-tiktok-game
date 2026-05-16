@@ -102,7 +102,7 @@
     (function () {
         const wrap = document.getElementById('wrap');
         const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
-        let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi' };
+        let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsPreset: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi' };
         let voices = [];
         let randomGenderNext = Math.random() < 0.5 ? 'male' : 'female';
 
@@ -160,6 +160,11 @@
                 .slice(0, 40);
         }
 
+        function presetLang(item) {
+            const preset = item?.ttsPreset || config.ttsPreset || 'auto';
+            return ['vi', 'en', 'zh', 'ko', 'ja'].includes(preset) ? preset : (item?.targetLang || config.targetLang || 'vi');
+        }
+
         function speak(text, item) {
             const ttsOn = item?.ttsEnabled == null ? config.ttsEnabled : item.ttsEnabled;
             if (!ttsOn || item?.canSpeak === false) return;
@@ -172,24 +177,26 @@
             if (!value) return;
             const volume = Math.max(0, Math.min(1, (parseInt(item?.ttsVolume == null ? config.ttsVolume : item.ttsVolume, 10) || 85) / 100));
             const rate = Math.max(0.5, Math.min(2, parseFloat(item?.ttsRate || config.ttsRate || 1) || 1));
-            const useRemoteTts = !hasLocalVoice(config.targetLang);
+            const speechLang = presetLang(item);
+            const useRemoteTts = !hasLocalVoice(speechLang);
             if (useRemoteTts) {
-                const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(config.targetLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
+                const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(speechLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
                 audio.volume = volume;
                 audio.playbackRate = rate;
                 audio.play().catch(() => {
-                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item);
+                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang);
                 });
                 return;
             }
-            speakWithBrowser(value, volume, rate, item);
+            speakWithBrowser(value, volume, rate, item, speechLang);
         }
 
-        function speakWithBrowser(value, volume, rate, item) {
+        function speakWithBrowser(value, volume, rate, item, speechLang) {
             if (!('speechSynthesis' in window)) return;
             const utter = new SpeechSynthesisUtterance(value.slice(0, 220));
-            utter.lang = langForSpeech(config.targetLang);
-            const voice = pickVoice(config.targetLang, item?.ttsVoice || config.ttsVoice || 'auto');
+            const lang = speechLang || presetLang(item);
+            utter.lang = langForSpeech(lang);
+            const voice = pickVoice(lang, item?.ttsVoice || config.ttsVoice || 'auto');
             if (voice) utter.voice = voice;
             utter.rate = Math.max(0.5, Math.min(2, parseFloat(rate || config.ttsRate || 1) || 1));
             utter.pitch = 1;
@@ -227,6 +234,7 @@
             const translated = document.createElement('div');
             translated.className = 'translated';
             translated.textContent = item.translatedText || item.originalText || '';
+            if (item.toxic) translated.title = 'AI filter: không đọc bình luận này';
             const original = document.createElement('div');
             original.className = 'original';
             original.textContent = item.originalText || '';

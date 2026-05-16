@@ -64,17 +64,15 @@
                 <div id="game-list" class="game-list"></div>
             </section>
 
-            <!-- 🔊 Sound Effects — soundboard nổi cho LIVE -->
-            <section class="side-card">
-                <button id="btn-open-soundfx" class="primary block" title="Mở bảng âm thanh nổi (always-on-top) cho LIVE">
-                    <span class="soundfx-btn-ico">🔊</span><span class="soundfx-btn-text">Sound Effects</span>
+            <section class="side-card side-bottom-card">
+                <button id="btn-open-soundfx" class="ghost block side-soundfx-btn" title="Mở bảng âm thanh nổi (always-on-top) cho LIVE">
+                    <span class="soundfx-btn-ico">🎵</span><span class="soundfx-btn-text">Sound Effects</span>
                 </button>
+                <div class="side-footer">
+                    © HP Media · <span id="footer-version">v1.0.3</span>
+                    <div class="side-footer-author">by Nguyen Hoang Phung</div>
+                </div>
             </section>
-
-            <div class="side-footer">
-                © HP Media · <span id="footer-version">v1.0.3</span>
-                <div class="side-footer-author">by Nguyen Hoang Phung</div>
-            </div>
             <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Thu / Mở menu" title="Thu / Mở menu">‹</button>
         </aside>
 
@@ -379,6 +377,14 @@
                             </div>
 
                             <div class="save-status" id="save-status">Cài đặt tự động lưu</div>
+                        </div>
+
+                        <div class="card thuy-side-panel">
+                            <div class="thuy-side-switch">
+                                <button id="thuy-police-tab" class="active" type="button">🚓 Lực lượng cảnh sát <span id="thuy-police-count">0</span></button>
+                                <button id="thuy-caught-tab" type="button">🥷 Bị Tóm <span id="thuy-caught-count">0</span></button>
+                            </div>
+                            <div id="thuy-side-panel-host" class="thuy-side-panel-host"></div>
                         </div>
 
                     </div>
@@ -824,6 +830,12 @@
                         <h2>🌐 DỊCH VÀ ĐỌC LIVE</h2>
                         <div class="game-sub">Dịch bình luận LIVE, đọc bình luận, và phụ đề giọng Creator cho OBS.</div>
                     </div>
+                    <div class="overlay-bar">
+                        <button id="btn-copy-dashboard" class="primary small" title="Copy URL dashboard tổng hợp cho OBS">Copy OBS Dashboard</button>
+                        <button id="btn-backup-export" class="ghost small" title="Tải file backup cấu hình game và overlay">Export backup</button>
+                        <button id="btn-backup-import" class="ghost small" title="Import file backup cấu hình">Import backup</button>
+                        <input id="backup-import-file" type="file" accept="application/json,.json" hidden />
+                    </div>
                 </header>
                 <div id="live-translate-workspace" class="live-translate-workspace"></div>
             </section>
@@ -889,6 +901,7 @@
             <label class="translate-check"><input type="checkbox" id="lt-tts" checked /> Đọc thành tiếng trên overlay</label>
             <label class="translate-check"><input type="checkbox" id="lt-ignore-icons" checked /> Bỏ qua icon/emoji, chỉ dịch chữ</label>
             <label class="translate-check"><input type="checkbox" id="lt-clean-unreadable" checked /> Bỏ phần trong [] và ký tự đặc biệt khó đọc</label>
+            <label class="translate-check"><input type="checkbox" id="lt-ai-filter" checked /> AI lọc bình luận độc hại trước khi đọc LIVE</label>
             <div class="translate-row">
                 <label>Dịch từ</label>
                 <select id="lt-source">
@@ -912,6 +925,13 @@
                     <option value="auto">Tự chọn theo máy</option><option value="female">Ưu tiên giọng Nữ</option><option value="male">Ưu tiên giọng Nam</option>
                     <option value="random">Giọng ngẫu nhiên</option><option value="randomGender">Nam/Nữ ngẫu nhiên</option>
                     <option value="variant1">Giọng 1</option><option value="variant2">Giọng 2</option><option value="variant3">Giọng 3</option><option value="variant4">Giọng 4</option><option value="variant5">Giọng 5</option>
+                </select>
+            </div>
+            <div class="translate-row">
+                <label>Preset giọng</label>
+                <select id="lt-tts-preset">
+                    <option value="auto">Theo ngôn ngữ đích</option><option value="vi">Việt</option><option value="en">Anh</option>
+                    <option value="zh">Trung</option><option value="ko">Hàn</option><option value="ja">Nhật</option>
                 </select>
             </div>
             <div class="translate-row"><label>Chế độ đọc</label><select id="lt-read-mode"><option value="nameAndComment">Tên + bình luận</option><option value="commentOnly">Chỉ bình luận</option><option value="nameOnly">Chỉ tên</option></select></div>
