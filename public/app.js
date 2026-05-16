@@ -2001,6 +2001,11 @@
             });
         });
     }
+    // 🔊 Mở SoundFX — Electron bắt /soundfx → cửa sổ nổi; trình duyệt → tab mới
+    document.getElementById('btn-open-soundfx')?.addEventListener('click', () => {
+        window.open('/soundfx', '_blank');
+    });
+
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);
