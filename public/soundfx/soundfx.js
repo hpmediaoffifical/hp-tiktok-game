@@ -49,7 +49,9 @@ function applySettings() {
     $('#sfx-vol-val').textContent = s.volume ?? 90;
     // settings modal inputs
     $('#set-useHotkeys').checked = s.useHotkeys !== false;
+    const gh = document.getElementById('set-globalHotkeys'); if (gh) gh.checked = s.globalHotkeys !== false;
     $('#set-showHotkeys').checked = s.showHotkeys !== false;
+    if (typeof refreshHkSettingLabels === 'function') refreshHkSettingLabels();
     $('#set-mix').checked = !!s.mix;
     $('#set-dark').checked = !!s.dark;
     $('#set-bg').value = s.bgColor || '#ffffff';
@@ -70,12 +72,32 @@ async function loadLib() {
     renderTabs();
     if (!LIB.favorites.length && LIB.tabs.length) activeTab = LIB.tabs[0].id;
     selectTab(activeTab);
+    pushHotkeysToNative();
+    // Nhận sự kiện phím tắt TOÀN CỤC từ Electron main
+    if (window.sfxNative?.onHotkey) {
+        window.sfxNative.onHotkey(d => {
+            if (!d) return;
+            if (d.action === 'play') { if (lastPlayedId) playSound(lastPlayedId); }
+            else if (d.action === 'stop') stopAll();
+            else if (d.soundId && LIB.sounds[d.soundId]) playSound(d.soundId);
+        });
+    }
 }
 
 // ---------- Tabs ----------
 function tabSoundIds(tabId) {
     if (tabId === FAV_TAB) return LIB.favorites.filter(id => LIB.sounds[id]);
-    return Object.values(LIB.sounds).filter(s => s.tab === tabId).map(s => s.id);
+    const inTab = Object.values(LIB.sounds).filter(s => s.tab === tabId).map(s => s.id);
+    const ord = (LIB.order && LIB.order[tabId]) || [];
+    // Theo thứ tự đã lưu trước, phần còn lại (mới thêm) nối sau
+    const ordered = ord.filter(id => inTab.includes(id));
+    const rest = inTab.filter(id => !ordered.includes(id));
+    return ordered.concat(rest);
+}
+function saveOrder(tabId) {
+    LIB.order = LIB.order || {};
+    LIB.order[tabId] = tabSoundIds(tabId);
+    queueSave({ order: { [tabId]: LIB.order[tabId] } });
 }
 function renderTabs() {
     const nav = $('#sfx-tabs');
@@ -118,6 +140,47 @@ function keyName(code) {
     const map = { 32: 'Space', 13: 'Enter', 27: 'Esc', 37: '←', 38: '↑', 39: '→', 40: '↓' };
     return map[code] || ('#' + code);
 }
+// {ctrl,shift,alt,code} → Electron accelerator (vd "Ctrl+Shift+A", "Alt+1")
+function toAccel(hk) {
+    if (!hk || !hk.code) return null;
+    const p = [];
+    if (hk.ctrl) p.push('Ctrl');
+    if (hk.alt) p.push('Alt');
+    if (hk.shift) p.push('Shift');
+    const c = hk.code;
+    let key;
+    if (c >= 48 && c <= 57) key = String(c - 48);
+    else if (c >= 65 && c <= 90) key = String.fromCharCode(c);
+    else if (c >= 96 && c <= 105) key = 'num' + (c - 96);
+    else if (c >= 112 && c <= 123) key = 'F' + (c - 111);
+    else key = ({ 32: 'Space', 13: 'Return', 27: 'Escape', 37: 'Left', 38: 'Up', 39: 'Right', 40: 'Down', 188: ',', 190: '.', 191: '/', 186: ';' })[c];
+    if (!key) return null;
+    p.push(key);
+    return p.join('+');
+}
+// CHỈ combo có Ctrl HOẶC Alt mới an toàn để đăng ký TOÀN CỤC.
+// Phím đơn (a, 1, F2) hoặc chỉ Shift sẽ CHIẾM phím đó toàn hệ thống → KHÔNG gõ chữ được.
+// → phím đơn chỉ hoạt động khi cửa sổ SoundFX đang focus (in-window), không đăng ký global.
+function isGlobalSafe(hk) {
+    return !!(hk && hk.code && (hk.ctrl || hk.alt));
+}
+// Đẩy phím tắt lên Electron main — CHỈ combo Ctrl/Alt (an toàn, không chặn gõ chữ)
+function pushHotkeysToNative() {
+    if (!window.sfxNative?.registerHotkeys) return;
+    const enabled = LIB.settings.useHotkeys !== false && LIB.settings.globalHotkeys !== false;
+    const sounds = [];
+    for (const s of Object.values(LIB.sounds)) {
+        if (!isGlobalSafe(s.hotkey)) continue;          // phím đơn → KHÔNG global
+        const a = toAccel(s.hotkey);
+        if (a) sounds.push({ accel: a, soundId: s.id });
+    }
+    window.sfxNative.registerHotkeys({
+        enabled,
+        sounds,
+        play: isGlobalSafe(LIB.settings.hotkeyPlay) ? toAccel(LIB.settings.hotkeyPlay) : null,
+        stop: isGlobalSafe(LIB.settings.hotkeyStop) ? toAccel(LIB.settings.hotkeyStop) : null
+    });
+}
 function renderGrid() {
     const grid = $('#sfx-grid');
     const empty = $('#sfx-empty');
@@ -125,7 +188,6 @@ function renderGrid() {
     let ids = tabSoundIds(activeTab);
     const q = $('#sfx-search').value.trim().toLowerCase();
     if (q) ids = ids.filter(id => (LIB.sounds[id].name || '').toLowerCase().includes(q));
-    if (!ids.length) { empty.hidden = false; return; }
     empty.hidden = true;
     const isFavTab = activeTab === FAV_TAB;
     for (const id of ids) {
@@ -141,20 +203,139 @@ function renderGrid() {
         cell.innerHTML = `<span class="lbl">${escapeHtml(s.name)}</span>${hk}`;
         cell.addEventListener('click', () => playSound(id));
         cell.addEventListener('contextmenu', e => { e.preventDefault(); openCtx(e, id); });
-        if (isFavTab) {
-            cell.draggable = true;
-            cell.addEventListener('dragstart', e => { cell.classList.add('dragging'); e.dataTransfer.setData('text/plain', id); });
-            cell.addEventListener('dragend', () => cell.classList.remove('dragging'));
-            cell.addEventListener('dragover', e => { e.preventDefault(); cell.classList.add('drop-target'); });
-            cell.addEventListener('dragleave', () => cell.classList.remove('drop-target'));
-            cell.addEventListener('drop', e => {
-                e.preventDefault(); cell.classList.remove('drop-target');
-                const from = e.dataTransfer.getData('text/plain');
-                reorderFav(from, id);
-            });
-        }
+        // Kéo-thả sắp xếp MỌI card (fav tab → reorderFav; tab thật → reorder theo tab)
+        cell.draggable = true;
+        cell.addEventListener('dragstart', e => {
+            cell.classList.add('dragging');
+            e.dataTransfer.setData('text/sfx-id', id);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        cell.addEventListener('dragend', () => cell.classList.remove('dragging'));
+        cell.addEventListener('dragover', e => { e.preventDefault(); cell.classList.add('drop-target'); });
+        cell.addEventListener('dragleave', () => cell.classList.remove('drop-target'));
+        cell.addEventListener('drop', e => {
+            e.preventDefault(); cell.classList.remove('drop-target');
+            const from = e.dataTransfer.getData('text/sfx-id');
+            if (from && from !== id) {
+                if (isFavTab) reorderFav(from, id);
+                else reorderInTab(activeTab, from, id);
+            } else if (e.dataTransfer.files && e.dataTransfer.files.length) {
+                handleDroppedFiles(e.dataTransfer.files, isFavTab ? (LIB.tabs[0]?.id || 'tab1') : activeTab);
+            }
+        });
         grid.appendChild(cell);
     }
+    // ➕ Pad ô trống "thêm âm thanh" cho đủ 3×8 (24) — tab thật, không phải Yêu thích/search
+    if (!isFavTab && !q) {
+        const target = Math.max(24, Math.ceil(ids.length / 3) * 3);
+        for (let i = ids.length; i < target; i++) {
+            const add = document.createElement('div');
+            add.className = 'sfx-cell sfx-add';
+            add.innerHTML = '<span class="sfx-add-plus">＋</span>';
+            add.title = 'Bấm để thêm — hoặc kéo-thả file nhạc vào đây';
+            add.addEventListener('click', e => { e.stopPropagation(); openAddMenu(e, activeTab); });
+            add.addEventListener('dragover', e => { e.preventDefault(); add.classList.add('drop-target'); });
+            add.addEventListener('dragleave', () => add.classList.remove('drop-target'));
+            add.addEventListener('drop', e => {
+                e.preventDefault(); add.classList.remove('drop-target');
+                const from = e.dataTransfer.getData('text/sfx-id');
+                if (from && LIB.sounds[from]) moveSoundToTab(from, activeTab);
+                else if (e.dataTransfer.files && e.dataTransfer.files.length)
+                    handleDroppedFiles(e.dataTransfer.files, activeTab);
+            });
+            grid.appendChild(add);
+        }
+    } else if (isFavTab && !ids.length) {
+        empty.hidden = false;
+    }
+}
+// Sắp xếp lại trong tab thật
+function reorderInTab(tab, fromId, toId) {
+    const arr = tabSoundIds(tab);
+    const fi = arr.indexOf(fromId), ti = arr.indexOf(toId);
+    if (fi < 0 || ti < 0) return;
+    arr.splice(fi, 1);
+    arr.splice(arr.indexOf(toId), 0, fromId);
+    LIB.order = LIB.order || {}; LIB.order[tab] = arr;
+    queueSave({ order: { [tab]: arr } });
+    renderGrid();
+}
+// Chuyển sound sang tab khác (kéo card thả lên ô ＋ của tab đang xem)
+function moveSoundToTab(id, tab) {
+    if (!LIB.sounds[id]) return;
+    LIB.sounds[id].tab = tab;
+    fetch(API + '/sound/move', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, tab })
+    }).then(() => reloadLib()).then(() => toast('↔ Đã chuyển sang tab này', 'ok')).catch(() => {});
+}
+// Kéo-thả file mp3 từ ngoài máy vào → thêm
+async function handleDroppedFiles(fileList, tab) {
+    const files = [...fileList].filter(f => /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(f.name));
+    if (!files.length) { toast('Chỉ nhận file âm thanh (mp3/wav/ogg...)', 'err'); return; }
+    let ok = 0;
+    for (const f of files) {
+        // Electron: File có .path tuyệt đối
+        const ap = f.path || (window.sfxNative && f.name);
+        if (!f.path) { toast('Kéo-thả file chỉ chạy trong app (Electron)', 'err'); break; }
+        const nm = f.name.replace(/\.[a-z0-9]+$/i, '');
+        try {
+            const r = await fetch(API + '/sound/add', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tab, source: 'localpath', localPath: f.path, name: nm })
+            });
+            if ((await r.json()).ok) ok++;
+        } catch (e) {}
+    }
+    if (ok) { toast('➕ Đã thêm ' + ok + ' âm thanh', 'ok'); await reloadLib(); }
+}
+
+// Menu nhỏ chọn nguồn khi bấm ô trống ➕
+function openAddMenu(e, tab) {
+    closeCtx();
+    const m = $('#sfx-ctx');
+    m.innerHTML = `
+        <button data-add="file">💻 Từ máy tính</button>
+        <button data-add="cloud">☁️ Từ kho Cloud</button>`;
+    m.hidden = false;
+    const w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.min(e.clientX, innerWidth - w - 8) + 'px';
+    m.style.top = Math.min(e.clientY, innerHeight - h - 8) + 'px';
+    m.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+        const how = b.dataset.add; m.hidden = true; restoreCtxButtons();
+        if (how === 'file') await addFromFile(tab);
+        else openCloud(false, null, tab);   // cloud add mode → tab
+    }));
+}
+async function addFromFile(tab) {
+    if (!window.sfxNative?.pickAudioFile) { toast('Chỉ chọn được file khi chạy trong app (Electron)', 'err'); return; }
+    const f = await window.sfxNative.pickAudioFile();
+    if (!f || !f.path) return;
+    const r = await fetch(API + '/sound/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab, source: 'localpath', localPath: f.path, name: f.name })
+    });
+    const j = await r.json();
+    if (j.ok) { toast('➕ Đã thêm "' + j.name + '"', 'ok'); await reloadLib(); }
+    else toast('Thêm lỗi: ' + (j.error || ''), 'err');
+}
+function restoreCtxButtons() {
+    $('#sfx-ctx').innerHTML = `
+        <button data-act="fav">⭐ <span id="ctx-fav-label">Thêm vào Yêu thích</span></button>
+        <button data-act="hotkey">⌨️ Đặt phím tắt</button>
+        <button data-act="clearhotkey">🚫 Xoá phím tắt</button>
+        <button data-act="rename">✏️ Đổi tên</button>
+        <button data-act="replace">🔁 Thay hiệu ứng từ Cloud</button>
+        <button data-act="replacefile">💻 Thay bằng file máy</button>
+        <button data-act="remove">🗑️ Xoá</button>
+        <button data-act="preview">▶️ Nghe thử</button>`;
+}
+async function reloadLib() {
+    const keepTab = activeTab;
+    const r = await fetch(API + '/library'); LIB = await r.json();
+    LIB.settings = LIB.settings || {};
+    activeTab = keepTab;
+    renderTabs(); renderGrid(); applySettings(); pushHotkeysToNative();
 }
 function reorderFav(fromId, toId) {
     if (fromId === toId) return;
@@ -168,12 +349,31 @@ function reorderFav(fromId, toId) {
     renderGrid();
 }
 
+// ---------- Toast (hiển thị lỗi/trạng thái cho user thấy) ----------
+let _toastTimer = null;
+function toast(msg, kind) {
+    let el = document.getElementById('sfx-toast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'sfx-toast';
+        el.style.cssText = 'position:fixed;left:50%;bottom:70px;transform:translateX(-50%);' +
+            'z-index:2000;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;' +
+            'box-shadow:0 8px 28px rgba(0,0,0,.35);max-width:90vw;text-align:center;pointer-events:none;' +
+            'transition:opacity .2s;white-space:pre-line';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.background = kind === 'err' ? '#ef4444' : (kind === 'ok' ? '#16a34a' : '#1f2937');
+    el.style.color = '#fff';
+    el.style.opacity = '1';
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { el.style.opacity = '0'; }, kind === 'err' ? 6000 : 2500);
+}
+
 // ---------- Playback ----------
 function srcFor(id) {
-    const s = LIB.sounds[id];
-    if (!s) return null;
-    if (s.source === 'cloud') return API + '/cloud/stream/' + encodeURIComponent(s.token);
-    return API + '/audio/' + encodeURIComponent(id);
+    // Server resolve mọi nguồn (local / localpath / cloud) — path/url ẩn hoàn toàn
+    return API + '/audio/' + encodeURIComponent(id) + '?t=' + Date.now();
 }
 function playSound(id) {
     const s = LIB.sounds[id];
@@ -183,13 +383,16 @@ function playSound(id) {
     if (LIB.settings.mix) {
         const a = new Audio(url);
         a.volume = audio.volume;
-        a.play().catch(() => {});
+        a.play().catch(err => toast('Không phát được: ' + (err.name || err.message), 'err'));
+        a.addEventListener('error', () => toast('Lỗi tải âm thanh "' + s.name + '"', 'err'));
         mixPool.push(a);
         a.addEventListener('ended', () => { mixPool = mixPool.filter(x => x !== a); });
     } else {
         stopAll(false);
         audio.src = url;
-        audio.play().catch(() => {});
+        audio.play()
+            .then(() => toast('▶ ' + s.name, 'ok'))
+            .catch(err => toast('Không phát được "' + s.name + '"\n' + (err.name || '') + ': ' + (err.message || ''), 'err'));
     }
     $('#sfx-now').textContent = s.name;
     markPlaying(id);
@@ -208,12 +411,19 @@ audio.addEventListener('timeupdate', () => {
     $('#sfx-progress-fill').style.width = pct + '%';
 });
 audio.addEventListener('ended', () => { $('#sfx-progress-fill').style.width = '0%'; markPlaying(null); });
+audio.addEventListener('error', () => {
+    const e = audio.error;
+    const codes = { 1: 'ABORTED', 2: 'NETWORK (server/file lỗi)', 3: 'DECODE (codec mp3?)', 4: 'SRC_NOT_SUPPORTED (404/định dạng)' };
+    if (e) toast('❌ Lỗi audio [' + e.code + ' ' + (codes[e.code] || '') + ']\n' + (audio.src.includes('/tts') ? 'TTS: Google có thể bị chặn ở mạng của bạn' : 'Kiểm tra file/đường dẫn'), 'err');
+});
 
 // ---------- Context menu ----------
 function openCtx(e, id) {
     ctxTargetId = id;
     const ctx = $('#sfx-ctx');
-    $('#ctx-fav-label').textContent = LIB.favorites.includes(id) ? 'Xoá khỏi Yêu thích' : 'Thêm vào Yêu thích';
+    restoreCtxButtons();   // đảm bảo menu đúng (sau khi từng hiện add-menu)
+    const favLbl = ctx.querySelector('#ctx-fav-label');
+    if (favLbl) favLbl.textContent = LIB.favorites.includes(id) ? 'Xoá khỏi Yêu thích' : 'Thêm vào Yêu thích';
     ctx.hidden = false;
     const w = ctx.offsetWidth, h = ctx.offsetHeight;
     ctx.style.left = Math.min(e.clientX, innerWidth - w - 8) + 'px';
@@ -236,7 +446,7 @@ $('#sfx-ctx').addEventListener('click', e => {
         openHotkeyModal(id);
     } else if (act === 'clearhotkey') {
         LIB.sounds[id].hotkey = null;
-        queueSave({ hotkeys: { [id]: null } }); renderGrid();
+        queueSave({ hotkeys: { [id]: null } }); renderGrid(); pushHotkeysToNative();
     } else if (act === 'rename') {
         const nm = prompt('Đổi tên âm thanh:', LIB.sounds[id].name);
         if (nm && nm.trim()) {
@@ -246,17 +456,52 @@ $('#sfx-ctx').addEventListener('click', e => {
         }
     } else if (act === 'replace') {
         openCloud(true, id);
+    } else if (act === 'replacefile') {
+        replaceFromFile(id);
+    } else if (act === 'remove') {
+        if (confirm('Xoá âm thanh "' + LIB.sounds[id].name + '"?')) {
+            fetch(API + '/sound/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+                .then(() => reloadLib()).then(() => toast('🗑️ Đã xoá', 'ok'));
+        }
     } else if (act === 'preview') {
         playSound(id);
     }
 });
+async function replaceFromFile(id) {
+    if (!window.sfxNative?.pickAudioFile) { toast('Chỉ chọn file khi chạy trong app', 'err'); return; }
+    const f = await window.sfxNative.pickAudioFile();
+    if (!f || !f.path) return;
+    const r = await fetch(API + '/sound/replace', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, source: 'localpath', localPath: f.path, useFileName: false })
+    });
+    const j = await r.json();
+    if (j.ok) { toast('🔁 Đã thay bằng file máy', 'ok'); await reloadLib(); }
+    else toast('Thay lỗi: ' + (j.error || ''), 'err');
+}
 
 // ---------- Hotkey modal ----------
 function openHotkeyModal(id) {
-    hkTargetId = id; hkCapture = LIB.sounds[id].hotkey || null;
-    $('#sfx-hk-target').textContent = 'Âm thanh: ' + LIB.sounds[id].name;
+    hkTargetId = id;
+    let label;
+    if (id === '__play__') { hkCapture = LIB.settings.hotkeyPlay || null; label = '▶ Phát lại sound cuối'; }
+    else if (id === '__stop__') { hkCapture = LIB.settings.hotkeyStop || null; label = '■ Dừng tất cả'; }
+    else { hkCapture = LIB.sounds[id].hotkey || null; label = 'Âm thanh: ' + LIB.sounds[id].name; }
+    $('#sfx-hk-target').textContent = label;
     $('#sfx-hk-display').textContent = hkCapture ? hotkeyLabel(hkCapture) : 'Bấm tổ hợp phím...';
+    const sc = document.getElementById('sfx-hk-scope');
+    if (sc) {
+        if (!hkCapture) { sc.textContent = ''; }
+        else if (isGlobalSafe(hkCapture)) { sc.textContent = '✅ Toàn cục — chạy mọi nơi, KHÔNG chặn gõ chữ'; sc.style.color = '#16a34a'; }
+        else { sc.textContent = '⚠ Phím đơn — chỉ chạy khi cửa sổ này mở'; sc.style.color = '#d97706'; }
+    }
     $('#sfx-hk').hidden = false;
+}
+function refreshHkSettingLabels() {
+    const pl = document.getElementById('set-hk-play');
+    const st = document.getElementById('set-hk-stop');
+    if (pl) pl.textContent = LIB.settings.hotkeyPlay ? hotkeyLabel(LIB.settings.hotkeyPlay) : 'Chưa đặt';
+    if (st) st.textContent = LIB.settings.hotkeyStop ? hotkeyLabel(LIB.settings.hotkeyStop) : 'Chưa đặt';
 }
 function closeHotkeyModal() { $('#sfx-hk').hidden = true; hkTargetId = null; hkCapture = null; }
 window.addEventListener('keydown', e => {
@@ -266,28 +511,52 @@ window.addEventListener('keydown', e => {
         e.preventDefault();
         hkCapture = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, code: e.keyCode };
         $('#sfx-hk-display').textContent = hotkeyLabel(hkCapture);
-        return;
-    }
-    // Global hotkey trigger (when not typing in input)
-    if (LIB && LIB.settings.useHotkeys !== false &&
-        !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) {
-        for (const s of Object.values(LIB.sounds)) {
-            const hk = s.hotkey; if (!hk) continue;
-            if (hk.code === e.keyCode && !!hk.ctrl === e.ctrlKey &&
-                !!hk.shift === e.shiftKey && !!hk.alt === e.altKey) {
-                e.preventDefault(); playSound(s.id); break;
+        const hintEl = document.getElementById('sfx-hk-scope');
+        if (hintEl) {
+            if (isGlobalSafe(hkCapture)) {
+                hintEl.textContent = '✅ Toàn cục — chạy mọi nơi, KHÔNG chặn gõ chữ';
+                hintEl.style.color = '#16a34a';
+            } else {
+                hintEl.textContent = '⚠ Phím đơn — chỉ chạy khi cửa sổ này mở. Thêm Ctrl/Alt để dùng mọi nơi.';
+                hintEl.style.color = '#d97706';
             }
         }
+        return;
+    }
+    // Phím tắt khi cửa sổ ĐANG FOCUS.
+    // - Đang gõ vào ô input/search/TTS → KHÔNG bắt (để gõ chữ bình thường)
+    // - Combo Ctrl/Alt + đang bật global → Electron lo toàn cục, bỏ qua đây (tránh double)
+    // - Phím đơn / chỉ Shift → CHỈ chạy in-window (không global, không chặn gõ ở app khác)
+    if (!LIB || LIB.settings.useHotkeys === false) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
+    const electronGlobalOn = window.sfxNative?.registerHotkeys && LIB.settings.globalHotkeys !== false;
+    const match = hk => hk && hk.code === e.keyCode && !!hk.ctrl === e.ctrlKey &&
+        !!hk.shift === e.shiftKey && !!hk.alt === e.altKey;
+    const handledByElectron = hk => electronGlobalOn && isGlobalSafe(hk);
+    if (match(LIB.settings.hotkeyPlay) && !handledByElectron(LIB.settings.hotkeyPlay)) {
+        e.preventDefault(); if (lastPlayedId) playSound(lastPlayedId); return;
+    }
+    if (match(LIB.settings.hotkeyStop) && !handledByElectron(LIB.settings.hotkeyStop)) {
+        e.preventDefault(); stopAll(); return;
+    }
+    for (const s of Object.values(LIB.sounds)) {
+        if (match(s.hotkey) && !handledByElectron(s.hotkey)) { e.preventDefault(); playSound(s.id); break; }
     }
 });
 $('#sfx-hk-close').addEventListener('click', closeHotkeyModal);
 $('#sfx-hk-clear').addEventListener('click', () => { hkCapture = null; $('#sfx-hk-display').textContent = 'Bấm tổ hợp phím...'; });
 $('#sfx-hk-save').addEventListener('click', () => {
-    if (hkTargetId) {
+    if (hkTargetId === '__play__') {
+        LIB.settings.hotkeyPlay = hkCapture; saveSettings();
+    } else if (hkTargetId === '__stop__') {
+        LIB.settings.hotkeyStop = hkCapture; saveSettings();
+    } else if (hkTargetId && LIB.sounds[hkTargetId]) {
         LIB.sounds[hkTargetId].hotkey = hkCapture;
         queueSave({ hotkeys: { [hkTargetId]: hkCapture } });
         renderGrid();
     }
+    pushHotkeysToNative();
+    refreshHkSettingLabels();
     closeHotkeyModal();
 });
 
@@ -305,7 +574,12 @@ function bindSetting(sel, key, transform) {
     });
 }
 bindSetting('#set-useHotkeys', 'useHotkeys');
+bindSetting('#set-globalHotkeys', 'globalHotkeys');
 bindSetting('#set-showHotkeys', 'showHotkeys');
+$('#set-useHotkeys')?.addEventListener('change', pushHotkeysToNative);
+$('#set-globalHotkeys')?.addEventListener('change', pushHotkeysToNative);
+$('#set-hk-play-btn')?.addEventListener('click', () => openHotkeyModal('__play__'));
+$('#set-hk-stop-btn')?.addEventListener('click', () => openHotkeyModal('__stop__'));
 bindSetting('#set-mix', 'mix');
 bindSetting('#set-dark', 'dark');
 bindSetting('#set-bg', 'bgColor');
@@ -353,25 +627,41 @@ $('#sfx-tts-toggle').addEventListener('click', () => {
     p.hidden = !p.hidden;
     $('#sfx-tts-toggle').classList.toggle('active', !p.hidden);
 });
-$('#sfx-tts-speak').addEventListener('click', () => {
+$('#sfx-tts-speak').addEventListener('click', async () => {
     const text = $('#sfx-tts-text').value.trim();
     if (!text) return;
     const lang = $('#sfx-tts-lang').value;
     stopAll(false);
-    audio.src = API + '/tts?lang=' + encodeURIComponent(lang) + '&text=' + encodeURIComponent(text);
-    audio.play().catch(() => {});
-    $('#sfx-now').textContent = '🗣️ ' + text.slice(0, 40);
+    const ttsUrl = API + '/tts?lang=' + encodeURIComponent(lang) + '&text=' + encodeURIComponent(text);
+    toast('🗣️ Đang tạo giọng đọc...', 'info');
+    // Fetch trước để biết server lấy được TTS từ Google không (chẩn đoán rõ ràng)
+    try {
+        const r = await fetch(ttsUrl);
+        if (!r.ok) { toast('❌ TTS lỗi: server không lấy được giọng Google (HTTP ' + r.status + ').\nMạng của bạn có thể chặn translate.google.com', 'err'); return; }
+        const blob = await r.blob();
+        if (!blob.size) { toast('❌ TTS rỗng — Google không trả audio (mạng/khu vực chặn?)', 'err'); return; }
+        audio.src = URL.createObjectURL(blob);
+        audio.play()
+            .then(() => toast('🗣️ Đang đọc...', 'ok'))
+            .catch(err => toast('Không phát được TTS: ' + (err.name || err.message), 'err'));
+        $('#sfx-now').textContent = '🗣️ ' + text.slice(0, 40);
+    } catch (e) {
+        toast('❌ TTS lỗi kết nối: ' + e.message, 'err');
+    }
 });
 $('#sfx-tts-stop').addEventListener('click', () => stopAll());
 
 // ---------- Cloud browser ----------
 let cloudReplaceId = null;
+let cloudAddTab = null;     // tab đích khi thêm mới từ Cloud
 $('#sfx-cloud-btn').addEventListener('click', () => openCloud(false));
 $('#sfx-cloud-close').addEventListener('click', () => $('#sfx-cloud').hidden = true);
 $('#sfx-cloud-search').addEventListener('input', () => renderCloudFiles());
 let cloudCacheFiles = [];
-function openCloud(replaceMode, replaceId) {
+function openCloud(replaceMode, replaceId, addTab) {
     cloudReplaceId = replaceMode ? replaceId : null;
+    cloudAddTab = (!replaceMode && addTab) ? addTab
+        : (activeTab === FAV_TAB ? (LIB.tabs[0]?.id || 'tab1') : activeTab);
     $('#sfx-cloud').hidden = false;
     loadCloud('');
 }
@@ -451,22 +741,29 @@ function renderCloudFiles() {
         box.appendChild(row);
     }
 }
-function addCloudSound(f) {
+async function addCloudSound(f) {
     if (cloudReplaceId && LIB.sounds[cloudReplaceId]) {
-        // Thay hiệu ứng: chuyển sound hiện tại sang cloud source
-        const s = LIB.sounds[cloudReplaceId];
-        s.source = 'cloud'; s.token = f.token;
-        queueSave({}); // trigger nothing server-side for token (ephemeral) — local only
+        // 🔁 Thay nguồn — LƯU BỀN server-side (cloudUrl), regen token mỗi lần load
+        const r = await fetch(API + '/sound/replace', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: cloudReplaceId, source: 'cloud', cloudToken: f.token, useFileName: false })
+        });
+        const j = await r.json();
         cloudReplaceId = null;
-        renderGrid();
         $('#sfx-cloud').hidden = true;
+        if (j.ok) { toast('🔁 Đã thay từ Cloud', 'ok'); await reloadLib(); }
+        else toast('Thay lỗi: ' + (j.error || ''), 'err');
         return;
     }
-    // Thêm mới vào tab hiện tại (hoặc tab đầu nếu đang ở YÊU THÍCH)
-    const tab = (activeTab === FAV_TAB) ? (LIB.tabs[0]?.id || 'tab1') : activeTab;
-    const id = 'cloud_' + Math.random().toString(36).slice(2, 10);
-    LIB.sounds[id] = { id, tab, name: f.name, source: 'cloud', token: f.token, hotkey: null, remoteKey: 0 };
-    renderTabs(); renderGrid();
+    // ➕ Thêm mới — LƯU BỀN. Ưu tiên tên file Cloud làm tên mặc định.
+    const tab = cloudAddTab || (activeTab === FAV_TAB ? (LIB.tabs[0]?.id || 'tab1') : activeTab);
+    const r = await fetch(API + '/sound/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab, source: 'cloud', cloudToken: f.token, name: f.name })
+    });
+    const j = await r.json();
+    if (j.ok) { toast('➕ Đã thêm "' + j.name + '"', 'ok'); $('#sfx-cloud').hidden = true; await reloadLib(); }
+    else toast('Thêm lỗi: ' + (j.error || ''), 'err');
 }
 
 // ---------- Pin (always-on-top) — qua Electron nếu có ----------
@@ -495,6 +792,18 @@ window.addEventListener('beforeunload', () => {
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+// Chặn Electron mở/điều hướng khi thả file ra ngoài ô (giữ app, không navigate).
+// Thả vào vùng lưới trống cũng thêm vào tab hiện tại.
+window.addEventListener('dragover', e => { e.preventDefault(); }, false);
+window.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.target.closest && e.target.closest('.sfx-cell')) return;  // ô đã tự xử lý
+    if (e.dataTransfer.files && e.dataTransfer.files.length && LIB) {
+        const tab = (activeTab === FAV_TAB) ? (LIB.tabs[0]?.id || 'tab1') : activeTab;
+        handleDroppedFiles(e.dataTransfer.files, tab);
+    }
+}, false);
 
 // ---------- Init ----------
 loadLib().catch(e => {

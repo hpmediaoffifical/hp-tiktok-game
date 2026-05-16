@@ -2,7 +2,7 @@
  * HP Action LIVE — Electron Desktop Wrapper
  * Khởi động server Express + mở cửa sổ Chromium tới http://localhost:PORT
  */
-const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -448,10 +448,11 @@ async function openSoundfxWindow() {
     }
     const win = await loadSfxWinPrefs();
     const opts = {
-        width: Math.max(420, Math.min(1200, win.w || 700)),
-        height: Math.max(480, Math.min(1400, win.h || 880)),
-        minWidth: 420, minHeight: 480,
-        maxWidth: 1200, maxHeight: 1400,
+        width: 480,
+        height: 760,
+        resizable: false,
+        maximizable: false,
+        fullscreenable: false,
         title: 'HP Media — Sound Effects',
         icon: getIcon(),
         backgroundColor: '#ffffff',
@@ -469,7 +470,7 @@ async function openSoundfxWindow() {
     soundfxWindow = new BrowserWindow(opts);
     soundfxWindow.loadURL(`${APP_URL}/soundfx`);
     soundfxWindow.once('ready-to-show', () => soundfxWindow.show());
-    soundfxWindow.on('closed', () => { soundfxWindow = null; });
+    soundfxWindow.on('closed', () => { soundfxWindow = null; unregisterSfxHotkeys(); });
     soundfxWindow.webContents.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url); return { action: 'deny' };
     });
@@ -499,6 +500,45 @@ ipcMain.on('sfx:setBounds', (e, b) => {
 // Main app mở SoundFX qua IPC
 ipcMain.on('open-soundfx', () => openSoundfxWindow());
 
+// 📂 Chọn file audio từ máy
+ipcMain.handle('sfx:pickAudio', async () => {
+    try {
+        const r = await dialog.showOpenDialog(soundfxWindow || mainWindow, {
+            title: 'Chọn file âm thanh',
+            properties: ['openFile'],
+            filters: [{ name: 'Âm thanh', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'] }]
+        });
+        if (r.canceled || !r.filePaths[0]) return null;
+        const p = r.filePaths[0];
+        return { path: p, name: path.basename(p).replace(/\.[a-z0-9]+$/i, '') };
+    } catch { return null; }
+});
+
+// ⌨️ Global shortcuts — hoạt động MỌI NƠI (không cần focus cửa sổ soundfx)
+let _registeredAccels = [];
+function unregisterSfxHotkeys() {
+    for (const a of _registeredAccels) { try { globalShortcut.unregister(a); } catch (_) {} }
+    _registeredAccels = [];
+}
+ipcMain.on('sfx:registerHotkeys', (e, payload) => {
+    unregisterSfxHotkeys();
+    if (!payload || !payload.enabled) return;
+    const sendFire = (data) => {
+        if (soundfxWindow && !soundfxWindow.isDestroyed()) {
+            soundfxWindow.webContents.send('sfx:hotkeyFired', data);
+        }
+    };
+    const reg = (accel, data) => {
+        if (!accel) return;
+        try {
+            if (globalShortcut.register(accel, () => sendFire(data))) _registeredAccels.push(accel);
+        } catch (_) {}
+    };
+    for (const it of (payload.sounds || [])) reg(it.accel, { soundId: it.soundId });
+    if (payload.play) reg(payload.play, { action: 'play' });
+    if (payload.stop) reg(payload.stop, { action: 'stop' });
+});
+
 app.whenReady().then(async () => {
     startServer();
     createSplash();
@@ -513,7 +553,8 @@ app.whenReady().then(async () => {
     buildTray();
 });
 
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', () => { isQuitting = true; try { unregisterSfxHotkeys(); } catch (_) {} });
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (_) {} });
 app.on('window-all-closed', () => {
     // Theo behavior cũ: macOS auto-quit, Windows giữ ở tray.
     // KHÔNG fullQuit ở đây — nếu GPU crash khiến windows đóng trước khi tray dựng xong,

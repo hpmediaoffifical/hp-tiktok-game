@@ -68,6 +68,7 @@ function createSoundfxModule(DATA_DIR) {
             tabs: [],          // [{id, name}]
             sounds: {},        // id → { id, tab, name, relPath, source:'local', hotkey:{ctrl,shift,alt,code}, remoteKey }
             favorites: [],     // [id] — có thứ tự (drag-drop)
+            order: {},         // tabId → [id...] thứ tự card tuỳ chỉnh
             settings: {
                 volume: 90,
                 bgColor: '#ffffff',
@@ -76,10 +77,13 @@ function createSoundfxModule(DATA_DIR) {
                 scale: 1,
                 useHotkeys: true,
                 showHotkeys: true,
+                globalHotkeys: true,     // phím tắt hoạt động MỌI NƠI (không cần focus cửa sổ)
                 stopOnNew: true,         // phát sound mới → dừng sound đang chạy
+                hotkeyPlay: null,        // {ctrl,shift,alt,code} — phát lại sound cuối
+                hotkeyStop: null,        // {ctrl,shift,alt,code} — dừng tất cả
                 ttsLang: 'vi',
                 ttsSpeed: 1,
-                win: { x: null, y: null, w: 700, h: 880, alwaysOnTop: true }
+                win: { x: null, y: null, w: 480, h: 740, alwaysOnTop: true }
             },
             migratedFrom: null
         };
@@ -162,7 +166,7 @@ function createSoundfxModule(DATA_DIR) {
         }, 300);
     }
 
-    // Library cho client — KHÔNG kèm relPath thật (bảo mật path file local)
+    // Library cho client — KHÔNG kèm path thật / cloud url (bảo mật)
     function clientLibrary() {
         const lib = loadLibrary();
         const sounds = {};
@@ -178,10 +182,12 @@ function createSoundfxModule(DATA_DIR) {
             tabs: lib.tabs,
             sounds,
             favorites: lib.favorites,
+            order: lib.order || {},
             settings: lib.settings,
             hasLocal: lib.migratedFrom && !String(lib.migratedFrom).startsWith('none') && !String(lib.migratedFrom).startsWith('error')
         };
     }
+    function genSoundId() { return 'sfx_' + crypto.randomBytes(7).toString('hex'); }
 
     // ===== Routes =====
     router.get('/library', (req, res) => {
@@ -212,20 +218,124 @@ function createSoundfxModule(DATA_DIR) {
                 }
             }
         }
+        // Thứ tự card theo từng tab (kéo-thả sắp xếp)
+        if (body.order && typeof body.order === 'object') {
+            lib.order = lib.order || {};
+            for (const [tab, arr] of Object.entries(body.order)) {
+                if (Array.isArray(arr)) lib.order[tab] = arr.filter(id => lib.sounds[id]);
+            }
+        }
         saveLibrary();
         res.json({ ok: true });
     });
 
-    // Stream local mp3 — path resolve server-side, có Range cho seek
-    router.get('/audio/:id', (req, res) => {
+    // Stream audio — resolve server-side mọi nguồn (path/url ẩn khỏi client):
+    //   local     → file trong %AppData% MFVN/Audio (relPath)
+    //   localpath → file tuyệt đối user tự chọn (absPath)
+    //   cloud     → stream từ cloudUrl đã lưu (ẩn tiengcuoi.com)
+    router.get('/audio/:id', async (req, res) => {
         const lib = loadLibrary();
         const s = lib.sounds[req.params.id];
-        if (!s || s.source !== 'local') return res.status(404).end();
-        const abs = path.join(mfvnAudioDir(), s.relPath.replace(/\//g, path.sep));
-        // Chặn path traversal
-        if (!abs.startsWith(mfvnAudioDir())) return res.status(403).end();
-        if (!fs.existsSync(abs)) return res.status(404).end();
+        if (!s) return res.status(404).end();
+        if (s.source === 'cloud' && s.cloudUrl) {
+            try {
+                const headers = {};
+                if (req.headers.range) headers.Range = req.headers.range;
+                const r = await fetch(s.cloudUrl, { headers, timeout: 20000 });
+                res.status(r.status);
+                res.setHeader('Content-Type', 'audio/mpeg');
+                res.setHeader('Accept-Ranges', 'bytes');
+                const cl = r.headers.get('content-length'); if (cl) res.setHeader('Content-Length', cl);
+                const cr = r.headers.get('content-range'); if (cr) res.setHeader('Content-Range', cr);
+                r.body.pipe(res);
+            } catch (e) { res.status(502).end(); }
+            return;
+        }
+        let abs;
+        if (s.source === 'localpath' && s.absPath) {
+            abs = s.absPath;
+        } else {
+            abs = path.join(mfvnAudioDir(), String(s.relPath || '').replace(/\//g, path.sep));
+            if (!abs.startsWith(mfvnAudioDir())) return res.status(403).end();
+        }
+        if (!abs || !fs.existsSync(abs)) return res.status(404).end();
         streamFileWithRange(abs, req, res);
+    });
+
+    // ➕ Thêm sound mới (từ máy / cloud) — lưu vào soundfx.json
+    router.post('/sound/add', express.json({ limit: '256kb' }), (req, res) => {
+        const lib = loadLibrary();
+        const b = req.body || {};
+        const tab = String(b.tab || (lib.tabs[0] && lib.tabs[0].id) || 'tab1');
+        let name = String(b.name || '').trim();
+        const id = genSoundId();
+        const entry = { id, tab, name: name || 'Âm thanh', hotkey: null, remoteKey: 0 };
+        if (b.source === 'cloud') {
+            const url = resolveCloudToken(String(b.cloudToken || ''));
+            if (!url) return res.status(400).json({ ok: false, error: 'cloud_token_invalid' });
+            entry.source = 'cloud';
+            entry.cloudUrl = url;     // lưu BỀN — ẩn khỏi client, regen token mỗi lần list
+            if (!name) entry.name = baseNameFromUrl(url);
+        } else if (b.source === 'localpath') {
+            const ap = String(b.localPath || '');
+            if (!ap || !fs.existsSync(ap)) return res.status(400).json({ ok: false, error: 'file_not_found' });
+            entry.source = 'localpath';
+            entry.absPath = ap;
+            if (!name) entry.name = path.basename(ap).replace(/\.[a-z0-9]+$/i, '');
+        } else {
+            return res.status(400).json({ ok: false, error: 'bad_source' });
+        }
+        lib.sounds[id] = entry;
+        saveLibrary();
+        res.json({ ok: true, id, name: entry.name });
+    });
+
+    // 🔁 Thay nguồn của sound đang có (giữ id/tab/hotkey/favorite)
+    router.post('/sound/replace', express.json({ limit: '256kb' }), (req, res) => {
+        const lib = loadLibrary();
+        const b = req.body || {};
+        const s = lib.sounds[String(b.id || '')];
+        if (!s) return res.status(404).json({ ok: false, error: 'not_found' });
+        if (b.source === 'cloud') {
+            const url = resolveCloudToken(String(b.cloudToken || ''));
+            if (!url) return res.status(400).json({ ok: false, error: 'cloud_token_invalid' });
+            s.source = 'cloud'; s.cloudUrl = url;
+            delete s.absPath; delete s.relPath;
+            if (b.useFileName) s.name = baseNameFromUrl(url);
+        } else if (b.source === 'localpath') {
+            const ap = String(b.localPath || '');
+            if (!ap || !fs.existsSync(ap)) return res.status(400).json({ ok: false, error: 'file_not_found' });
+            s.source = 'localpath'; s.absPath = ap;
+            delete s.cloudUrl; delete s.relPath;
+            if (b.useFileName) s.name = path.basename(ap).replace(/\.[a-z0-9]+$/i, '');
+        } else {
+            return res.status(400).json({ ok: false, error: 'bad_source' });
+        }
+        saveLibrary();
+        res.json({ ok: true, name: s.name });
+    });
+
+    // ↔ Chuyển sound sang tab khác
+    router.post('/sound/move', express.json(), (req, res) => {
+        const lib = loadLibrary();
+        const b = req.body || {};
+        const s = lib.sounds[String(b.id || '')];
+        if (!s) return res.status(404).json({ ok: false });
+        s.tab = String(b.tab || s.tab);
+        saveLibrary();
+        res.json({ ok: true });
+    });
+
+    // 🗑 Xoá sound
+    router.post('/sound/remove', express.json(), (req, res) => {
+        const lib = loadLibrary();
+        const id = String((req.body || {}).id || '');
+        if (lib.sounds[id]) {
+            delete lib.sounds[id];
+            lib.favorites = (lib.favorites || []).filter(x => x !== id);
+            saveLibrary();
+        }
+        res.json({ ok: true });
     });
 
     // Cloud: list 1 thư mục (parse Apache autoindex). path = subpath rel CLOUD_BASE.
@@ -356,6 +466,12 @@ function makeTokenStatic(absUrl) {
     const token = crypto.createHash('sha1').update(absUrl).digest('hex').slice(0, 24);
     _staticTokenMap.set(token, { url: absUrl, ts: Date.now() });
     return token;
+}
+function baseNameFromUrl(u) {
+    try {
+        const p = decodeURIComponent(new URL(u).pathname);
+        return (p.split('/').pop() || 'Âm thanh').replace(/\.[a-z0-9]+$/i, '');
+    } catch { return 'Âm thanh'; }
 }
 function decodeHtml(s) {
     return String(s)
