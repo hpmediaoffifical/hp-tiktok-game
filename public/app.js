@@ -17,14 +17,21 @@
         { key: 'thief',      ico: '🥷', label: 'Trộm' },
         { key: 'joinPolice', ico: '🚓', label: 'Gia nhập CS' },
         { key: 'osin',       ico: '🧹', label: 'Osin nhặt quà' },
+        { key: 'ufo',        ico: '🛸', label: 'UFO hút 5-10 quà' },
+        { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
+        { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'fireworks',  ico: '🎆', label: 'Pháo hoa' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'tornado',    ico: '🌀', label: 'Lốc xoáy' },
         { key: 'tilt',       ico: '⚖',  label: 'Nghiêng hũ' },
+        { key: 'pourOut',    ico: '🔄', label: 'Dốc ngược hũ (đổ hết)' },
         { key: 'gravflip',   ico: '🔄', label: 'Đảo trọng lực' },
         { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
         { key: 'slow',       ico: '🐢', label: 'Slow motion' },
+        { key: 'rain',       ico: '☔', label: 'Mưa quà' },
+        { key: 'geyser',     ico: '🚀', label: 'Phun trào' },
+        { key: 'magnet',     ico: '🧲', label: 'Nam châm' },
         { key: 'crackJar',   ico: '🪟', label: 'Nứt hũ' },
         { key: 'stealJar',   ico: '🚚', label: 'Trộm cả hũ' },
         { key: 'combo',      ico: '⛓', label: 'Combo (chuỗi)' },
@@ -87,8 +94,15 @@
         // License: handle qua biến cục bộ licStatusText/licMeta/btnLicLogout phía dưới
         dot: $('#dot'),
         statusText: $('#status-text'),
-        statRoom: $('#stat-room'),
-        statViewer: $('#stat-viewer'),
+        // Old stat refs (no longer rendered, kept defensively for backward compat in other code paths)
+        statRoom: { textContent: '' },
+        statViewer: { textContent: '' },
+        // New live stats grid
+        liveStatsGrid: $('#live-stats-grid'),
+        lstatViewer: $('#lstat-viewer'),
+        lstatDiamond: $('#lstat-diamond'),
+        lstatFollow: $('#lstat-follow'),
+        lstatShare: $('#lstat-share'),
         gameList: $('#game-list'),
         homeGrid: $('#home-grid'),
         giftCountHint: $('#gift-count-hint'),
@@ -127,9 +141,7 @@
         cfgShowCount: $('#cfg-show-count'),
         cfgJarVisible: $('#cfg-jar-visible'),
         cfgJarLocked: $('#cfg-jar-locked'),
-        btnClearJar: $('#btn-clear-jar'),
-        btnShake: $('#btn-shake'),
-        btnResetSession: $('#btn-reset-session'),
+        btnResetSessionTop: $('#btn-reset-session-top'),
         btnThief: $('#btn-thief'),
         btnOsin: $('#btn-osin'),
         btnFxFirework: $('#btn-fx-firework'),
@@ -152,11 +164,40 @@
         cfgScaleLbV: $('#cfg-scale-lb-v'),
         cfgScaleCaught: $('#cfg-scale-caught'),
         cfgScaleCaughtV: $('#cfg-scale-caught-v'),
+        cfgScaleThief: $('#cfg-scale-thief'),
+        cfgScaleThiefV: $('#cfg-scale-thief-v'),
+        cfgScalePolice: $('#cfg-scale-police'),
+        cfgScalePoliceV: $('#cfg-scale-police-v'),
+        cfgScaleOsin: $('#cfg-scale-osin'),
+        cfgScaleOsinV: $('#cfg-scale-osin-v'),
+        cfgScaleUfo: $('#cfg-scale-ufo'),
+        cfgScaleUfoV: $('#cfg-scale-ufo-v'),
+        cfgJarAccessory: $('#cfg-jar-accessory'),
+        cfgJarTheme: $('#cfg-jar-theme'),
+        cfgBadgesEnabled: $('#cfg-badges-enabled'),
+        cfgBadgesLayout: $('#cfg-badges-layout'),
+        cfgBadgesNamepos: $('#cfg-badges-namepos'),
+        cfgBadgesScale: $('#cfg-badges-scale'),
+        cfgBadgesScaleV: $('#cfg-badges-scale-v'),
+        cfgBadgesIconScale: $('#cfg-badges-iconscale'),
+        cfgBadgesIconScaleV: $('#cfg-badges-iconscale-v'),
+        cfgBadgesGap: $('#cfg-badges-gap'),
+        cfgBadgesGapV: $('#cfg-badges-gap-v'),
+        cfgBadgesNameScale: $('#cfg-badges-name-scale'),
+        cfgBadgesNameScaleV: $('#cfg-badges-name-scale-v'),
+        cfgBadgesLocked: $('#cfg-badges-locked'),
+        cfgBadgesAutoscroll: $('#cfg-badges-autoscroll'),
+        cfgBadgesVisible: $('#cfg-badges-visible'),
+        cfgBadgesVisibleV: $('#cfg-badges-visible-v'),
+        cfgBadgesScrollDir: $('#cfg-badges-scroll-dir'),
+        cfgBadgesSpeed: $('#cfg-badges-speed'),
+        cfgBadgesSpeedV: $('#cfg-badges-speed-v'),
         saveStatus: $('#save-status'),
         triggerList: $('#trigger-list'),
         giftOptions: $('#gift-options'),
     };
     let currentTriggers = {};  // giftId → action
+    let currentBadgeItems = {};   // giftId → { customLabel, namePos, enabled }
     // Track thứ tự gán mới nhất (giftId) — dùng để sort catalog: quà mới gán lên đầu.
     // Tồn tại trong phiên app, không persist. Mở app lại thì dùng thứ tự key trong triggers.
     let recentAssignments = [];   // giftIds, mới nhất ở đầu
@@ -180,10 +221,80 @@
         dom.commentsEl.scrollTop = dom.commentsEl.scrollHeight;
     }
 
+    function escHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // hpConfirm — modal styled theo theme app, thay thế cho window.confirm() xấu xí.
+    // tone: 'normal' | 'danger' (default 'normal')
+    function hpConfirm({ icon, title, body, okLabel, cancelLabel, tone }) {
+        return new Promise((resolve) => {
+            let overlay = document.getElementById('hp-confirm-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'hp-confirm-overlay';
+                overlay.className = 'hp-confirm-overlay';
+                overlay.innerHTML = `
+                    <div class="hp-confirm-card">
+                        <div class="hp-confirm-head">
+                            <div class="hp-confirm-icon" id="hp-confirm-icon"></div>
+                            <div class="hp-confirm-title" id="hp-confirm-title"></div>
+                        </div>
+                        <div class="hp-confirm-body" id="hp-confirm-body"></div>
+                        <div class="hp-confirm-actions">
+                            <button class="hp-confirm-btn cancel" id="hp-confirm-cancel"></button>
+                            <button class="hp-confirm-btn ok" id="hp-confirm-ok"></button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            }
+            const card = overlay.querySelector('.hp-confirm-card');
+            card.classList.toggle('tone-danger', tone === 'danger');
+            overlay.querySelector('#hp-confirm-icon').textContent = icon || '?';
+            overlay.querySelector('#hp-confirm-title').textContent = title || 'Xác nhận';
+            overlay.querySelector('#hp-confirm-body').innerHTML = body || '';
+            const okBtn = overlay.querySelector('#hp-confirm-ok');
+            const cancelBtn = overlay.querySelector('#hp-confirm-cancel');
+            okBtn.textContent = okLabel || 'OK';
+            cancelBtn.textContent = cancelLabel || 'Huỷ';
+            overlay.classList.add('show');
+            setTimeout(() => cancelBtn.focus(), 30);
+            function cleanup(val) {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onKey);
+                overlay.removeEventListener('click', onBackdrop);
+                resolve(val);
+            }
+            function onOk() { cleanup(true); }
+            function onCancel() { cleanup(false); }
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+                else if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+            }
+            function onBackdrop(e) { if (e.target === overlay) onCancel(); }
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            overlay.addEventListener('click', onBackdrop);
+        });
+    }
+    // Expose để các module khác dùng
+    window.hpConfirm = hpConfirm;
+
     // ===== Games =====
     async function loadGames() {
         const res = await fetch('/api/games');
         games = await res.json();
+        games.push({
+            id: 'liveTranslate',
+            name: 'DỊCH VÀ ĐỌC LIVE',
+            description: 'Dịch bình luận, đọc bình luận và phụ đề giọng Creator cho OBS.',
+            icon: '🌐',
+            virtual: true,
+            config: { enabled: localStorage.getItem('hp-live-translate-tool-enabled') !== 'false' }
+        });
         renderGameList();
         renderHomeGrid();
     }
@@ -193,12 +304,55 @@
             const div = document.createElement('div');
             div.className = 'game-item';
             div.dataset.id = g.id;
+            // Determine if game has 'enabled' field in its config (pktiktok + vipwelcome)
+            const cfg = g.config || {};
+            const hasEnabledField = ('enabled' in cfg);
+            const isEnabled = !hasEnabledField || cfg.enabled !== false;
             div.innerHTML = `<span class="ico">${g.icon}</span>
                 <div class="meta">
                     <div class="gn">${g.name}</div>
                     <div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>
-                </div>`;
-            div.addEventListener('click', () => openGame(g.id));
+                </div>
+                <button class="game-toggle ${isEnabled ? 'on' : 'off'}" data-game-toggle="${g.id}" title="${isEnabled ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT'} ${g.virtual ? 'tool' : 'game'} chạy ngầm">⏻</button>`;
+            // Click toàn thân (trừ toggle) → mở game
+            div.addEventListener('click', (e) => {
+                if (e.target.closest('[data-game-toggle]')) return;
+                openGame(g.id);
+            });
+            // Click toggle → bật/tắt game
+            div.querySelector('[data-game-toggle]')?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const btn = e.currentTarget;
+                const cur = !btn.classList.contains('off');   // currently on?
+                const next = !cur;
+                btn.classList.toggle('on', next);
+                btn.classList.toggle('off', !next);
+                btn.title = next ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT';
+                if (g.virtual) {
+                    localStorage.setItem('hp-live-translate-tool-enabled', next ? 'true' : 'false');
+                    if (g.config) g.config.enabled = next;
+                    if (!next) {
+                        if (ltEnabled) ltEnabled.checked = false;
+                        if (ccEnabled) ccEnabled.checked = false;
+                        stopCreatorCaptionListening?.();
+                        saveLiveTranslateConfig?.({ silent: true });
+                        saveCreatorCaptionConfig?.().catch(() => {});
+                    }
+                    return;
+                }
+                // POST update to server
+                try {
+                    await fetch(`/api/games/${g.id}/config`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next })
+                    });
+                    if (g.config) g.config.enabled = next;
+                } catch (err) {
+                    // revert
+                    btn.classList.toggle('on', !next);
+                    btn.classList.toggle('off', next);
+                }
+            });
             dom.gameList.appendChild(div);
         }
     }
@@ -226,7 +380,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-liveTranslate');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -236,6 +390,31 @@
         if (gameId === 'thuytinh') openThuytinh(game);
         else if (gameId === 'caro') openCaro(game);
         else if (gameId === 'pktiktok') openPkTiktok(game);
+        else if (gameId === 'vipwelcome') openVipWelcome(game);
+        else if (gameId === 'liveTranslate') openLiveTranslateView();
+    }
+
+    function openLiveTranslateView() {
+        showView('view-live-translate');
+        const host = document.getElementById('live-translate-workspace');
+        if (!host) return;
+        const translate = document.getElementById('translate-popup');
+        const caption = document.getElementById('creator-caption-popup');
+        if (translate && translate.parentElement !== host) host.appendChild(translate);
+        if (caption && caption.parentElement !== host) host.appendChild(caption);
+        if (translate) translate.hidden = false;
+        if (caption) caption.hidden = false;
+        loadLiveTranslateConfig?.();
+        loadCreatorCaptionConfig?.();
+        autoSyncTranslateRules?.();
+    }
+
+    function openVipWelcome(game) {
+        if (window.HpVipWelcomePanel && typeof window.HpVipWelcomePanel.open === 'function') {
+            window.HpVipWelcomePanel.open(socket);
+        } else {
+            console.error('[vipwelcome] HpVipWelcomePanel chưa load');
+        }
     }
 
     function openCaro(game) {
@@ -276,7 +455,7 @@
 
             const jglass = document.createElement('img');
             jglass.className = 'jar-glass';
-            jglass.src = '/assets/thuytinh/jar-glass.png';
+            jglass.src = '/assets/thuytinh/ben-ngoai/jar-glass.png';
             jglass.style.position = 'absolute';
             jglass.style.zIndex = '4';
             jglass.style.pointerEvents = 'none';
@@ -343,6 +522,18 @@
         applyConfigToUI(game.config);
         enableJarDragging();
         socket.emit('subscribe', 'preview');
+
+        // RESTORE state from disk on first load (persist qua restart)
+        // Server đã loadGameStateCache() từ disk vào memory rồi → fetch về và loadState
+        fetch(`/api/games/${currentGame.id}/state`)
+            .then(r => r.json())
+            .then(state => {
+                if (state && typeof state === 'object') {
+                    try { gameInstance.loadState(state); } catch (e) { console.warn('loadState fail:', e); }
+                }
+            })
+            .catch(() => {});
+
         startStateSync();
     }
 
@@ -357,7 +548,8 @@
             state.totalDiamonds, state.totalGifts,
             (state.caughtList || []).length,
             (state.policeForce || []).length,
-            (state.tippers || []).length
+            (state.tippers || []).length,
+            (state.bodies || []).length   // include bodies count → state push khi quà thêm/bớt
         ]);
         if (hash === lastStateHash) return;
         lastStateHash = hash;
@@ -467,7 +659,9 @@
         bindRange(dom.cfgJarH, cfg.jar.height, dom.cfgJarHV);
         bindRange(dom.cfgGmin, cfg.gift.minSize, dom.cfgGminV);
         bindRange(dom.cfgGmax, cfg.gift.maxSize, dom.cfgGmaxV);
-        bindRange(dom.cfgGoal, cfg.goal?.target ?? 1000, dom.cfgGoalV);
+        // cfg-goal đã chuyển từ slider sang number input — set value trực tiếp
+        if (dom.cfgGoal) dom.cfgGoal.value = cfg.goal?.target ?? 5000;
+        if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
         bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
@@ -482,6 +676,51 @@
         bindRange(dom.cfgScaleCaught, sCa, dom.cfgScaleCaughtV);
         if (dom.cfgScaleLbV) dom.cfgScaleLbV.textContent = sLb;
         if (dom.cfgScaleCaughtV) dom.cfgScaleCaughtV.textContent = sCa;
+        const sTh = cfg.actorScales?.thief ?? 1;
+        const sPo = cfg.actorScales?.police ?? 1;
+        const sOs = cfg.actorScales?.osin ?? 1;
+        const sUf = cfg.actorScales?.ufo ?? 1;
+        bindRange(dom.cfgScaleThief, sTh, dom.cfgScaleThiefV);
+        bindRange(dom.cfgScalePolice, sPo, dom.cfgScalePoliceV);
+        bindRange(dom.cfgScaleOsin, sOs, dom.cfgScaleOsinV);
+        bindRange(dom.cfgScaleUfo, sUf, dom.cfgScaleUfoV);
+        if (dom.cfgScaleThiefV) dom.cfgScaleThiefV.textContent = sTh;
+        if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = sPo;
+        if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = sOs;
+        if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = sUf;
+        if (dom.cfgJarAccessory) dom.cfgJarAccessory.value = cfg.jarAccessory || 'none';
+        if (dom.cfgJarTheme) dom.cfgJarTheme.value = cfg.jarTheme || 'default';
+        const bdg = cfg.badges || {};
+        if (dom.cfgBadgesEnabled) dom.cfgBadgesEnabled.checked = !!bdg.enabled;
+        if (dom.cfgBadgesLocked)  dom.cfgBadgesLocked.checked  = !!bdg.locked;
+        if (dom.cfgBadgesLayout) dom.cfgBadgesLayout.value = bdg.layout || 'vertical';
+        if (dom.cfgBadgesNamepos) dom.cfgBadgesNamepos.value = bdg.defaultNamePos || (bdg.layout === 'horizontal' ? 'top' : 'right');
+        const bScale = bdg.scale ?? 1;
+        if (dom.cfgBadgesScale) dom.cfgBadgesScale.value = String(bScale);
+        if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = bScale;
+        const bIconScale = bdg.iconScale ?? 1;
+        if (dom.cfgBadgesIconScale) dom.cfgBadgesIconScale.value = String(bIconScale);
+        if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = bIconScale;
+        const bGap = bdg.gap ?? 0.8;
+        if (dom.cfgBadgesGap) dom.cfgBadgesGap.value = String(bGap);
+        if (dom.cfgBadgesGapV) dom.cfgBadgesGapV.textContent = bGap;
+        const bNameScale = bdg.nameScale ?? 1;
+        if (dom.cfgBadgesNameScale)  dom.cfgBadgesNameScale.value = String(bNameScale);
+        if (dom.cfgBadgesNameScaleV) dom.cfgBadgesNameScaleV.textContent = bNameScale;
+        // Auto-scroll
+        const as = bdg.autoScroll || {};
+        if (dom.cfgBadgesAutoscroll) dom.cfgBadgesAutoscroll.checked = !!as.enabled;
+        const bVis = as.visibleCount ?? 5;
+        if (dom.cfgBadgesVisible)  dom.cfgBadgesVisible.value = String(bVis);
+        if (dom.cfgBadgesVisibleV) dom.cfgBadgesVisibleV.textContent = bVis;
+        if (dom.cfgBadgesScrollDir) dom.cfgBadgesScrollDir.value = as.direction || 'up';
+        const bSpeed = as.speed ?? 2;
+        if (dom.cfgBadgesSpeed)  dom.cfgBadgesSpeed.value = String(bSpeed);
+        if (dom.cfgBadgesSpeedV) dom.cfgBadgesSpeedV.textContent = bSpeed;
+        // Lưu items + extras để gatherConfig giữ nguyên (chỉ edit qua modal per-gift)
+        currentBadgeItems = JSON.parse(JSON.stringify(bdg.items || {}));
+        currentBadgeExtras = Array.isArray(bdg.extras) ? JSON.parse(JSON.stringify(bdg.extras)) : [];
+        renderBadgeExtrasList();
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
@@ -551,7 +790,7 @@
             jarVisible: dom.cfgJarVisible.checked,
             jarLocked: !!(dom.cfgJarLocked && dom.cfgJarLocked.checked),
             features,
-            goal: { target: parseInt(dom.cfgGoal.value, 10) || 1000 },
+            goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,
@@ -561,6 +800,32 @@
             panelScales: {
                 leaderboard: parseFloat(dom.cfgScaleLb.value) || 1,
                 caught: parseFloat(dom.cfgScaleCaught.value) || 1
+            },
+            actorScales: {
+                thief: parseFloat(dom.cfgScaleThief?.value) || 1,
+                police: parseFloat(dom.cfgScalePolice?.value) || 1,
+                osin: parseFloat(dom.cfgScaleOsin?.value) || 1,
+                ufo: parseFloat(dom.cfgScaleUfo?.value) || 1
+            },
+            jarAccessory: dom.cfgJarAccessory?.value || 'none',
+            jarTheme: dom.cfgJarTheme?.value || 'default',
+            badges: {
+                enabled: !!dom.cfgBadgesEnabled?.checked,
+                locked: !!dom.cfgBadgesLocked?.checked,
+                layout: dom.cfgBadgesLayout?.value || 'vertical',
+                defaultNamePos: dom.cfgBadgesNamepos?.value || 'right',
+                scale: parseFloat(dom.cfgBadgesScale?.value) || 1,
+                iconScale: parseFloat(dom.cfgBadgesIconScale?.value) || 1,
+                gap: isNaN(parseFloat(dom.cfgBadgesGap?.value)) ? 0.8 : parseFloat(dom.cfgBadgesGap.value),
+                nameScale: parseFloat(dom.cfgBadgesNameScale?.value) || 1,
+                autoScroll: {
+                    enabled: !!dom.cfgBadgesAutoscroll?.checked,
+                    visibleCount: parseInt(dom.cfgBadgesVisible?.value, 10) || 5,
+                    direction: dom.cfgBadgesScrollDir?.value || 'up',
+                    speed: parseFloat(dom.cfgBadgesSpeed?.value) || 2
+                },
+                items: JSON.parse(JSON.stringify(currentBadgeItems || {})),
+                extras: JSON.parse(JSON.stringify(currentBadgeExtras || []))
             },
             triggers: JSON.parse(JSON.stringify(currentTriggers || {})),
             effects: JSON.parse(JSON.stringify(currentEffectsConfig || {}))
@@ -586,6 +851,16 @@
         if (dom.cfgPoliceBanV) dom.cfgPoliceBanV.textContent = cfg.policeBanSec;
         if (dom.cfgScaleLbV) dom.cfgScaleLbV.textContent = cfg.panelScales.leaderboard;
         if (dom.cfgScaleCaughtV) dom.cfgScaleCaughtV.textContent = cfg.panelScales.caught;
+        if (dom.cfgScaleThiefV) dom.cfgScaleThiefV.textContent = cfg.actorScales.thief;
+        if (dom.cfgScalePoliceV) dom.cfgScalePoliceV.textContent = cfg.actorScales.police;
+        if (dom.cfgScaleOsinV) dom.cfgScaleOsinV.textContent = cfg.actorScales.osin;
+        if (dom.cfgScaleUfoV) dom.cfgScaleUfoV.textContent = cfg.actorScales.ufo;
+        if (dom.cfgBadgesScaleV) dom.cfgBadgesScaleV.textContent = cfg.badges?.scale ?? 1;
+        if (dom.cfgBadgesIconScaleV) dom.cfgBadgesIconScaleV.textContent = cfg.badges?.iconScale ?? 1;
+        if (dom.cfgBadgesGapV) dom.cfgBadgesGapV.textContent = cfg.badges?.gap ?? 0.8;
+        if (dom.cfgBadgesNameScaleV) dom.cfgBadgesNameScaleV.textContent = cfg.badges?.nameScale ?? 1;
+        if (dom.cfgBadgesVisibleV) dom.cfgBadgesVisibleV.textContent = cfg.badges?.autoScroll?.visibleCount ?? 5;
+        if (dom.cfgBadgesSpeedV)   dom.cfgBadgesSpeedV.textContent   = cfg.badges?.autoScroll?.speed ?? 2;
         setSaveStatus('saving');
         clearTimeout(saveCfgTimer);
         const doSave = () => {
@@ -634,8 +909,58 @@
     }
 
     // ===== Trigger UI (compact: icon + preview + ⚙) =====
+    // Render quick-test grid trong tab Thử — hiện các quà đã gán hiệu ứng để test nhanh
+    function renderQuickTestGrid() {
+        const grid = document.getElementById('quick-test-grid');
+        const empty = document.getElementById('quick-test-empty');
+        const countEl = document.getElementById('quick-test-count');
+        if (!grid) return;
+        grid.innerHTML = '';
+        const entries = Object.entries(currentTriggers || {});
+        if (countEl) countEl.textContent = String(entries.length);
+        if (!entries.length) {
+            if (empty) empty.hidden = false;
+            return;
+        }
+        if (empty) empty.hidden = true;
+        const frag = document.createDocumentFragment();
+        for (const [giftId, action] of entries) {
+            const g = giftMap[String(giftId)];
+            const ef = EFFECTS.find(e => e.key === action);
+            if (!g) continue;
+            const card = document.createElement('div');
+            card.className = 'quick-test-card';
+            card.title = `${g.name || 'Quà'} (ID ${giftId}) → ${ef?.label || action}`;
+            const img = document.createElement('img');
+            img.src = g.image || '';
+            img.alt = g.name || '';
+            img.onerror = () => { img.style.display = 'none'; };
+            const name = document.createElement('div');
+            name.className = 'qt-name';
+            name.textContent = g.name || `ID ${giftId}`;
+            const actBadge = document.createElement('div');
+            actBadge.className = 'qt-action';
+            // Hiển thị icon to + tooltip text khi hover
+            actBadge.textContent = ef?.ico || '?';
+            actBadge.title = ef?.label || action;
+            card.appendChild(actBadge);
+            card.appendChild(img);
+            card.appendChild(name);
+            card.addEventListener('click', () => {
+                if (!currentGame) return;
+                fetch(`/api/games/${currentGame.id}/test-gift`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ giftId, count: 1, nickname: 'HP Media' })
+                }).catch(() => {});
+            });
+            frag.appendChild(card);
+        }
+        grid.appendChild(frag);
+    }
+
     function renderTriggerList() {
         if (!dom.triggerList) return;
+        renderQuickTestGrid();   // sync quick-test khi triggers thay đổi
         dom.triggerList.innerHTML = '';
         const frag = document.createDocumentFragment();
         for (const ef of EFFECTS) {
@@ -670,10 +995,31 @@
                     const im = document.createElement('img'); im.src = g.image; im.title = g.name; prev.appendChild(im);
                 }
             }
+            // 🏷 Badge visibility toggle — bật/tắt badge từng quà trên overlay (không cần mở modal)
+            const ids = ef.multi ? giftIdsForEffect(ef.key)
+                                 : [Object.keys(currentTriggers).find(id => currentTriggers[id] === ef.key)].filter(Boolean);
+            const badgeWrap = document.createElement('label');
+            badgeWrap.className = 'trigger-badge-toggle';
+            badgeWrap.title = ids.length
+                ? `Hiện badge trên overlay (${ids.length} quà${ef.multi ? ' — tất cả' : ''})`
+                : 'Chưa gán quà — không thể bật badge';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.disabled = ids.length === 0;
+            // Default checked = true; chỉ uncheck nếu MỌI gift đều enabled === false
+            cb.checked = ids.length === 0 ? false : ids.some(id => currentBadgeItems[id]?.enabled !== false);
+            cb.addEventListener('change', () => {
+                for (const id of ids) {
+                    if (!currentBadgeItems[id]) currentBadgeItems[id] = {};
+                    currentBadgeItems[id].enabled = cb.checked;
+                }
+                pushConfigUpdate(true);
+            });
+            badgeWrap.appendChild(cb);
             const gear = document.createElement('button');
             gear.className = 'gear'; gear.title = `Cài đặt ${ef.label}`; gear.textContent = '⚙';
             gear.addEventListener('click', () => openEffectModal(ef));
-            row.appendChild(ico); row.appendChild(lbl); row.appendChild(prev); row.appendChild(gear);
+            row.appendChild(ico); row.appendChild(lbl); row.appendChild(badgeWrap); row.appendChild(prev); row.appendChild(gear);
             frag.appendChild(row);
         }
         dom.triggerList.appendChild(frag);
@@ -719,8 +1065,50 @@
         modalName.textContent = ef.label;
         renderModalGift();
         renderModalParams();
+        renderBadgeFields(ef);
         efPicker.hidden = true;
         modal.hidden = false;
+    }
+    // Render trường badge config cho gift đang gán (chỉ hiện nếu có gift được chỉ định)
+    function renderBadgeFields(ef) {
+        const section = document.getElementById('ef-badge-section');
+        if (!section) return;
+        const giftId = editingDraft?.giftId;
+        if (!giftId || ef.multi) {
+            section.hidden = true;
+            return;
+        }
+        section.hidden = false;
+        const item = currentBadgeItems[giftId] || { customLabel: '', namePos: '', enabled: true, borderStyle: 'none' };
+        const enabledEl = document.getElementById('ef-badge-enabled');
+        const labelEl = document.getElementById('ef-badge-label');
+        const nameposEl = document.getElementById('ef-badge-namepos');
+        const borderEl = document.getElementById('ef-badge-border');
+        if (enabledEl) enabledEl.checked = item.enabled !== false;
+        if (labelEl) labelEl.value = item.customLabel || '';
+        if (labelEl) labelEl.placeholder = ef.label;
+        // Default = '' (theo global). User chỉ chọn override khi muốn khác global.
+        if (nameposEl) nameposEl.value = item.namePos || '';
+        if (borderEl) borderEl.value = item.borderStyle || 'none';
+    }
+    // Lưu badge config từ modal vào currentBadgeItems — chỉ lưu namePos nếu KHÔNG rỗng
+    function saveBadgeFieldsFromModal() {
+        const giftId = editingDraft?.giftId;
+        if (!giftId || editingEffect?.multi) return;
+        const enabledEl = document.getElementById('ef-badge-enabled');
+        const labelEl = document.getElementById('ef-badge-label');
+        const nameposEl = document.getElementById('ef-badge-namepos');
+        const borderEl = document.getElementById('ef-badge-border');
+        const namePosValue = nameposEl?.value || '';
+        const borderValue = borderEl?.value || 'none';
+        const entry = {
+            enabled: enabledEl ? !!enabledEl.checked : true,
+            customLabel: (labelEl?.value || '').trim()
+        };
+        // Chỉ lưu namePos nếu user explicit chọn (KHÔNG là "Theo mặc định")
+        if (namePosValue) entry.namePos = namePosValue;
+        if (borderValue && borderValue !== 'none') entry.borderStyle = borderValue;
+        currentBadgeItems[giftId] = entry;
     }
     function closeEffectModal() {
         modal.hidden = true;
@@ -1007,6 +1395,7 @@
                 pg.addEventListener('click', () => {
                     editingDraft.giftId = String(g.id);
                     renderModalGift();
+                    renderBadgeFields(editingEffect);   // refresh badge fields cho gift mới
                     efPicker.hidden = true;
                 });
             }
@@ -1055,6 +1444,8 @@
         }
         // 2) Cập nhật effects params
         currentEffectsConfig[editingEffect.key] = editingDraft.params;
+        // 2b) Cập nhật badge config cho gift này (nếu single + có gift)
+        saveBadgeFieldsFromModal();
         // 3) Save NGAY
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
@@ -1154,35 +1545,21 @@
         if (!dom.giftCatalogEl) return;
         dom.giftCatalogEl.innerHTML = '';
         const f = filter.trim().toLowerCase();
-        let list = (!f ? giftSheet : giftSheet.filter(g =>
-            g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
-        ));
-        // ƯU TIÊN sort:
-        // 1) Quà đã gán → trước quà chưa gán
-        // 2) Trong nhóm "đã gán": quà gán GẦN ĐÂY NHẤT lên đầu (recentAssignments index)
-        // 3) Còn lại giữ thứ tự gốc (diamond asc)
-        list = list.slice().sort((a, b) => {
-            const aT = currentTriggers[String(a.id)] ? 1 : 0;
-            const bT = currentTriggers[String(b.id)] ? 1 : 0;
-            if (aT !== bT) return bT - aT;
-            if (aT === 1) {
-                const ai = recentAssignments.indexOf(String(a.id));
-                const bi = recentAssignments.indexOf(String(b.id));
-                // Trong nhóm "đã gán": có trong recent thì index nhỏ hơn = mới hơn → trước
-                if (ai !== bi) {
-                    if (ai === -1) return 1;
-                    if (bi === -1) return -1;
-                    return ai - bi;
-                }
-            }
-            return 0;
-        });
+        // ẨN các quà đã gán hiệu ứng (đã hiển thị ở quick-test grid bên trái tab Thử)
+        // → Tránh hiển thị 2 lần và làm giảm số card trong DANH SÁCH QUÀ
+        let list = giftSheet.filter(g => !currentTriggers[String(g.id)]);
+        if (f) {
+            list = list.filter(g =>
+                g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f)
+            );
+        }
         const frag = document.createDocumentFragment();
         // Render toàn bộ list (DOM grid 619 cards vẫn nhẹ). Trước đây slice(0,400)
         // khiến sort ASC theo Kim Cương bị cắt mất 219 quà cao nhất.
         for (const g of list) {
             const card = document.createElement('div');
             card.className = 'gift-card';
+            if (g.custom) card.classList.add('is-custom');
             const im = document.createElement('img');
             im.loading = 'lazy';
             im.src = g.image || placeholderImg;
@@ -1247,8 +1624,17 @@
         for (const e of EFFECTS) {
             const btn = document.createElement('button');
             btn.dataset.effect = e.key;
-            btn.innerHTML = `<span>${e.ico}</span> ${e.label}`;
-            if (currentAction === e.key) btn.classList.add('active');
+            // ✓ Hiển thị dấu tích cho effect đã có quà gán (giúp scan nhanh slot trống)
+            const assignedIds = giftIdsForEffect(e.key);
+            const hasAnyGift = assignedIds.length > 0;
+            const isCurrent = currentAction === e.key;
+            // Multi effect: hiện số quà đã gán (vd "Pháo hoa ✓×3"). Single: chỉ ✓
+            const checkmark = hasAnyGift
+                ? (e.multi ? `<span class="cm-check">✓×${assignedIds.length}</span>` : `<span class="cm-check">✓</span>`)
+                : '';
+            btn.innerHTML = `<span>${e.ico}</span> ${e.label}${checkmark}`;
+            if (isCurrent) btn.classList.add('active');
+            else if (hasAnyGift) btn.classList.add('assigned');   // có quà khác đang giữ slot
             btn.addEventListener('click', () => assignTrigger(gift.id, e.key));
             cmList.appendChild(btn);
         }
@@ -1311,20 +1697,29 @@
     function setConnectedUI(connected, username) {
         isLiveConnected = !!connected;
         liveUsername = username || '';
+        const statusRow = document.getElementById('status-row');
         if (connected) {
-            // Ẩn input, đổi nút thành dạng toggle disconnect
             if (dom.connRow) dom.connRow.style.display = 'none';
             dom.btnConnect.classList.remove('primary');
             dom.btnConnect.classList.add('secondary');
             dom.btnConnect.disabled = false;
-            dom.btnConnect.innerHTML = `<span style="color:#22c55e">●</span> @${escAttrInline(liveUsername)} · Bấm để ngắt`;
+            dom.btnConnect.innerHTML = `<span class="conn-dot"></span><span class="conn-name">@${escAttrInline(liveUsername)}</span><span class="conn-eject" title="Ngắt kết nối">⏻</span>`;
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = false;
+            // Ẩn status-row khi connected (button + stats đã đủ thông tin)
+            if (statusRow) statusRow.style.display = 'none';
         } else {
             if (dom.connRow) dom.connRow.style.display = '';
             dom.btnConnect.classList.add('primary');
             dom.btnConnect.classList.remove('secondary');
             dom.btnConnect.disabled = false;
             dom.btnConnect.textContent = 'Kết nối LIVE';
+            if (dom.liveStatsGrid) dom.liveStatsGrid.hidden = true;
+            // Hiện lại status-row khi disconnected
+            if (statusRow) statusRow.style.display = '';
+            ['lstatViewer','lstatDiamond','lstatFollow','lstatShare'].forEach(k => { if (dom[k]) dom[k].textContent = '0'; });
         }
+        updateTranslateControls();
+        if (connected) setTimeout(() => autoSyncTranslateRules(), 0);
     }
     function escAttrInline(s) { return String(s ?? '').replace(/[<>"]/g, ''); }
 
@@ -1364,7 +1759,14 @@
         }
     }
     async function doDisconnect() {
-        const ok = window.confirm(`Ngắt kết nối khỏi @${liveUsername}?`);
+        const ok = await hpConfirm({
+            icon: '⏻',
+            title: 'Ngắt kết nối TikTok LIVE',
+            body: `Bạn có chắc muốn ngắt kết nối khỏi <b>@${escHtml(liveUsername)}</b>?<br><span style="color:#8b93a8">OBS overlay sẽ ngừng nhận sự kiện cho đến khi kết nối lại.</span>`,
+            okLabel: 'Ngắt kết nối',
+            cancelLabel: 'Giữ kết nối',
+            tone: 'danger'
+        });
         if (!ok) return;
         dom.btnConnect.disabled = true;
         await fetch('/api/disconnect', { method: 'POST' });
@@ -1409,21 +1811,239 @@
 
     dom.btnClearComments.addEventListener('click', () => dom.commentsEl.innerHTML = '');
     dom.btnClearGifts.addEventListener('click', () => dom.giftStreamEl.innerHTML = '');
-    // QUAN TRỌNG: btnClearJar / btnShake phải sendCmd ra OBS, không chỉ chạy local
-    // (lỗi v1.0.2: chỉ gọi local → OBS không xoá hũ theo)
-    dom.btnClearJar.addEventListener('click', () => { gameInstance?.clearAll(); sendCmd('clear'); forceSyncState(); });
-    dom.btnShake.addEventListener('click', () => { gameInstance?.shake(); sendCmd('shake'); });
 
     dom.giftSearchInput.addEventListener('input', () => renderGiftCatalog(dom.giftSearchInput.value));
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarVisible?.addEventListener('change', pushConfigUpdate);
     dom.cfgJarLocked?.addEventListener('change', pushConfigUpdate);
+    dom.cfgJarAccessory?.addEventListener('change', pushConfigUpdate);
+    dom.cfgJarTheme?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesEnabled?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesLocked?.addEventListener('change', pushConfigUpdate);
+    // Preset cỡ card / icon / gap / chữ đẹp cho từng combo layout — auto-fill khi đổi layout
+    const BADGE_PRESETS = {
+        vertical:   { scale: 1.25, iconScale: 1.6,  gap: 2.5, nameScale: 1.0 },
+        horizontal: { scale: 1.2,  iconScale: 1.75, gap: 0.8, nameScale: 1.0 }
+    };
+    dom.cfgBadgesLayout?.addEventListener('change', () => {
+        // Khi đổi layout (dọc/ngang) — clear panelPositions.badges để pos-* dropdown re-take effect
+        if (currentGame) {
+            const cfg = gameInstance?.getConfig() || {};
+            if (cfg.panelPositions?.badges) {
+                cfg.panelPositions.badges = null;
+            }
+        }
+        // Auto-apply preset cỡ/icon/gap cho layout vừa chọn
+        const preset = BADGE_PRESETS[dom.cfgBadgesLayout.value];
+        if (preset) {
+            if (dom.cfgBadgesScale)     dom.cfgBadgesScale.value     = String(preset.scale);
+            if (dom.cfgBadgesIconScale) dom.cfgBadgesIconScale.value = String(preset.iconScale);
+            if (dom.cfgBadgesGap)       dom.cfgBadgesGap.value       = String(preset.gap);
+            if (dom.cfgBadgesNameScale) dom.cfgBadgesNameScale.value = String(preset.nameScale);
+        }
+        pushConfigUpdate();
+    });
+    dom.cfgBadgesNamepos?.addEventListener('change', () => {
+        // Khi đổi GLOBAL namePos → clear all per-card overrides (cả items + extras)
+        // để TẤT CẢ badges đồng loạt theo global. Nếu user muốn per-card khác, edit lại.
+        // Fix vấn đề: card cũ giữ namePos override → không follow global khi đổi.
+        for (const id of Object.keys(currentBadgeItems)) {
+            if (currentBadgeItems[id]) delete currentBadgeItems[id].namePos;
+        }
+        for (const ex of currentBadgeExtras) {
+            if (ex) delete ex.namePos;
+        }
+        renderBadgeExtrasList();   // refresh extras list display
+        pushConfigUpdate(true);
+    });
+    dom.cfgBadgesScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesIconScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesGap?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesNameScale?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesAutoscroll?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesVisible?.addEventListener('input', pushConfigUpdate);
+    dom.cfgBadgesScrollDir?.addEventListener('change', pushConfigUpdate);
+    dom.cfgBadgesSpeed?.addEventListener('input', pushConfigUpdate);
+
+    // ===== Extra badges — thêm quà thủ công vào danh sách badge (KHÔNG cần gán effect) =====
+    // Lưu vào config.badges.extras = [{id, name, image, customLabel, namePos, enabled}]
+    let currentBadgeExtras = [];   // array của extras objects
+
+    const ebmModal = document.getElementById('extra-badge-modal');
+    const EBM_DIAMOND_VALUES = [10, 20, 199, 299, 399, 499, 599, 799, 1000, 2000, 3000, 5000, 10000, 20000];
+    let ebmMinDiamond = 0;   // ngưỡng MIN — chip 299⭐ = lọc quà có diamond >= 299
+    function fmtDiamond(v) {
+        // 10000 → 10,000 cho dễ đọc
+        return Number(v || 0).toLocaleString('en-US');
+    }
+    function openExtraBadgeModal() {
+        if (!ebmModal) return;
+        document.getElementById('ebm-id').value = '';
+        document.getElementById('ebm-name').value = '';
+        document.getElementById('ebm-image').value = '';
+        document.getElementById('ebm-label').value = '';
+        document.getElementById('ebm-namepos').value = '';   // 'Theo mặc định'
+        const ebmBorder = document.getElementById('ebm-border');
+        if (ebmBorder) ebmBorder.value = 'none';
+        document.getElementById('ebm-search').value = '';
+        ebmMinDiamond = 0;
+        renderDiamondChips();
+        renderEbmPicker();
+        ebmModal.hidden = false;
+    }
+    function closeExtraBadgeModal() { if (ebmModal) ebmModal.hidden = true; }
+    function renderDiamondChips() {
+        const wrap = document.getElementById('ebm-diamond-chips');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        // 'Tất cả' = ngưỡng 0 (hiện hết)
+        const allBtn = document.createElement('div');
+        allBtn.className = 'ebm-chip chip-all' + (ebmMinDiamond === 0 ? ' active' : '');
+        allBtn.textContent = 'Tất cả';
+        allBtn.addEventListener('click', () => {
+            ebmMinDiamond = 0;
+            renderDiamondChips();
+            renderEbmPicker();
+        });
+        wrap.appendChild(allBtn);
+        for (const v of EBM_DIAMOND_VALUES) {
+            const chip = document.createElement('div');
+            chip.className = 'ebm-chip' + (ebmMinDiamond === v ? ' active' : '');
+            chip.textContent = `${fmtDiamond(v)}⭐`;   // 10000 → 10,000
+            chip.title = `Quà có ít nhất ${fmtDiamond(v)} sao`;
+            chip.addEventListener('click', () => {
+                ebmMinDiamond = (ebmMinDiamond === v) ? 0 : v;   // toggle
+                renderDiamondChips();
+                renderEbmPicker();
+            });
+            wrap.appendChild(chip);
+        }
+    }
+
+    function renderEbmPicker() {
+        const picker = document.getElementById('ebm-picker');
+        const countEl = document.getElementById('ebm-result-count');
+        if (!picker) return;
+        picker.innerHTML = '';
+        const f = (document.getElementById('ebm-search')?.value || '').trim().toLowerCase();
+        const excludeAssigned = !!document.getElementById('ebm-exclude-assigned')?.checked;
+        // Set các gift IDs đã được gán effect (triggers) hoặc đã có trong extras
+        const assignedIds = new Set();
+        if (excludeAssigned) {
+            for (const id of Object.keys(currentTriggers || {})) assignedIds.add(String(id));
+            for (const ex of (currentBadgeExtras || [])) if (ex.id) assignedIds.add(String(ex.id));
+        }
+        const list = (giftSheet || []).filter(g => {
+            if (excludeAssigned && assignedIds.has(String(g.id))) return false;
+            if (f && !(g.id.toLowerCase().includes(f) || (g.name || '').toLowerCase().includes(f))) return false;
+            // Chip Sao: lọc quà có diamond >= ngưỡng min (tự động tăng dần)
+            if (ebmMinDiamond > 0 && Number(g.diamond || 0) < ebmMinDiamond) return false;
+            return true;
+        });
+        if (countEl) countEl.textContent = `${list.length} quà / ${(giftSheet || []).length} tổng`;
+        const frag = document.createDocumentFragment();
+        for (const g of list) {
+            const card = document.createElement('div');
+            card.className = 'pg';
+            card.innerHTML = `
+                <img src="${g.image || ''}" onerror="this.style.display='none'"/>
+                <div class="nm">${(g.name || '').replace(/[<>]/g,'')}</div>
+                <div class="di">ID ${g.id}</div>
+                <div class="st">${fmtDiamond(g.diamond || 0)}⭐</div>
+            `;
+            card.addEventListener('click', () => {
+                document.getElementById('ebm-id').value = g.id;
+                document.getElementById('ebm-name').value = g.name || '';
+                document.getElementById('ebm-image').value = g.image || '';
+                // highlight selected
+                picker.querySelectorAll('.pg.pg-active').forEach(el => el.classList.remove('pg-active'));
+                card.classList.add('pg-active');
+            });
+            frag.appendChild(card);
+        }
+        picker.appendChild(frag);
+    }
+
+    document.getElementById('btn-add-extra-badge')?.addEventListener('click', openExtraBadgeModal);
+    document.getElementById('ebm-close')?.addEventListener('click', closeExtraBadgeModal);
+    document.getElementById('ebm-cancel')?.addEventListener('click', closeExtraBadgeModal);
+    document.getElementById('ebm-search')?.addEventListener('input', () => renderEbmPicker());
+    document.getElementById('ebm-exclude-assigned')?.addEventListener('change', () => renderEbmPicker());
+    document.getElementById('ebm-save')?.addEventListener('click', () => {
+        const id = (document.getElementById('ebm-id').value || '').trim();
+        const name = (document.getElementById('ebm-name').value || '').trim();
+        const image = (document.getElementById('ebm-image').value || '').trim();
+        const customLabel = (document.getElementById('ebm-label').value || '').trim();
+        const namePosValue = document.getElementById('ebm-namepos').value || '';
+        const borderValue = document.getElementById('ebm-border')?.value || 'none';
+        if (!id || !name) return flashTriggerToast('⚠ Cần Gift ID và Tên quà (chọn từ danh sách hoặc nhập tay)');
+        // Avoid duplicate by id
+        const existsIdx = currentBadgeExtras.findIndex(e => String(e.id) === id);
+        const entry = { id, name, image, customLabel, enabled: true };
+        // Chỉ lưu namePos nếu user explicit chọn (không là 'Theo mặc định')
+        if (namePosValue) entry.namePos = namePosValue;
+        if (borderValue && borderValue !== 'none') entry.borderStyle = borderValue;
+        if (existsIdx >= 0) currentBadgeExtras[existsIdx] = entry;
+        else currentBadgeExtras.push(entry);
+        renderBadgeExtrasList();
+        pushConfigUpdate(true);
+        flashTriggerToast(`✓ Đã thêm badge "${name}" vào danh sách`);
+        closeExtraBadgeModal();
+    });
+
+    function renderBadgeExtrasList() {
+        const list = document.getElementById('badges-extras-list');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!currentBadgeExtras.length) {
+            list.innerHTML = '<div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">Chưa có badge thủ công nào</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        for (const [idx, e] of currentBadgeExtras.entries()) {
+            const row = document.createElement('div');
+            row.className = 'badges-extra-row';
+            row.innerHTML = `
+                <img src="${e.image || ''}" onerror="this.style.display='none'"/>
+                <div class="be-info">
+                    <div class="be-name">${(e.customLabel || e.name).replace(/[<>]/g,'')}</div>
+                    <div class="be-id">ID ${e.id} · ${e.namePos}</div>
+                </div>
+                <label class="be-toggle"><input type="checkbox" ${e.enabled !== false ? 'checked' : ''} data-idx="${idx}"/></label>
+                <button class="be-remove ghost mini" data-idx="${idx}" title="Xoá">✕</button>
+            `;
+            frag.appendChild(row);
+        }
+        list.appendChild(frag);
+        list.querySelectorAll('.be-toggle input').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const i = parseInt(cb.dataset.idx, 10);
+                if (currentBadgeExtras[i]) {
+                    currentBadgeExtras[i].enabled = cb.checked;
+                    pushConfigUpdate(true);
+                }
+            });
+        });
+        list.querySelectorAll('.be-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const i = parseInt(btn.dataset.idx, 10);
+                currentBadgeExtras.splice(i, 1);
+                renderBadgeExtrasList();
+                pushConfigUpdate(true);
+            });
+        });
+    }
+    // 🔊 Mở SoundFX — Electron bắt /soundfx → cửa sổ nổi; trình duyệt → tab mới
+    document.getElementById('btn-open-soundfx')?.addEventListener('click', () => {
+        window.open('/soundfx', '_blank');
+    });
+
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);
@@ -1437,14 +2057,15 @@
             body: JSON.stringify({ cmd, payload: payload || null })
         }).catch(() => {});
     }
-    dom.btnResetSession?.addEventListener('click', () => {
+    function resetSessionAll() {
         // Phiên mới: reset stats + clear bodies trong hũ + đồng bộ OBS qua 2 cmd
         gameInstance?.resetSession();
         gameInstance?.clearAll();
         sendCmd('resetSession');
         sendCmd('clear');
         forceSyncState();
-    });
+    }
+    dom.btnResetSessionTop?.addEventListener('click', resetSessionAll);
     dom.btnThief?.addEventListener('click', () => {
         if (!gameInstance) return;
         // 1 lần nhấn = 1 tên trộm. Chọn ngẫu nhiên 1 tipper gần đây để đặt tên.
@@ -1454,8 +2075,8 @@
         const list = recent.length ? recent : pool;
         const pick = list.length ? list[Math.floor(Math.random() * list.length)] : null;
         const thief = pick
-            ? { name: pick.nickname || pick.uniqueId || 'Khách', avatar: pick.avatar, uid: pick.uid }
-            : { name: 'Khách' };
+            ? { name: pick.nickname || pick.uniqueId || 'HP Media', avatar: pick.avatar, uid: pick.uid }
+            : { name: 'HP Media' };
         // triggerThief mutate thief.mode (rope/runner) — sendCmd sau đó sẽ gồm mode cho OBS
         gameInstance.triggerThief(thief);
         sendCmd('thief', { thieves: [thief] });
@@ -1760,7 +2381,21 @@
     socket.on('member', (m) => appendSystem(`👋 ${m.nickname || m.uniqueId} đã vào LIVE`));
     socket.on('social', (s) => appendSystem(`💗 ${s.nickname || s.uniqueId} ${s.label || ''}`));
     socket.on('roomUser', (r) => {
-        if (typeof r.viewerCount === 'number') dom.statViewer.textContent = `👥 ${r.viewerCount}`;
+        if (typeof r.viewerCount === 'number' && dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(r.viewerCount);
+    });
+    // Live stats — viewer, diamond, follow, share
+    function fmtNum(n) {
+        n = Number(n) || 0;
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return String(n);
+    }
+    socket.on('liveStats', (s) => {
+        if (!s) return;
+        if (dom.lstatViewer) dom.lstatViewer.textContent = fmtNum(s.viewerCount);
+        if (dom.lstatDiamond) dom.lstatDiamond.textContent = fmtNum(s.totalDiamond);
+        if (dom.lstatFollow) dom.lstatFollow.textContent = fmtNum(s.totalFollows);
+        if (dom.lstatShare) dom.lstatShare.textContent = fmtNum(s.totalShares);
     });
 
     // ===== Bình luận popup toggle + badge =====
@@ -1786,6 +2421,8 @@
         const map = {
             comments: 'comments-popup',
             unknown: 'unknown-popup',
+            translate: 'translate-popup',
+            creatorCaption: 'creator-caption-popup',
             police: 'police-popup',
             caught: 'caught-popup',
         };
@@ -1811,6 +2448,396 @@
     });
     commentsClose?.addEventListener('click', closeCommentsPopup);
     setUnread(0);
+
+    // ===== Live Translate MVP =====
+    const translateFab = document.getElementById('translate-fab');
+    const translateBadge = document.getElementById('translate-badge');
+    const translatePopup = document.getElementById('translate-popup');
+    const translateClose = document.getElementById('translate-close');
+    const creatorCaptionFab = document.getElementById('creator-caption-fab');
+    const creatorCaptionPopup = document.getElementById('creator-caption-popup');
+    const creatorCaptionClose = document.getElementById('creator-caption-close');
+    const ltEnabled = document.getElementById('lt-enabled');
+    const ltTts = document.getElementById('lt-tts');
+    const ltIgnoreIcons = document.getElementById('lt-ignore-icons');
+    const ltCleanUnreadable = document.getElementById('lt-clean-unreadable');
+    const ltSource = document.getElementById('lt-source');
+    const ltTarget = document.getElementById('lt-target');
+    const ltVoice = document.getElementById('lt-voice');
+    const ltReadMode = document.getElementById('lt-read-mode');
+    const ltPriority = document.getElementById('lt-priority');
+    const ltCooldown = document.getElementById('lt-cooldown');
+    const ltVolume = document.getElementById('lt-volume');
+    const ltVolumeV = document.getElementById('lt-volume-v');
+    const ltRate = document.getElementById('lt-rate');
+    const ltRateV = document.getElementById('lt-rate-v');
+    const ltGlossary = document.getElementById('lt-glossary');
+    const ltForbidden = document.getElementById('lt-forbidden');
+    const ltOverlayUrl = document.getElementById('lt-overlay-url');
+    const ltStatus = document.getElementById('lt-status');
+    const ltSheetStatus = document.getElementById('lt-sheet-status');
+    const btnTranslateToggle = document.getElementById('btn-translate-toggle');
+    const btnTranslateSyncSheet = document.getElementById('btn-translate-sync-sheet');
+    const btnTranslateTestVoice = document.getElementById('btn-translate-test-voice');
+    const btnTranslateSave = document.getElementById('btn-translate-save');
+    const btnTranslateCopy = document.getElementById('btn-translate-copy');
+    const ccEnabled = document.getElementById('cc-enabled');
+    const ccOriginal = document.getElementById('cc-original');
+    const ccSource = document.getElementById('cc-source');
+    const ccMic = document.getElementById('cc-mic');
+    const btnCcMicTest = document.getElementById('btn-cc-mic-test');
+    const ccSilence = document.getElementById('cc-silence');
+    const ccSilenceV = document.getElementById('cc-silence-v');
+    const ccTargets = Array.from(document.querySelectorAll('input[name="cc-targets"]'));
+    const btnCcToggle = document.getElementById('btn-cc-toggle');
+    const btnCcCopy = document.getElementById('btn-cc-copy');
+    const btnCcTest = document.getElementById('btn-cc-test');
+    const ccStatus = document.getElementById('cc-status');
+    let unreadTranslations = 0;
+    let liveTranslateConfig = null;
+    let liveTranslateAutoSaving = false;
+    let creatorCaptionConfig = null;
+    let creatorCaptionRecognition = null;
+    let creatorCaptionListening = false;
+    let creatorCaptionRestarting = false;
+    let creatorCaptionBuffer = '';
+    let creatorCaptionSilenceTimer = null;
+    let translateRulesAutoSynced = false;
+
+    function setTranslateStatus(text, cls) {
+        if (!ltStatus) return;
+        ltStatus.textContent = text || '';
+        ltStatus.className = 'translate-status' + (cls ? ' ' + cls : '');
+    }
+    function setCreatorCaptionStatus(text, cls) {
+        if (!ccStatus) return;
+        ccStatus.textContent = text || '';
+        ccStatus.className = 'translate-status' + (cls ? ' ' + cls : '');
+    }
+    function setTranslateUnread(n) {
+        unreadTranslations = Math.max(0, n);
+        if (!translateBadge) return;
+        if (unreadTranslations <= 0) {
+            translateBadge.hidden = true;
+            translateBadge.textContent = '0';
+        } else {
+            translateBadge.hidden = false;
+            translateBadge.textContent = unreadTranslations > 99 ? '99+' : String(unreadTranslations);
+        }
+    }
+    function updateTranslateControls() {
+        const enabled = liveTranslateConfig?.enabled === true;
+        if (btnTranslateToggle) {
+            btnTranslateToggle.disabled = !isLiveConnected;
+            btnTranslateToggle.textContent = enabled ? 'DỪNG' : 'BẮT ĐẦU';
+            btnTranslateToggle.classList.toggle('primary', !enabled);
+            btnTranslateToggle.classList.toggle('ghost', enabled);
+            btnTranslateToggle.classList.toggle('translate-running', enabled && isLiveConnected);
+        }
+        if (!isLiveConnected && translatePopup && !translatePopup.hidden) {
+            setTranslateStatus(enabled ? 'Đã bật sẵn, sẽ tự dịch/đọc sau khi kết nối LIVE' : 'Cần kết nối LIVE thành công trước khi bắt đầu dịch/đọc', enabled ? 'ok' : 'err');
+        }
+    }
+    function updateTranslateSheetStatus(meta) {
+        if (!ltSheetStatus) return;
+        const m = meta || liveTranslateConfig?.sheetRules || {};
+        if (m.error) {
+            ltSheetStatus.className = 'err';
+            ltSheetStatus.textContent = 'Quy tắc lỗi: ' + m.error;
+            return;
+        }
+        const loaded = m.loadedAt ? new Date(m.loadedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'chưa tải';
+        ltSheetStatus.className = m.loadedAt ? 'ok' : '';
+        ltSheetStatus.textContent = `Quy tắc: ${m.forbiddenCount || 0} cấm, ${m.glossaryCount || 0} thay thế · ${loaded}`;
+    }
+    function isTranslatePopupOpen() { return translatePopup && !translatePopup.hidden; }
+    function isCreatorCaptionPopupOpen() { return creatorCaptionPopup && !creatorCaptionPopup.hidden; }
+    function applyLiveTranslateConfig(cfg) {
+        liveTranslateConfig = cfg || {};
+        if (ltEnabled) ltEnabled.checked = liveTranslateConfig.enabled === true;
+        if (ltTts) ltTts.checked = !!liveTranslateConfig.ttsEnabled;
+        if (ltIgnoreIcons) ltIgnoreIcons.checked = liveTranslateConfig.ignoreIcons !== false;
+        if (ltCleanUnreadable) ltCleanUnreadable.checked = liveTranslateConfig.cleanUnreadable !== false;
+        if (ltSource) ltSource.value = liveTranslateConfig.sourceLang || 'auto';
+        if (ltTarget) ltTarget.value = liveTranslateConfig.targetLang || 'vi';
+        if (ltVoice) ltVoice.value = liveTranslateConfig.ttsVoice || 'auto';
+        if (ltReadMode) ltReadMode.value = liveTranslateConfig.ttsReadMode || (liveTranslateConfig.readUsername === false ? 'commentOnly' : 'nameAndComment');
+        if (ltPriority) ltPriority.value = liveTranslateConfig.ttsPriority || 'all';
+        if (ltCooldown) ltCooldown.value = String(liveTranslateConfig.ttsCooldownSeconds == null ? 4 : liveTranslateConfig.ttsCooldownSeconds);
+        const vol = liveTranslateConfig.ttsVolume == null ? 85 : liveTranslateConfig.ttsVolume;
+        if (ltVolume) ltVolume.value = String(vol);
+        if (ltVolumeV) ltVolumeV.textContent = vol + '%';
+        const rate = liveTranslateConfig.ttsRate == null ? 1 : Number(liveTranslateConfig.ttsRate);
+        if (ltRate) ltRate.value = String(rate);
+        if (ltRateV) ltRateV.textContent = rate.toFixed(1) + 'x';
+        if (ltGlossary) ltGlossary.value = (liveTranslateConfig.glossary || []).join('\n');
+        if (ltForbidden) ltForbidden.value = (liveTranslateConfig.forbiddenWords || []).join('\n');
+        updateTranslateSheetStatus(liveTranslateConfig.sheetRules);
+        updateTranslateControls();
+    }
+    async function loadLiveTranslateConfig() {
+        try { applyLiveTranslateConfig(await (await fetch('/api/live-translate/config')).json()); }
+        catch (e) { setTranslateStatus('Không tải được cấu hình dịch', 'err'); }
+    }
+    async function ensureLiveTranslateAutoRunning() {
+        if (!isLiveConnected || liveTranslateAutoSaving) return;
+        if (!liveTranslateConfig) await loadLiveTranslateConfig();
+        if (liveTranslateConfig?.enabled === true && liveTranslateConfig?.ttsEnabled === true) return;
+        liveTranslateAutoSaving = true;
+        try {
+            if (ltEnabled) ltEnabled.checked = true;
+            if (ltTts) ltTts.checked = true;
+            await saveLiveTranslateConfig({ silent: true });
+            setTranslateStatus('Dịch bình luận đã tự bật theo LIVE', 'ok');
+        } finally {
+            liveTranslateAutoSaving = false;
+        }
+    }
+    async function saveLiveTranslateConfig(options = {}) {
+        const body = {
+            enabled: !!ltEnabled?.checked,
+            ttsEnabled: !!ltTts?.checked,
+            ignoreIcons: ltIgnoreIcons ? !!ltIgnoreIcons.checked : true,
+            cleanUnreadable: ltCleanUnreadable ? !!ltCleanUnreadable.checked : true,
+            readUsername: (ltReadMode?.value || 'nameAndComment') === 'nameAndComment',
+            sourceLang: ltSource?.value || 'auto',
+            targetLang: ltTarget?.value || 'vi',
+            ttsVoice: ltVoice?.value || 'auto',
+            ttsReadMode: ltReadMode?.value || 'nameAndComment',
+            ttsPriority: ltPriority?.value || 'all',
+            ttsCooldownSeconds: parseInt(ltCooldown?.value || '4', 10) || 0,
+            ttsVolume: Number.isFinite(parseInt(ltVolume?.value || '', 10)) ? parseInt(ltVolume.value, 10) : 85,
+            ttsRate: Number.isFinite(parseFloat(ltRate?.value || '')) ? parseFloat(ltRate.value) : 1,
+            glossary: (ltGlossary?.value || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean),
+            forbiddenWords: (ltForbidden?.value || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean)
+        };
+        if (!options.silent) setTranslateStatus('Đang lưu...', '');
+        try {
+            const res = await fetch('/api/live-translate/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.error || 'save_failed');
+            applyLiveTranslateConfig(json.config);
+            if (!options.silent) setTranslateStatus('Đã lưu cấu hình dịch', 'ok');
+        } catch (e) { setTranslateStatus('Lưu thất bại: ' + e.message, 'err'); }
+    }
+    async function setLiveTranslateRunning(running) {
+        if (running && !isLiveConnected) {
+            setTranslateStatus('Hãy kết nối LIVE thành công trước', 'err');
+            updateTranslateControls();
+            return;
+        }
+        if (ltEnabled) ltEnabled.checked = !!running;
+        await saveLiveTranslateConfig();
+        setTranslateStatus(running ? 'Đã bắt đầu dịch/đọc bình luận LIVE' : 'Đã dừng dịch/đọc', running ? 'ok' : '');
+        updateTranslateControls();
+    }
+    function openTranslatePopup() {
+        closeAllPopupsExcept('translate');
+        if (translatePopup) translatePopup.hidden = false;
+        setTranslateUnread(0);
+        loadLiveTranslateConfig();
+    }
+    function closeTranslatePopup() { if (translatePopup) translatePopup.hidden = true; }
+    function openCreatorCaptionPopup() {
+        closeAllPopupsExcept('creatorCaption');
+        if (creatorCaptionPopup) creatorCaptionPopup.hidden = false;
+        loadCreatorCaptionConfig();
+    }
+    function closeCreatorCaptionPopup() { if (creatorCaptionPopup) creatorCaptionPopup.hidden = true; }
+    function refreshTranslateOverlayUrl() { if (ltOverlayUrl) ltOverlayUrl.value = location.origin + '/overlay/translate'; }
+    async function copyTranslateOverlayUrl() {
+        refreshTranslateOverlayUrl();
+        const url = ltOverlayUrl?.value || (location.origin + '/overlay/translate');
+        try { await navigator.clipboard.writeText(url); setTranslateStatus('Đã copy link OBS dịch', 'ok'); }
+        catch (e) { if (ltOverlayUrl) ltOverlayUrl.select(); setTranslateStatus('Không copy tự động được', 'err'); }
+    }
+    async function syncTranslateSheetRules() {
+        if (btnTranslateSyncSheet) btnTranslateSyncSheet.disabled = true;
+        setTranslateStatus('Đang đồng bộ quy tắc...', '');
+        try {
+            const json = await (await fetch('/api/live-translate/rules/reload', { method: 'POST' })).json();
+            updateTranslateSheetStatus(json);
+            setTranslateStatus(json.ok ? 'Đã đồng bộ quy tắc' : 'Đồng bộ quy tắc có lỗi', json.ok ? 'ok' : 'err');
+        } catch (e) { setTranslateStatus('Không đồng bộ được quy tắc: ' + e.message, 'err'); }
+        finally { if (btnTranslateSyncSheet) btnTranslateSyncSheet.disabled = false; }
+    }
+    async function autoSyncTranslateRules() {
+        if (translateRulesAutoSynced) return;
+        translateRulesAutoSynced = true;
+        await syncTranslateSheetRules();
+    }
+    async function testTranslateVoice() {
+        setTranslateStatus('Đang gửi câu test sang overlay...', '');
+        try {
+            await saveLiveTranslateConfig();
+            const res = await fetch('/api/live-translate/test-tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.' }) });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.error || 'test_failed');
+            setTranslateStatus('Đã phát test giọng trên overlay', 'ok');
+        } catch (e) { setTranslateStatus('Test giọng lỗi: ' + e.message, 'err'); }
+    }
+
+    function applyCreatorCaptionConfig(cfg) {
+        creatorCaptionConfig = cfg || {};
+        if (ccEnabled) ccEnabled.checked = creatorCaptionConfig.enabled === true;
+        if (ccOriginal) ccOriginal.checked = creatorCaptionConfig.showOriginal !== false;
+        if (ccSource) ccSource.value = creatorCaptionConfig.sourceLang || 'vi-VN';
+        if (ccSilence) ccSilence.value = String(creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds);
+        if (ccSilenceV) ccSilenceV.textContent = (creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds) + 's';
+        const targets = Array.isArray(creatorCaptionConfig.targetLangs) && creatorCaptionConfig.targetLangs.length ? creatorCaptionConfig.targetLangs : [creatorCaptionConfig.targetLang || 'en'];
+        ccTargets.forEach(input => { input.checked = targets.includes(input.value); });
+        if (btnCcToggle) {
+            btnCcToggle.textContent = creatorCaptionListening ? 'DỪNG NGHE' : 'BẮT ĐẦU NGHE';
+            btnCcToggle.classList.toggle('listening', creatorCaptionListening);
+        }
+    }
+    async function loadCreatorCaptionConfig() {
+        try { applyCreatorCaptionConfig(await (await fetch('/api/creator-caption/config')).json()); }
+        catch (e) { setCreatorCaptionStatus('Không tải được cấu hình phụ đề', 'err'); }
+    }
+    async function saveCreatorCaptionConfig() {
+        const body = {
+            enabled: !!ccEnabled?.checked,
+            sourceLang: ccSource?.value || 'vi-VN',
+            targetLangs: ccTargets.filter(input => input.checked).map(input => input.value),
+            showOriginal: ccOriginal ? !!ccOriginal.checked : true,
+            silenceSeconds: Number.isFinite(parseFloat(ccSilence?.value || '')) ? parseFloat(ccSilence.value) : 2
+        };
+        if (!body.targetLangs.length) body.targetLangs = ['en'];
+        body.targetLang = body.targetLangs[0];
+        const res = await fetch('/api/creator-caption/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const json = await res.json();
+        if (!res.ok || !json.ok) throw new Error(json.error || 'caption_config_failed');
+        applyCreatorCaptionConfig(json.config);
+        return json.config;
+    }
+    function getSpeechRecognitionCtor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
+    function flushCreatorCaptionBuffer(cfg) {
+        const text = creatorCaptionBuffer.trim().replace(/\s{2,}/g, ' ');
+        creatorCaptionBuffer = '';
+        if (creatorCaptionSilenceTimer) clearTimeout(creatorCaptionSilenceTimer);
+        creatorCaptionSilenceTimer = null;
+        if (text) socket.emit('creatorCaption:speech', { text, sourceLang: cfg.sourceLang, targetLangs: cfg.targetLangs });
+    }
+    function scheduleCreatorCaptionFlush(cfg) {
+        if (creatorCaptionSilenceTimer) clearTimeout(creatorCaptionSilenceTimer);
+        const waitMs = Math.max(500, Math.min(8000, (parseFloat(cfg.silenceSeconds || ccSilence?.value || 2) || 2) * 1000));
+        creatorCaptionSilenceTimer = setTimeout(() => flushCreatorCaptionBuffer(cfg), waitMs);
+    }
+    async function refreshCreatorCaptionMicrophones() {
+        if (!ccMic || !navigator.mediaDevices?.enumerateDevices) return;
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === 'audioinput');
+            ccMic.innerHTML = '<option value="default">Micro mặc định của máy</option>' + mics.map((d, i) => `<option value="${d.deviceId}">${d.label || `Micro ${i + 1}`}</option>`).join('');
+        } catch (e) {}
+    }
+    async function testCreatorCaptionMicrophone() {
+        if (!navigator.mediaDevices?.getUserMedia) { setCreatorCaptionStatus('Máy này không hỗ trợ kiểm tra micro', 'err'); return; }
+        try {
+            const deviceId = ccMic?.value && ccMic.value !== 'default' ? { exact: ccMic.value } : undefined;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId } : true });
+            stream.getTracks().forEach(t => t.stop());
+            await refreshCreatorCaptionMicrophones();
+            setCreatorCaptionStatus('Micro đã sẵn sàng. Nhận giọng vẫn dùng micro mặc định của hệ thống.', 'ok');
+        } catch (e) { setCreatorCaptionStatus('Không truy cập được micro: ' + e.message, 'err'); }
+    }
+    async function startCreatorCaptionListening() {
+        const Ctor = getSpeechRecognitionCtor();
+        if (!Ctor) { setCreatorCaptionStatus('Máy này chưa hỗ trợ nhận giọng nói trực tiếp', 'err'); return; }
+        try {
+            if (ccEnabled) ccEnabled.checked = true;
+            const cfg = await saveCreatorCaptionConfig();
+            creatorCaptionListening = true;
+            creatorCaptionRecognition = new Ctor();
+            creatorCaptionRecognition.lang = cfg.sourceLang || 'vi-VN';
+            creatorCaptionRecognition.continuous = true;
+            creatorCaptionRecognition.interimResults = true;
+            creatorCaptionRecognition.maxAlternatives = 1;
+            creatorCaptionRecognition.onresult = (ev) => {
+                for (let i = ev.resultIndex; i < ev.results.length; i++) {
+                    const r = ev.results[i];
+                    if (!r?.isFinal) continue;
+                    const text = String(r[0]?.transcript || '').trim();
+                    if (text) {
+                        creatorCaptionBuffer = `${creatorCaptionBuffer} ${text}`.trim();
+                        scheduleCreatorCaptionFlush(cfg);
+                        setCreatorCaptionStatus(`Đã ghi nhận, chờ ngưng nói ${cfg.silenceSeconds || 2}s để dịch...`, 'ok');
+                    }
+                }
+            };
+            creatorCaptionRecognition.onerror = (ev) => setCreatorCaptionStatus('Nhận giọng: ' + (ev.error || 'lỗi'), 'err');
+            creatorCaptionRecognition.onend = () => {
+                if (!creatorCaptionListening) return;
+                creatorCaptionRestarting = true;
+                setTimeout(() => {
+                    try { creatorCaptionRecognition?.start(); setCreatorCaptionStatus('Đang nghe giọng Creator...', 'ok'); }
+                    catch (e) {}
+                    creatorCaptionRestarting = false;
+                }, 450);
+            };
+            creatorCaptionRecognition.start();
+            applyCreatorCaptionConfig(cfg);
+            setCreatorCaptionStatus('Đang nghe giọng Creator...', 'ok');
+        } catch (e) { setCreatorCaptionStatus('Không bật được micro: ' + e.message, 'err'); }
+    }
+    function stopCreatorCaptionListening() {
+        creatorCaptionListening = false;
+        creatorCaptionRestarting = false;
+        if (creatorCaptionConfig) flushCreatorCaptionBuffer(creatorCaptionConfig);
+        try { creatorCaptionRecognition?.stop(); } catch (e) {}
+        creatorCaptionRecognition = null;
+        applyCreatorCaptionConfig(creatorCaptionConfig);
+        setCreatorCaptionStatus('Đã dừng nghe giọng Creator', '');
+    }
+    async function toggleCreatorCaptionListening() {
+        if (creatorCaptionListening || creatorCaptionRestarting) stopCreatorCaptionListening();
+        else await startCreatorCaptionListening();
+    }
+    async function copyCreatorCaptionOverlayUrl() {
+        const url = location.origin + '/overlay/creator-caption';
+        try { await navigator.clipboard.writeText(url); setCreatorCaptionStatus('Đã copy link OBS phụ đề', 'ok'); }
+        catch (e) { setCreatorCaptionStatus(url, 'ok'); }
+    }
+    async function testCreatorCaption() {
+        try {
+            if (ccEnabled) ccEnabled.checked = true;
+            await saveCreatorCaptionConfig();
+            const res = await fetch('/api/creator-caption/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Xin chào mọi người, hôm nay chúng ta bắt đầu live.' }) });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.error || 'caption_test_failed');
+            setCreatorCaptionStatus('Đã gửi test phụ đề sang OBS', 'ok');
+        } catch (e) { setCreatorCaptionStatus('Test phụ đề lỗi: ' + e.message, 'err'); }
+    }
+    refreshTranslateOverlayUrl();
+    if (translatePopup) translatePopup.hidden = true;
+    if (creatorCaptionPopup) creatorCaptionPopup.hidden = true;
+    translateFab?.addEventListener('click', () => { if (isTranslatePopupOpen()) closeTranslatePopup(); else openTranslatePopup(); });
+    translateClose?.addEventListener('click', closeTranslatePopup);
+    creatorCaptionFab?.addEventListener('click', () => { if (isCreatorCaptionPopupOpen()) closeCreatorCaptionPopup(); else openCreatorCaptionPopup(); });
+    creatorCaptionClose?.addEventListener('click', closeCreatorCaptionPopup);
+    btnTranslateToggle?.addEventListener('click', () => setLiveTranslateRunning(!(liveTranslateConfig?.enabled === true)));
+    btnTranslateSyncSheet?.addEventListener('click', syncTranslateSheetRules);
+    btnTranslateTestVoice?.addEventListener('click', testTranslateVoice);
+    btnTranslateSave?.addEventListener('click', saveLiveTranslateConfig);
+    btnTranslateCopy?.addEventListener('click', copyTranslateOverlayUrl);
+    btnCcToggle?.addEventListener('click', toggleCreatorCaptionListening);
+    btnCcCopy?.addEventListener('click', copyCreatorCaptionOverlayUrl);
+    btnCcTest?.addEventListener('click', testCreatorCaption);
+    btnCcMicTest?.addEventListener('click', testCreatorCaptionMicrophone);
+    ltVolume?.addEventListener('input', () => { if (ltVolumeV) ltVolumeV.textContent = (ltVolume.value || '0') + '%'; });
+    ltRate?.addEventListener('input', () => { if (ltRateV) ltRateV.textContent = (parseFloat(ltRate.value || '1') || 1).toFixed(1) + 'x'; });
+    ccSilence?.addEventListener('input', () => { if (ccSilenceV) ccSilenceV.textContent = (parseFloat(ccSilence.value || '2') || 2) + 's'; });
+    socket.on('translate:config', applyLiveTranslateConfig);
+    socket.on('translate:rules', updateTranslateSheetStatus);
+    socket.on('translate:comment', () => { if (!isTranslatePopupOpen()) setTranslateUnread(unreadTranslations + 1); });
+    socket.on('creatorCaption:config', applyCreatorCaptionConfig);
+    setTranslateUnread(0);
+    loadLiveTranslateConfig();
+    loadCreatorCaptionConfig();
+    refreshCreatorCaptionMicrophones();
 
     // ===== Tab switching trong tabbed-card =====
     document.querySelectorAll('.tabbed-card .tab').forEach(btn => {

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Creator Caption Overlay</title>
+    <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: Arial, Helvetica, sans-serif; }
+        #wrap {
+            position: fixed;
+            left: 50%;
+            bottom: 7vh;
+            transform: translateX(-50%);
+            width: min(1120px, 92vw);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+        }
+        .line {
+            max-width: 100%;
+            padding: 14px 22px;
+            border-radius: 18px;
+            background: rgba(5, 8, 14, 0.72);
+            border: 1px solid rgba(37, 244, 238, 0.38);
+            box-shadow: 0 14px 44px rgba(0,0,0,0.45), 0 0 26px rgba(37,244,238,0.12);
+            color: #fff;
+            text-align: center;
+            animation: pop .18s ease-out;
+        }
+        .translated {
+            font-size: clamp(28px, 3.4vw, 54px);
+            line-height: 1.16;
+            font-weight: 900;
+            text-shadow: 0 3px 10px rgba(0,0,0,0.75);
+        }
+        .translated + .translated { margin-top: 8px; }
+        .lang-label {
+            display: inline-block;
+            margin-right: 10px;
+            color: #25F4EE;
+            font-size: 0.62em;
+            vertical-align: 0.12em;
+        }
+        .original {
+            margin-top: 8px;
+            font-size: clamp(16px, 1.5vw, 24px);
+            line-height: 1.25;
+            color: #bffefa;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+        }
+        .route {
+            margin-bottom: 6px;
+            color: #ffd166;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+        .line.leaving { opacity: 0; transform: translateY(16px) scale(0.98); transition: opacity .24s ease, transform .24s ease; }
+        @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+    </style>
+</head>
+<body>
+    <div id="wrap"></div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    (function () {
+        const wrap = document.getElementById('wrap');
+        const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
+        let config = { showOriginal: true, maxItems: 3, holdSeconds: 12 };
+
+        function trimItems(max) {
+            while (wrap.children.length > max) wrap.removeChild(wrap.firstElementChild);
+        }
+        function addLine(item) {
+            const el = document.createElement('div');
+            el.className = 'line' + (item.error ? ' error' : '');
+            const route = document.createElement('div');
+            route.className = 'route';
+            const translations = Array.isArray(item.translations) && item.translations.length ? item.translations : [{ targetLangLabel: item.targetLangLabel, translatedText: item.translatedText }];
+            route.textContent = `${item.sourceLangLabel || 'Creator'} → ${translations.map(x => x.targetLangLabel || 'Overlay').join(' · ')}`;
+            el.appendChild(route);
+            for (const row of translations) {
+                const translated = document.createElement('div');
+                translated.className = 'translated';
+                const label = document.createElement('span');
+                label.className = 'lang-label';
+                label.textContent = row.targetLangLabel || row.targetLang || '';
+                translated.appendChild(label);
+                translated.appendChild(document.createTextNode(row.translatedText || item.originalText || ''));
+                el.appendChild(translated);
+            }
+            if ((item.showOriginal ?? config.showOriginal) && item.originalText && item.originalText !== item.translatedText) {
+                const original = document.createElement('div');
+                original.className = 'original';
+                original.textContent = item.originalText;
+                el.appendChild(original);
+            }
+            wrap.appendChild(el);
+            trimItems(item.maxItems || config.maxItems || 3);
+            setTimeout(() => {
+                el.classList.add('leaving');
+                setTimeout(() => el.remove(), 260);
+            }, Math.max(3, item.holdSeconds || config.holdSeconds || 12) * 1000);
+        }
+
+        socket.on('connect', () => socket.emit('subscribe', 'creatorCaptionOverlay'));
+        socket.on('creatorCaption:config', cfg => { config = { ...config, ...(cfg || {}) }; });
+        socket.on('creatorCaption:line', addLine);
+    })();
+    </script>
+</body>
+</html>

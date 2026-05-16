@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Translate — OBS Overlay</title>
+<style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+    body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #fff; -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
+    #wrap {
+        position: fixed;
+        left: 32px;
+        right: 32px;
+        bottom: 42px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        pointer-events: none;
+    }
+    .msg {
+        max-width: 920px;
+        display: grid;
+        grid-template-columns: 54px 1fr;
+        gap: 12px;
+        align-items: start;
+        padding: 12px 16px 14px 12px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(10, 14, 24, 0.88), rgba(29, 20, 46, 0.82));
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+        backdrop-filter: blur(10px);
+        animation: in .22s ease-out;
+    }
+    .msg.leaving { animation: out .22s ease-in forwards; }
+    .avatar {
+        width: 54px; height: 54px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #ff2d55, #25f4ee);
+        overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 900;
+        box-shadow: 0 0 0 3px rgba(255,255,255,0.12);
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .name {
+        color: #ffd166;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.1;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.72);
+    }
+    .route {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 5px;
+        color: #9be7ff;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        text-transform: uppercase;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.75);
+    }
+    .route .arrow { color: #fff; opacity: 0.85; }
+    .translated {
+        margin-top: 5px;
+        font-size: 29px;
+        line-height: 1.16;
+        font-weight: 700;
+        letter-spacing: 0.1px;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.86);
+        overflow-wrap: anywhere;
+    }
+    .original {
+        margin-top: 7px;
+        color: rgba(255,255,255,0.74);
+        font-size: 16px;
+        line-height: 1.25;
+        font-weight: 500;
+        overflow-wrap: anywhere;
+    }
+    .error .translated::after {
+        content: " · dịch tạm thời lỗi";
+        color: #fca5a5;
+        font-size: 16px;
+        font-weight: 700;
+    }
+    @keyframes in {
+        from { opacity: 0; transform: translateY(18px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes out {
+        from { opacity: 1; transform: translateY(0); }
+        to { opacity: 0; transform: translateY(-16px); }
+    }
+</style>
+</head>
+<body>
+    <div id="wrap"></div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    (function () {
+        const wrap = document.getElementById('wrap');
+        const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
+        let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi' };
+        let voices = [];
+        let randomGenderNext = Math.random() < 0.5 ? 'male' : 'female';
+
+        function loadVoices() {
+            if (!('speechSynthesis' in window)) return;
+            voices = window.speechSynthesis.getVoices() || [];
+        }
+        loadVoices();
+        if ('speechSynthesis' in window && window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function initials(name) {
+            return String(name || '?').trim().slice(0, 1).toUpperCase() || '?';
+        }
+
+        function langForSpeech(lang) {
+            const map = { vi: 'vi-VN', en: 'en-US', th: 'th-TH', id: 'id-ID', ja: 'ja-JP', ko: 'ko-KR', zh: 'zh-CN', fr: 'fr-FR', de: 'de-DE', es: 'es-ES' };
+            return map[lang] || lang || 'vi-VN';
+        }
+
+        function pickVoice(lang, gender) {
+            if (!voices.length) loadVoices();
+            const speechLang = langForSpeech(lang).toLowerCase();
+            const sameLang = voices.filter(v => String(v.lang || '').toLowerCase().startsWith(speechLang.slice(0, 2)));
+            if (!sameLang.length) return null;
+            const pool = sameLang;
+            const femaleHints = /female|woman|girl|zira|hazel|susan|heera|samantha|victoria|mai|linh|hoai|hanh|google uk english female/i;
+            const maleHints = /male|man|boy|david|mark|george|daniel|james|nam|minh|an|google uk english male/i;
+            if (gender === 'random') return pool[Math.floor(Math.random() * pool.length)] || null;
+            if (gender === 'randomGender') {
+                const next = randomGenderNext;
+                randomGenderNext = randomGenderNext === 'male' ? 'female' : 'male';
+                return pickVoice(lang, next) || pool[Math.floor(Math.random() * pool.length)] || null;
+            }
+            if (gender === 'female') return pool.find(v => femaleHints.test(v.name)) || pool[0] || null;
+            if (gender === 'male') return pool.find(v => maleHints.test(v.name)) || pool.find(v => !femaleHints.test(v.name)) || pool[0] || null;
+            const m = String(gender || '').match(/^variant(\d)$/);
+            if (m) return pool[(parseInt(m[1], 10) - 1) % pool.length] || null;
+            return pool.find(v => v.default) || pool[0] || null;
+        }
+
+        function hasLocalVoice(lang) {
+            if (!voices.length) loadVoices();
+            const speechLang = langForSpeech(lang).toLowerCase();
+            return voices.some(v => String(v.lang || '').toLowerCase().startsWith(speechLang.slice(0, 2)));
+        }
+
+        function cleanSpokenName(name) {
+            return String(name || '')
+                .replace(/^[^\p{L}\p{N}]+/u, '')
+                .replace(/[^\p{L}\p{N}\s._-]+/gu, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .trim()
+                .slice(0, 40);
+        }
+
+        function speak(text, item) {
+            const ttsOn = item?.ttsEnabled == null ? config.ttsEnabled : item.ttsEnabled;
+            if (!ttsOn || item?.canSpeak === false) return;
+            const mode = item?.ttsReadMode || config.ttsReadMode || (config.readUsername ? 'nameAndComment' : 'commentOnly');
+            let commentText = String(text || '').trim();
+            const userName = cleanSpokenName(item?.nickname || item?.uniqueId || '');
+            let value = commentText;
+            if (mode === 'nameOnly') value = userName;
+            else if (mode === 'nameAndComment' && userName) value = `${userName}. ${commentText}`;
+            if (!value) return;
+            const volume = Math.max(0, Math.min(1, (parseInt(item?.ttsVolume == null ? config.ttsVolume : item.ttsVolume, 10) || 85) / 100));
+            const rate = Math.max(0.5, Math.min(2, parseFloat(item?.ttsRate || config.ttsRate || 1) || 1));
+            const useRemoteTts = !hasLocalVoice(config.targetLang);
+            if (useRemoteTts) {
+                const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(config.targetLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
+                audio.volume = volume;
+                audio.playbackRate = rate;
+                audio.play().catch(() => {
+                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item);
+                });
+                return;
+            }
+            speakWithBrowser(value, volume, rate, item);
+        }
+
+        function speakWithBrowser(value, volume, rate, item) {
+            if (!('speechSynthesis' in window)) return;
+            const utter = new SpeechSynthesisUtterance(value.slice(0, 220));
+            utter.lang = langForSpeech(config.targetLang);
+            const voice = pickVoice(config.targetLang, item?.ttsVoice || config.ttsVoice || 'auto');
+            if (voice) utter.voice = voice;
+            utter.rate = Math.max(0.5, Math.min(2, parseFloat(rate || config.ttsRate || 1) || 1));
+            utter.pitch = 1;
+            utter.volume = volume;
+            window.speechSynthesis.speak(utter);
+        }
+
+        function trimItems() {
+            const max = Math.max(3, Math.min(20, config.maxItems || 8));
+            while (wrap.children.length > max) {
+                wrap.removeChild(wrap.firstElementChild);
+            }
+        }
+
+        function addComment(item) {
+            const el = document.createElement('div');
+            el.className = 'msg' + (item.error ? ' error' : '');
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            if (item.profilePicture) {
+                const img = document.createElement('img');
+                img.src = item.profilePicture;
+                img.onerror = () => { avatar.textContent = initials(item.nickname || item.uniqueId); };
+                avatar.appendChild(img);
+            } else {
+                avatar.textContent = initials(item.nickname || item.uniqueId);
+            }
+            const body = document.createElement('div');
+            const name = document.createElement('div');
+            name.className = 'name';
+            name.textContent = item.nickname || item.uniqueId || 'guest';
+            const route = document.createElement('div');
+            route.className = 'route';
+            route.innerHTML = `<span>${item.sourceLangLabel || 'Tự nhận diện'}</span><span class="arrow">→</span><span>${item.targetLangLabel || 'Tiếng Việt'}</span>`;
+            const translated = document.createElement('div');
+            translated.className = 'translated';
+            translated.textContent = item.translatedText || item.originalText || '';
+            const original = document.createElement('div');
+            original.className = 'original';
+            original.textContent = item.originalText || '';
+            body.appendChild(name);
+            body.appendChild(route);
+            body.appendChild(translated);
+            if ((item.originalText || '') && item.originalText !== item.translatedText) body.appendChild(original);
+            el.appendChild(avatar);
+            el.appendChild(body);
+            wrap.appendChild(el);
+            trimItems();
+            speak(item.translatedText || item.normalizedText || item.originalText, item);
+            setTimeout(() => {
+                el.classList.add('leaving');
+                setTimeout(() => el.remove(), 260);
+            }, 16000);
+        }
+
+        socket.on('connect', () => socket.emit('subscribe', 'translateOverlay'));
+        socket.on('translate:config', cfg => { config = { ...config, ...(cfg || {}) }; });
+        socket.on('translate:comment', addComment);
+        socket.on('translate:testSpeak', item => speak(item?.translatedText || 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.', item || {}));
+    })();
+    </script>
+</body>
+</html>

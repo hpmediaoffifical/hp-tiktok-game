@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HP Media — Sound Effects</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<link rel="stylesheet" href="/soundfx/soundfx.css" />
+</head>
+<body class="theme-light">
+<div id="sfx-root" class="sfx-root">
+
+    <!-- ===== Top bar ===== -->
+    <header class="sfx-top">
+        <div class="sfx-logo"><img src="/hp-logo.png" alt="hp" /></div>
+        <div class="sfx-top-spacer"></div>
+        <div class="sfx-vol">
+            <button id="sfx-mute" class="sfx-icon-btn" title="Tắt/bật tiếng">🔊</button>
+            <input type="range" id="sfx-volume" min="0" max="100" value="90" title="Âm lượng" />
+            <span id="sfx-vol-val" class="sfx-vol-val">90</span>
+        </div>
+        <button id="sfx-settings-btn" class="sfx-icon-btn" title="Cài đặt">⚙️</button>
+        <button id="sfx-pin-btn" class="sfx-icon-btn active" title="Nổi bật lên trên (always-on-top)">📌</button>
+        <button id="sfx-cloud-btn" class="sfx-icon-btn" title="Kho âm thanh Cloud">☁️</button>
+        <button id="sfx-close-btn" class="sfx-icon-btn sfx-close" title="Đóng">✕</button>
+    </header>
+
+    <!-- ===== Tabs ===== -->
+    <nav class="sfx-tabs" id="sfx-tabs"></nav>
+
+    <!-- ===== Search ===== -->
+    <div class="sfx-searchbar">
+        <input type="text" id="sfx-search" placeholder="🔍 Tìm âm thanh trong tab này..." />
+        <button id="sfx-tts-toggle" class="sfx-tts-toggle" title="Giọng đọc Google (TTS)">🗣️ Giọng đọc</button>
+    </div>
+
+    <!-- ===== TTS panel (ẩn mặc định) ===== -->
+    <div class="sfx-tts-panel" id="sfx-tts-panel" hidden>
+        <textarea id="sfx-tts-text" rows="2" placeholder="Nhập văn bản để giọng Google đọc trên LIVE... (miễn phí)"></textarea>
+        <div class="sfx-tts-row">
+            <select id="sfx-tts-lang" title="Ngôn ngữ">
+                <option value="vi">Tiếng Việt</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="zh-CN">中文</option>
+                <option value="th">ไทย</option>
+            </select>
+            <button id="sfx-tts-speak" class="sfx-btn-primary">▶ Đọc</button>
+            <button id="sfx-tts-stop" class="sfx-btn-ghost">■ Dừng</button>
+            <span class="sfx-tts-hint">Giọng động Google miễn phí — phát qua loa LIVE</span>
+        </div>
+    </div>
+
+    <!-- ===== Grid sound buttons ===== -->
+    <main class="sfx-grid-wrap">
+        <div id="sfx-grid" class="sfx-grid"></div>
+        <div id="sfx-empty" class="sfx-empty" hidden>
+            <div class="sfx-empty-ic">🎵</div>
+            <div>Chưa có âm thanh trong tab này.<br/>Bấm ☁️ để duyệt kho Cloud.</div>
+        </div>
+    </main>
+
+    <!-- ===== Bottom playback bar ===== -->
+    <footer class="sfx-bottom">
+        <button id="sfx-play" class="sfx-pbtn" title="Phát lại sound cuối">▶</button>
+        <button id="sfx-stop" class="sfx-pbtn" title="Dừng tất cả">■</button>
+        <button id="sfx-pause" class="sfx-pbtn" title="Tạm dừng / tiếp tục">⏸</button>
+        <div class="sfx-now" id="sfx-now">— chưa phát —</div>
+        <div class="sfx-progress"><div class="sfx-progress-fill" id="sfx-progress-fill"></div></div>
+    </footer>
+
+</div>
+
+<!-- ===== Context menu ===== -->
+<div id="sfx-ctx" class="sfx-ctx" hidden>
+    <button data-act="fav">⭐ <span id="ctx-fav-label">Thêm vào Yêu thích</span></button>
+    <button data-act="hotkey">⌨️ Đặt phím tắt</button>
+    <button data-act="clearhotkey">🚫 Xoá phím tắt</button>
+    <button data-act="rename">✏️ Đổi tên</button>
+    <button data-act="replace">🔁 Thay hiệu ứng từ Cloud</button>
+    <button data-act="preview">▶️ Nghe thử</button>
+</div>
+
+<!-- ===== Settings modal ===== -->
+<div id="sfx-settings" class="sfx-modal" hidden>
+    <div class="sfx-modal-card">
+        <div class="sfx-modal-head">
+            <span>⚙️ Cài đặt</span>
+            <button id="sfx-settings-close" class="sfx-icon-btn">✕</button>
+        </div>
+        <div class="sfx-modal-body">
+            <label class="sfx-set-row"><span>Sử dụng phím tắt</span>
+                <input type="checkbox" id="set-useHotkeys" /></label>
+            <label class="sfx-set-row"><span>⌨️ Phím tắt hoạt động MỌI NƠI (không cần focus app)</span>
+                <input type="checkbox" id="set-globalHotkeys" /></label>
+            <label class="sfx-set-row"><span>Hiển thị phím tắt trên nút</span>
+                <input type="checkbox" id="set-showHotkeys" /></label>
+            <div class="sfx-set-row"><span>▶ Phím tắt Phát lại</span>
+                <button class="sfx-btn-ghost" id="set-hk-play-btn"><b id="set-hk-play">Chưa đặt</b></button></div>
+            <div class="sfx-set-row"><span>■ Phím tắt Dừng</span>
+                <button class="sfx-btn-ghost" id="set-hk-stop-btn"><b id="set-hk-stop">Chưa đặt</b></button></div>
+            <label class="sfx-set-row"><span>Trộn âm thanh (cho phát chồng)</span>
+                <input type="checkbox" id="set-mix" /></label>
+            <label class="sfx-set-row"><span>🌙 Chế độ tối</span>
+                <input type="checkbox" id="set-dark" /></label>
+            <div class="sfx-set-row col">
+                <span>Màu nền</span>
+                <div class="sfx-color-row">
+                    <input type="color" id="set-bg" value="#ffffff" />
+                    <button class="sfx-swatch" data-bg="#ffffff" style="background:#fff"></button>
+                    <button class="sfx-swatch" data-bg="#0f1218" style="background:#0f1218"></button>
+                    <button class="sfx-swatch" data-bg="#fdf2f8" style="background:#fdf2f8"></button>
+                    <button class="sfx-swatch" data-bg="#eff6ff" style="background:#eff6ff"></button>
+                    <button class="sfx-swatch" data-bg="#f0fdf4" style="background:#f0fdf4"></button>
+                </div>
+            </div>
+            <div class="sfx-set-row col">
+                <span>Màu nhấn (nút)</span>
+                <input type="color" id="set-accent" value="#2563eb" />
+            </div>
+            <div class="sfx-set-row col">
+                <span>Cỡ chữ <b id="set-fs-val">14</b>px</span>
+                <input type="range" id="set-fontSize" min="11" max="22" step="1" value="14" />
+            </div>
+            <div class="sfx-set-row col">
+                <span>Kích thước giao diện <b id="set-scale-val">100</b>%</span>
+                <input type="range" id="set-scale" min="70" max="140" step="5" value="100" />
+            </div>
+            <div class="sfx-modal-foot">
+                <a href="https://hpvn.media" target="_blank" rel="noreferrer">https://hpvn.media</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Cloud browser drawer ===== -->
+<div id="sfx-cloud" class="sfx-cloud" hidden>
+    <div class="sfx-cloud-head">
+        <span>☁️ Kho âm thanh Cloud</span>
+        <input type="text" id="sfx-cloud-search" placeholder="Tìm trong thư mục..." />
+        <button id="sfx-cloud-close" class="sfx-icon-btn">✕</button>
+    </div>
+    <div class="sfx-cloud-body">
+        <div class="sfx-cloud-nav" id="sfx-cloud-nav"></div>
+        <div class="sfx-cloud-cols">
+            <div class="sfx-cloud-folders" id="sfx-cloud-folders"></div>
+            <div class="sfx-cloud-files" id="sfx-cloud-files"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Hotkey capture modal ===== -->
+<div id="sfx-hk" class="sfx-modal" hidden>
+    <div class="sfx-modal-card sfx-hk-card">
+        <div class="sfx-modal-head"><span>⌨️ Đặt phím tắt</span>
+            <button id="sfx-hk-close" class="sfx-icon-btn">✕</button></div>
+        <div class="sfx-modal-body">
+            <div class="sfx-hk-target" id="sfx-hk-target"></div>
+            <div class="sfx-hk-display" id="sfx-hk-display">Bấm tổ hợp phím...</div>
+            <div class="sfx-hk-hint" id="sfx-hk-scope" style="font-weight:700"></div>
+            <div class="sfx-hk-hint">💡 Nên dùng <b>Ctrl</b> hoặc <b>Alt</b> + phím (vd Ctrl+1, Alt+Q) để chạy MỌI NƠI mà KHÔNG chặn gõ chữ. Phím đơn (a, 1) sẽ chiếm bàn phím nên chỉ chạy khi cửa sổ này mở.</div>
+            <div class="sfx-modal-foot">
+                <button id="sfx-hk-clear" class="sfx-btn-ghost">Xoá</button>
+                <button id="sfx-hk-save" class="sfx-btn-primary">Lưu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<audio id="sfx-audio" preload="none"></audio>
+<script src="/soundfx/soundfx.js"></script>
+</body>
+</html>

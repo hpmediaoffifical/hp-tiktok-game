@@ -3,7 +3,7 @@
  * Quà tặng rơi vào hũ thủy tinh với vật lý Matter.js + nhiều tính năng tương tác.
  */
 (function (global) {
-    const { Engine, Runner, Bodies, Body, Composite } = global.Matter;
+    const { Engine, Runner, Bodies, Body, Composite, Events } = global.Matter;
 
     const CANVAS_W = 1080;
     const CANVAS_H = 1920;
@@ -17,27 +17,26 @@
     const JAR_ASPECT = 1024 / 1536;
 
     function defaultConfig() {
-        // ⭐ DEFAULTS đã được tinh chỉnh theo setup vận hành tốt — áp dụng cho install MỚI.
-        // User cũ đã có app-config.json sẽ giữ nguyên config riêng.
-        // (Cài đặt này khớp giao diện idol đang dùng cho live TikTok: hũ ở góc dưới phải, gravity nặng,
-        // ma sát cao để quà ổn định nhanh, chỉ bật Top tặng + Goal bar + CS — gọn gàng cho stream.)
+        // ⭐ DEFAULTS = setup vận hành CHỈN CHU của HP Media (v1.0.50+) — áp dụng cho install MỚI.
+        // User cũ đã có app-config.json sẽ giữ nguyên config riêng (không bị overwrite).
+        // Bao gồm: 21 trigger gán quà → hiệu ứng, badges hiển thị + auto-scroll, hũ khóa,
+        // CS HP Media, Goal 5000, panel scales đã tinh chỉnh.
         return {
-            // Vị trí + kích thước hũ — góc dưới-phải canvas, hũ nhỏ gọn (height 400 thay vì 1200)
-            jar: { xPercent: 79.43, yPercent: 76.63, height: 400 },
+            // Vị trí hũ — góc dưới-phải, đã tinh chỉnh để cân streamer + chat layout TikTok
+            jar: { xPercent: 64.57, yPercent: 76.38, height: 400 },
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
-            // Physics nặng + ma sát cao → quà rơi nhanh, ổn định nhanh, ít văng lung tung
-            physics: { gravity: 2, bounce: 0.5, friction: 0.5 },
+            // Physics: gravity vừa phải, friction thấp → quà rơi mượt, không cứng
+            physics: { gravity: 1.4, bounce: 0.4, friction: 0.05 },
             jarVisible: true,
-            jarLocked: false,
+            jarLocked: true,                // khóa hũ — không bị kéo nhầm khi clean stream
             maxCapacity: 0,
-            // Chỉ bật những feature thiết yếu cho stream: Âm thanh + Top tặng + Goal Bar + Cảnh sát.
-            // Welcome/Crown/Combo/Quà to v.v. mặc định TẮT cho gọn — user bật lại nếu muốn.
+            // Feature bật mặc định: Âm thanh + Welcome + Crown + Top tặng + Tổng phiên + Goal Bar + CS
             features: {
                 audio: true,
-                welcome: false,
-                crown: false,
+                welcome: true,
+                crown: true,
                 leaderboard: true,
-                sessionTotals: false,
+                sessionTotals: true,
                 goalBar: true,
                 combo: false,
                 tierBorder: false,
@@ -47,20 +46,40 @@
                 thiefAuto: false,
                 police: true
             },
-            goal: { target: 4100 },
-            // Khoảng cách goal bar so với đáy hũ (% canvas H). Âm = sát lên / chồng lên đáy hũ
-            goalBarGap: -1.2,
-            autoShakeAt: 200,
+            goal: { target: 5000 },
+            goalBarGap: 0.1,
+            autoShakeAt: 500,
             randomEventEverySec: 90,
             thiefEverySec: 60,
             thiefMissRate: 0.1,
-            policeCatchRate: 0.2,
+            policeCatchRate: 0.1,
             policeBanSec: 60,
-            policeName: '',
-            // Map: giftId → action ('thief'|'fireworks'|'megaboom'|'tornado'|'tilt'|'gravflip'|'shake'|'clear'|'slow'|'osin')
-            // Quà có trong map sẽ KHÔNG rơi vào hũ, chỉ kích hoạt hiệu ứng tương ứng.
-            // Default trống — user assign per gift qua chuột phải.
-            triggers: {},
+            policeName: 'HP Media',
+            // 21 trigger preset — mỗi gift ID map tới 1 hiệu ứng
+            // (User vẫn có thể đổi qua chuột phải vào card quà)
+            triggers: {
+                '5585':  'pourOut',
+                '5658':  'throwJar',
+                '5827':  'shake',
+                '6064':  'tilt',
+                '6267':  'combo',
+                '6788':  'tornado',
+                '7412':  'joinPolice',
+                '7891':  'rain',
+                '7934':  'shape',
+                '8913':  'stealJar',
+                '9340':  'slow',
+                '10961': 'magnet',
+                '14219': 'gravflip',
+                '15232': 'megaboom',
+                '17004': 'geyser',
+                '17465': 'ufo',
+                '19441': 'fireworks',
+                '19443': 'kickJar',
+                '19447': 'osin',
+                '25340': 'crackJar',
+                '57327': 'thief'
+            },
             // Thông số chi tiết của từng hiệu ứng
             effects: {
                 tornado:  { intensity: 0.2 },
@@ -84,27 +103,213 @@
                     showName: true,         // hiện tên user ở giữa hình
                     nameSize: 64,           // cỡ chữ tên user (px) — 24..160
                     color: '#ffd166'        // màu chữ tên user
+                },
+                // UFO: hút N quà rớt NGOÀI hũ (escaped) → bay tới miệng hũ → thả vào.
+                // VIP PRO hơn OSIN (OSIN chỉ nhặt 1 quà ngoài, UFO nhặt 5-10 quà cùng lúc).
+                ufo: {
+                    minCapacity: 5,         // hút tối thiểu N quà
+                    maxCapacity: 10,        // hút tối đa N quà
+                    radiusPct: 40           // bán kính scan (% canvas width) tính từ scan center
+                },
+                // Dốc ngược hũ: tilt jar gần 180° để đổ hết quà ra → UFO/OSIN cứu lại
+                pourOut: {
+                    angleDeg: 165,          // góc nghiêng max (gần dốc ngược)
+                    holdMs: 1400            // giữ ở góc max bao lâu (để quà rơi hết)
+                },
+                // Mưa quà: spawn random gifts từ đỉnh canvas rơi xuống hũ
+                rain: {
+                    count: 25,              // số quà spawn (8-50)
+                    durationMs: 3000        // thời gian rải spawn
+                },
+                // Phun trào: bodies trong hũ bắn lên cao tạo geyser
+                geyser: {
+                    durationMs: 1800,       // tổng thời gian phun
+                    power: 1.0              // độ mạnh (0.5-2.0)
+                },
+                // Nam châm: bodies hút lẫn nhau trong X giây tạo cụm
+                magnet: {
+                    durationMs: 3500,
+                    pullStrength: 1.0       // 0.5-2.0
                 }
             },
             // Vị trí panel UI (đơn vị %) — null = dùng default CSS
+            // Badges preset ở góc phải để sát mép TikTok UI, không che hũ
             panelPositions: {
                 leaderboard: null,
-                caught: null
+                caught: null,
+                badges: { left: 81.85, top: 23.41 }
             },
-            // Tỉ lệ scale panel (1 = 100%)
+            // Tỉ lệ scale panel (Top tặng nhỏ hơn để nhường chỗ Goal bar / badges)
             panelScales: {
-                leaderboard: 1,
+                leaderboard: 0.7,
                 caught: 1
+            },
+            // Tỉ lệ scale nhân vật trộm / cảnh sát / osin / ufo (1 = 100% base size)
+            actorScales: {
+                thief: 1,
+                police: 1,
+                osin: 1,
+                ufo: 1
+            },
+            // 🎀 Accessory gắn lên miệng hũ — không che thân hũ. Default 'none'.
+            jarAccessory: 'none',
+            // 🎨 Theme màu hũ — đổi ảnh jar-glass theo PNG khác màu (bên-ngoai folder)
+            // Các option: default | blue | cam | green | pink | tim | yellow
+            jarTheme: 'default',
+            // 🏷 Badge hiệu ứng quà — bật + auto-scroll mặc định cho install mới
+            badges: {
+                enabled: true,
+                layout: 'vertical',
+                defaultNamePos: 'bottom',
+                scale: 1.25,
+                iconScale: 1.6,
+                nameScale: 1.0,
+                gap: 2.5,
+                locked: false,
+                // 19 quà preset gán badge — khớp với triggers, customLabel cho 2 hiệu ứng nổi bật
+                items: {
+                    '5269':  { customLabel: 'Pháo hoa', enabled: true },
+                    '5585':  { customLabel: '', enabled: true },
+                    '5655':  { customLabel: 'Trộm',    enabled: true },
+                    '5658':  { customLabel: '', enabled: true },
+                    '5827':  { customLabel: '', enabled: true },
+                    '6064':  { customLabel: '', enabled: true },
+                    '6267':  { customLabel: '', enabled: true },
+                    '7891':  { customLabel: '', enabled: true },
+                    '8913':  { customLabel: '', enabled: true },
+                    '9340':  { customLabel: '', enabled: true },
+                    '10961': { customLabel: '', enabled: true },
+                    '14219': { customLabel: '', enabled: true },
+                    '17004': { customLabel: '', enabled: true },
+                    '17465': { customLabel: '', enabled: true },
+                    '19441': { customLabel: '', enabled: true },
+                    '19443': { customLabel: '', enabled: true },
+                    '19445': { enabled: true },
+                    '25340': { customLabel: '', enabled: true },
+                    '57327': { enabled: true }
+                },
+                extras: [],
+                // Auto-scroll bật mặc định: cuộn lên 6 quà mỗi 1.3s/quà
+                autoScroll: {
+                    enabled: true,
+                    visibleCount: 6,
+                    direction: 'up',
+                    speed: 1.3
+                }
             }
         };
     }
+    // Map theme → file PNG hũ ngoài (bên-ngoai folder)
+    const JAR_THEME_PATHS = {
+        default: '/assets/thuytinh/ben-ngoai/jar-glass.png',
+        blue:    '/assets/thuytinh/ben-ngoai/jar-glass_blue.png',
+        cam:     '/assets/thuytinh/ben-ngoai/jar-glass_cam.png',
+        green:   '/assets/thuytinh/ben-ngoai/jar-glass_green.png',
+        pink:    '/assets/thuytinh/ben-ngoai/jar-glass_pink.png',
+        tim:     '/assets/thuytinh/ben-ngoai/jar-glass_tim.png',
+        yellow:  '/assets/thuytinh/ben-ngoai/jar-glass_yellow.png'
+    };
+    // SVG accessories gắn lên miệng hũ (vị trí = neck top, không che body jar).
+    // Mỗi SVG có viewBox 200x100, render scale theo jar width.
+    const JAR_ACCESSORIES = {
+        none: '',
+        'bow-pink': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bpG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#ffa3c5"/><stop offset="0.5" stop-color="#ff5d8f"/><stop offset="1" stop-color="#d63384"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#ff5d8f" stroke="#a02560" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bpG)" stroke="#a02560" stroke-width="1.5"/>
+        </svg>`,
+        'bow-blue': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bbG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#7dd3fc"/><stop offset="0.5" stop-color="#3b82f6"/><stop offset="1" stop-color="#1e40af"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#3b82f6" stroke="#1e3a8a" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bbG)" stroke="#1e3a8a" stroke-width="1.5"/>
+        </svg>`,
+        'bow-white': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bwG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#f1f5f9"/><stop offset="1" stop-color="#cbd5e1"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bwG)" stroke="#94a3b8" stroke-width="1.5"/>
+        </svg>`,
+        'bow-black': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bkG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#475569"/><stop offset="0.5" stop-color="#1e293b"/><stop offset="1" stop-color="#0f172a"/>
+            </linearGradient></defs>
+            <path d="M30 50 Q15 20 50 30 Q85 40 100 55 Q85 70 50 80 Q15 80 30 50 Z" fill="url(#bkG)" stroke="#000" stroke-width="2"/>
+            <path d="M170 50 Q185 20 150 30 Q115 40 100 55 Q115 70 150 80 Q185 80 170 50 Z" fill="url(#bkG)" stroke="#000" stroke-width="2"/>
+            <ellipse cx="100" cy="55" rx="15" ry="18" fill="#1e293b" stroke="#000" stroke-width="2"/>
+            <path d="M85 80 L75 100 L95 90 Z" fill="url(#bkG)" stroke="#000" stroke-width="1.5"/>
+            <path d="M115 80 L125 100 L105 90 Z" fill="url(#bkG)" stroke="#000" stroke-width="1.5"/>
+        </svg>`,
+        'crown': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="crG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#fde047"/><stop offset="0.5" stop-color="#fbbf24"/><stop offset="1" stop-color="#b45309"/>
+            </linearGradient></defs>
+            <path d="M40 80 L55 30 L80 60 L100 20 L120 60 L145 30 L160 80 Z" fill="url(#crG)" stroke="#78350f" stroke-width="3"/>
+            <rect x="40" y="78" width="120" height="14" fill="#fbbf24" stroke="#78350f" stroke-width="2"/>
+            <circle cx="55" cy="30" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.5"/>
+            <circle cx="100" cy="20" r="7" fill="#22d3ee" stroke="#0e7490" stroke-width="1.5"/>
+            <circle cx="145" cy="30" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.5"/>
+            <circle cx="100" cy="85" r="4" fill="#fff"/><circle cx="70" cy="85" r="3" fill="#fff"/><circle cx="130" cy="85" r="3" fill="#fff"/>
+        </svg>`,
+        'flower-cherry': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <g transform="translate(60,50)"><circle cx="0" cy="-20" r="14" fill="#fda4af"/><circle cx="19" cy="-6" r="14" fill="#fda4af"/><circle cx="12" cy="16" r="14" fill="#fda4af"/><circle cx="-12" cy="16" r="14" fill="#fda4af"/><circle cx="-19" cy="-6" r="14" fill="#fda4af"/><circle cx="0" cy="0" r="6" fill="#fbbf24"/></g>
+            <g transform="translate(140,50)"><circle cx="0" cy="-20" r="14" fill="#fda4af"/><circle cx="19" cy="-6" r="14" fill="#fda4af"/><circle cx="12" cy="16" r="14" fill="#fda4af"/><circle cx="-12" cy="16" r="14" fill="#fda4af"/><circle cx="-19" cy="-6" r="14" fill="#fda4af"/><circle cx="0" cy="0" r="6" fill="#fbbf24"/></g>
+            <g transform="translate(100,40) scale(0.7)"><circle cx="0" cy="-20" r="14" fill="#ec4899"/><circle cx="19" cy="-6" r="14" fill="#ec4899"/><circle cx="12" cy="16" r="14" fill="#ec4899"/><circle cx="-12" cy="16" r="14" fill="#ec4899"/><circle cx="-19" cy="-6" r="14" fill="#ec4899"/><circle cx="0" cy="0" r="6" fill="#fde047"/></g>
+        </svg>`,
+        'star-gold': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="sgG"><stop offset="0" stop-color="#fde047"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+            <path d="M100 10 L114 50 L156 50 L122 75 L135 115 L100 90 L65 115 L78 75 L44 50 L86 50 Z" fill="url(#sgG)" stroke="#78350f" stroke-width="2"/>
+            <circle cx="35" cy="30" r="4" fill="#fff" opacity="0.9"/>
+            <circle cx="170" cy="35" r="3" fill="#fff" opacity="0.9"/>
+            <circle cx="160" cy="75" r="3" fill="#fff" opacity="0.9"/>
+        </svg>`,
+        'leaves-christmas': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <g><path d="M20 60 Q60 30 100 50 Q140 30 180 60 L180 80 Q140 60 100 80 Q60 60 20 80 Z" fill="#15803d" stroke="#14532d" stroke-width="2"/>
+            <circle cx="50" cy="70" r="6" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="100" cy="55" r="7" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="150" cy="70" r="6" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+            <circle cx="75" cy="50" r="4" fill="#fbbf24"/>
+            <circle cx="125" cy="50" r="4" fill="#fbbf24"/></g>
+        </svg>`,
+        'gem-diamond': `<svg viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="gdG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="#7dd3fc"/><stop offset="0.5" stop-color="#06b6d4"/><stop offset="1" stop-color="#0e7490"/>
+            </linearGradient></defs>
+            <path d="M100 10 L150 40 L100 95 L50 40 Z" fill="url(#gdG)" stroke="#0e7490" stroke-width="2"/>
+            <path d="M100 10 L150 40 L100 50 L50 40 Z" fill="#bae6fd" opacity="0.7"/>
+            <path d="M100 10 L100 50 L80 30 Z" fill="#fff" opacity="0.6"/>
+        </svg>`
+    };
 
     // ===== Audio (Web Audio API tổng hợp âm thanh, không cần file) =====
     const audio = (() => {
         let ctx = null;
+        let noiseBuf = null;
         function ensureCtx() {
             if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
             return ctx;
+        }
+        function getNoiseBuffer() {
+            const a = ensureCtx(); if (!a) return null;
+            if (noiseBuf) return noiseBuf;
+            const len = a.sampleRate * 2;
+            noiseBuf = a.createBuffer(1, len, a.sampleRate);
+            const data = noiseBuf.getChannelData(0);
+            for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+            return noiseBuf;
         }
         function tone(freq, dur, type = 'sine', vol = 0.15) {
             const a = ensureCtx(); if (!a) return;
@@ -118,6 +323,69 @@
             g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
             o.start(t0); o.stop(t0 + dur + 0.02);
         }
+        // Frequency sweep: dùng cho whoosh / beam / suck
+        function sweep(fromHz, toHz, dur, type = 'sawtooth', vol = 0.12) {
+            const a = ensureCtx(); if (!a) return;
+            const o = a.createOscillator();
+            const g = a.createGain();
+            o.type = type;
+            const t0 = a.currentTime;
+            o.frequency.setValueAtTime(fromHz, t0);
+            o.frequency.exponentialRampToValueAtTime(Math.max(20, toHz), t0 + dur);
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.05, dur * 0.2));
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+            o.connect(g); g.connect(a.destination);
+            o.start(t0); o.stop(t0 + dur + 0.02);
+        }
+        // Filtered noise burst — dùng cho rumble, crash, cascade
+        function noise(dur, freqCenter = 800, q = 8, vol = 0.18) {
+            const a = ensureCtx(); if (!a) return;
+            const buf = getNoiseBuffer(); if (!buf) return;
+            const src = a.createBufferSource(); src.buffer = buf;
+            const filter = a.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = freqCenter;
+            filter.Q.value = q;
+            const g = a.createGain();
+            const t0 = a.currentTime;
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(vol, t0 + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+            src.connect(filter); filter.connect(g); g.connect(a.destination);
+            src.start(t0); src.stop(t0 + dur + 0.02);
+        }
+
+        // UFO drone hum — trả về stop() để gọi khi UFO rời đi
+        function ufoHum() {
+            const a = ensureCtx(); if (!a) return () => {};
+            const o1 = a.createOscillator();
+            const o2 = a.createOscillator();
+            const lfo = a.createOscillator();   // vibrato
+            const lfoGain = a.createGain();
+            const g = a.createGain();
+            o1.type = 'sawtooth'; o1.frequency.value = 90;
+            o2.type = 'sine';     o2.frequency.value = 135;
+            lfo.frequency.value = 4.5; lfoGain.gain.value = 6;
+            const t0 = a.currentTime;
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(0.06, t0 + 0.6);   // fade in
+            lfo.connect(lfoGain);
+            lfoGain.connect(o1.frequency);
+            lfoGain.connect(o2.frequency);
+            o1.connect(g); o2.connect(g); g.connect(a.destination);
+            o1.start(t0); o2.start(t0); lfo.start(t0);
+            let stopped = false;
+            return function stop() {
+                if (stopped) return; stopped = true;
+                const t = a.currentTime;
+                g.gain.cancelScheduledValues(t);
+                g.gain.setValueAtTime(g.gain.value, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+                o1.stop(t + 0.55); o2.stop(t + 0.55); lfo.stop(t + 0.55);
+            };
+        }
+
         return {
             plop: () => tone(360, 0.07, 'sine', 0.18),
             ting: () => tone(1240, 0.08, 'triangle', 0.14),
@@ -126,7 +394,40 @@
                 const seq = [523, 659, 784, 1047];
                 seq.forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.18), i * 110));
             },
-            steal: () => { tone(800, 0.06, 'square', 0.12); setTimeout(() => tone(420, 0.08, 'sawtooth', 0.12), 60); }
+            steal: () => { tone(800, 0.06, 'square', 0.12); setTimeout(() => tone(420, 0.08, 'sawtooth', 0.12), 60); },
+
+            // ===== UFO sounds =====
+            ufoHum,
+            // Beam activate: sweep tăng tone + nhẹ noise hiss
+            ufoBeam: () => { sweep(200, 1400, 0.45, 'sawtooth', 0.10); noise(0.45, 2400, 14, 0.06); },
+            // Mỗi lần hút 1 quà: whoosh up
+            ufoSuck: () => sweep(400, 1600, 0.35, 'triangle', 0.10),
+            // Mỗi lần thả quà rơi vào hũ: bậc xuống + plop
+            ufoDrop: () => { sweep(900, 220, 0.25, 'triangle', 0.09); setTimeout(() => tone(380, 0.06, 'sine', 0.16), 200); },
+            // UFO arrival/exit swoosh
+            ufoArrive: () => sweep(120, 600, 0.6, 'sawtooth', 0.10),
+            ufoExit:   () => sweep(700, 90, 0.7, 'sawtooth', 0.10),
+
+            // ===== Effects khác =====
+            // Dốc ngược hũ: rumble dài + crash khi quà đổ ra
+            pourOut: () => {
+                noise(1.2, 180, 3, 0.16);                                        // rumble bass
+                sweep(400, 120, 1.0, 'sawtooth', 0.08);                          // jar tilt creak
+                setTimeout(() => noise(0.5, 800, 5, 0.14), 1100);                // cascade khi quà rơi
+                setTimeout(() => { for (let i = 0; i < 6; i++) setTimeout(() => tone(280 + Math.random()*200, 0.06, 'sine', 0.12), i * 50); }, 1100);
+            },
+            // Lốc xoáy: wind whistle
+            tornado: () => { sweep(200, 800, 0.6, 'sine', 0.10); noise(0.8, 1500, 6, 0.10); },
+            // Slow motion: descending tone
+            slow: () => sweep(600, 150, 0.5, 'sine', 0.10),
+            // Đảo trọng lực: dual tone WOW effect
+            gravflip: () => { tone(523, 0.15, 'square', 0.10); setTimeout(() => tone(330, 0.2, 'triangle', 0.12), 130); },
+            // ☔ Rain: continuous noise + occasional drops
+            rain: () => { noise(2.5, 1500, 4, 0.10); },
+            // 🚀 Geyser: rising whoosh + bass
+            geyser: () => { sweep(180, 800, 1.5, 'sawtooth', 0.12); noise(1.2, 400, 3, 0.10); },
+            // 🧲 Magnet: subtle hum + ting on attract
+            magnet: () => { tone(880, 0.5, 'sine', 0.06); setTimeout(() => tone(1320, 0.3, 'triangle', 0.08), 250); }
         };
     })();
 
@@ -205,7 +506,11 @@
             };
             setStyle(jarBottomEl);
             setStyle(jarGlassEl);
+            // Clear filter cũ nếu có (legacy theme jar)
+            if (jarBottomEl) jarBottomEl.style.filter = '';
+            if (jarGlassEl)  jarGlassEl.style.filter  = '';
             buildWalls();
+            positionAccessory();
             positionUiOverlays();
             updateCountDisplay();
         }
@@ -218,15 +523,15 @@
 
         function buildWorldWalls() {
             if (worldWalls.length) return; // chỉ build 1 lần
-            // Floor sát đáy overlay → quà tràn ra sẽ stack ở đáy thay vì rơi mất
-            worldWalls.push(makeWall(CANVAS_W / 2, CANVAS_H + 12, CANVAS_W + 200, 24));
-            worldWalls.push(makeWall(-12, CANVAS_H / 2, 24, CANVAS_H + 200));
-            worldWalls.push(makeWall(CANVAS_W + 12, CANVAS_H / 2, 24, CANVAS_H + 200));
+            // Floor SÁT đáy canvas — TOP EDGE ở y = CANVAS_H. Thickness 400px → chống tunneling
+            // khi OBS browser source chạy ở 30fps (dt tăng → bodies di chuyển nhiều/tick).
+            // Tường mỏng 24px cũ → bodies vận tốc cao có thể xuyên qua → mất quà.
+            worldWalls.push(makeWall(CANVAS_W / 2, CANVAS_H + 200, CANVAS_W + 200, 400));
+            // Side walls: thick, span well beyond canvas
+            worldWalls.push(makeWall(-100, CANVAS_H / 2, 200, CANVAS_H + 400));
+            worldWalls.push(makeWall(CANVAS_W + 100, CANVAS_H / 2, 200, CANVAS_H + 400));
             // CEILING — chặn quà bay ra khỏi đỉnh overlay khi đảo trọng lực / lốc xoáy.
-            // Đặt ở y = -2000 (rất cao, KHÔNG cản spawn dù user kéo hũ lên rất cao).
-            // Bodies bay lên trong fxGravFlip/fxTornado sẽ chạm trần ở khoảng cách an toàn rồi
-            // bounce lại — KHÔNG bị mất khỏi world.
-            worldWalls.push(makeWall(CANVAS_W / 2, -2000, CANVAS_W + 200, 24));
+            worldWalls.push(makeWall(CANVAS_W / 2, -2100, CANVAS_W + 200, 200));
             Composite.add(engine.world, worldWalls);
         }
         function buildJarWalls() {
@@ -243,7 +548,10 @@
             const nlx = r.x + r.w * SHAPE.neckLeftX;
             const nrx = r.x + r.w * SHAPE.neckRightX;
             const nty = r.y + r.h * SHAPE.neckTopY;
-            jarWalls.push(makeWall(lx + (rx - lx) / 2, by, rx - lx + T, T * 2));
+            // Đáy hũ — TOP EDGE ở y=by (vị trí visual giữ nguyên), thickness 80px (vs cũ 28px).
+            // Chống tunneling khi body rơi nhanh trong OBS (30fps → dt cao → di chuyển nhiều/tick).
+            const FLOOR_T = 80;
+            jarWalls.push(makeWall(lx + (rx - lx) / 2, by + FLOOR_T / 2, rx - lx + T, FLOOR_T));
             const bh = by - sy;
             jarWalls.push(makeWall(lx, sy + bh / 2, T, bh));
             jarWalls.push(makeWall(rx, sy + bh / 2, T, bh));
@@ -300,9 +608,9 @@
                     avatar: g.profilePicture,
                     uid: String(g.userId || g.uniqueId || '')
                 };
-                for (let i = 0; i < n; i++) {
-                    setTimeout(() => runTriggerAction(triggerAction, userInfo), i * 300);
-                }
+                // 1 quà = 1 trigger, KHÔNG nhân theo repeatCount.
+                // Trước đây loop n lần → user gift x2 spawn 2 tên trộm cùng lúc.
+                runTriggerAction(triggerAction, userInfo);
                 return;
             }
             for (let i = 0; i < n; i++) spawnQueue.push(g);
@@ -322,13 +630,20 @@
                 case 'megaboom': fxMegaboom(); if (config.features.audio) audio.fanfare(); break;
                 case 'tornado': fxTornado(); break;
                 case 'tilt': fxTilt(); break;
+                case 'pourOut': fxPourOut(); break;
                 case 'gravflip': fxGravFlip(); break;
                 case 'shake': shake(); break;
                 case 'clear': clearAll(); break;
                 case 'slow': fxSlow(); break;
+                case 'rain': fxRain(); break;
+                case 'geyser': fxGeyser(); break;
+                case 'magnet': fxMagnet(); break;
                 case 'crackJar': fxCrackJar(); break;
                 case 'stealJar': fxStealJar(); break;
                 case 'osin': triggerOsin(userInfo); break;
+                case 'ufo': triggerUFO(userInfo); break;
+                case 'kickJar': fxKickJar(userInfo); break;
+                case 'throwJar': fxThrowJar(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
                 case 'shape': fxShape(userInfo); break;
             }
@@ -532,15 +847,44 @@
         function checkBigGiftFx(g, count) {
             if (!config.features.bigGiftFx) return;
             const v = (g.coinValue || 1) * count;
-            if (v >= 10000) { fxMegaboom(); if (config.features.audio) audio.fanfare(); }
-            else if (v >= 1000) { fxFireworks(); if (config.features.audio) audio.big(); }
+            const tipperName = g.nickname || g.uniqueId || 'Guest';
+            const giftName = g.giftName || 'Quà';
+            if (v >= 10000) {
+                fxMegaboom();
+                if (config.features.audio) audio.fanfare();
+                flashBigGiftToast(`💎💎 <b>${escHtml(tipperName)}</b> tặng <b>${escHtml(giftName)}</b> <b>${v.toLocaleString('vi-VN')}⭐</b> 🔥`, 'mega');
+            }
+            else if (v >= 1000) {
+                fxFireworks();
+                if (config.features.audio) audio.big();
+                flashBigGiftToast(`✨ <b>${escHtml(tipperName)}</b> tặng <b>${escHtml(giftName)}</b> <b>${v.toLocaleString('vi-VN')}⭐</b>`, 'big');
+            }
+        }
+
+        // Toast nổi cho quà to — banner trượt từ trên xuống, glow + scale animation
+        let _bigGiftToastEl = null;
+        let _bigGiftToastTimer = null;
+        function flashBigGiftToast(html, tier) {
+            if (!overlayLayer) return;
+            if (!_bigGiftToastEl) {
+                _bigGiftToastEl = document.createElement('div');
+                _bigGiftToastEl.className = 'tt-big-gift-toast';
+                overlayLayer.appendChild(_bigGiftToastEl);
+            }
+            _bigGiftToastEl.classList.remove('show', 'tier-mega', 'tier-big');
+            _bigGiftToastEl.classList.add('tier-' + tier);
+            _bigGiftToastEl.innerHTML = html;
+            void _bigGiftToastEl.offsetWidth;
+            _bigGiftToastEl.classList.add('show');
+            clearTimeout(_bigGiftToastTimer);
+            _bigGiftToastTimer = setTimeout(() => _bigGiftToastEl.classList.remove('show'), tier === 'mega' ? 5000 : 3500);
         }
         function checkGoal() {
             if (!config.features.goalBar || stats.goalReached) return updateGoalBar();
             if (config.goal.target > 0 && stats.totalDiamonds >= config.goal.target) {
                 stats.goalReached = true;
-                if (config.features.audio) audio.fanfare();
-                fxFireworks(); fxFireworks();
+                // 🎯 Goal celebration — confetti 5s + fanfare + animated toast
+                fxGoalCelebration();
                 showWelcome({ giftId: 'goal', giftName: `🎯 Đạt mục tiêu ${config.goal.target}⭐`, image: '' });
                 setTimeout(() => { shake(); }, 600);
                 // Mở mốc kế (gấp đôi)
@@ -570,16 +914,49 @@
         function fxFireworks() {
             const k = (config.effects?.fireworks?.intensity ?? 1);
             const r = jarRect();
-            const count = Math.max(1, Math.round(3 * k));
+            // Cải tiến: tăng số burst (5-7), trải theo cả X và Y, staggered timing
+            const count = Math.max(3, Math.round(6 * k));
             for (let i = 0; i < count; i++) {
-                fxAnimations.push({
-                    type: 'firework',
-                    x: r.cx + (Math.random() - 0.5) * r.w * 0.7,
-                    y: r.y + Math.random() * r.h * 0.4,
-                    age: 0, life: 60,
-                    color: `hsl(${Math.random() * 360},90%,60%)`
-                });
+                setTimeout(() => {
+                    fxAnimations.push({
+                        type: 'firework',
+                        x: r.cx + (Math.random() - 0.5) * r.w * 0.9,
+                        y: r.y + Math.random() * r.h * 0.6,
+                        age: 0, life: 70,
+                        color: `hsl(${Math.random() * 360},95%,65%)`
+                    });
+                    if (i % 2 === 0 && config.features.audio) audio.ting();
+                }, i * 180);   // stagger 180ms mỗi burst
             }
+        }
+
+        // ===== 🎯 Goal celebration — confetti + fanfare khi đạt mục tiêu =====
+        let _goalCelebrated = false;
+        function fxGoalCelebration() {
+            if (_goalCelebrated) return;
+            _goalCelebrated = true;
+            const r = jarRect();
+            if (config.features.audio) audio.fanfare();
+            // 12 burst confetti rải khắp canvas trong 5s
+            for (let i = 0; i < 12; i++) {
+                setTimeout(() => {
+                    fxAnimations.push({
+                        type: 'firework',
+                        x: CANVAS_W * (0.1 + Math.random() * 0.8),
+                        y: CANVAS_H * (0.1 + Math.random() * 0.4),
+                        age: 0, life: 90,
+                        color: `hsl(${Math.random() * 360},95%,70%)`
+                    });
+                    if (config.features.audio && i % 3 === 0) audio.big();
+                }, i * 400);
+            }
+            // Show celebration toast prominently
+            showComboToast(
+                `🎯 <b>ĐẠT MỤC TIÊU!</b> 🎉🎊`,
+                'linear-gradient(135deg, #fbbf24, #ef4444, #ec4899)'
+            );
+            // Reset flag sau 30s — cho phép trigger lại nếu user reset goal
+            setTimeout(() => { _goalCelebrated = false; }, 30000);
         }
         function fxMegaboom() {
             const k = (config.effects?.megaboom?.intensity ?? 1);
@@ -661,41 +1038,265 @@
             });
             tiltAnimating = false;
         }
+        // ===== Dốc ngược hũ — đổ hết quà ra ngoài =====
+        // Khác fxTilt thông thường: góc nghiêng gần 180° (mặc định 165°) → miệng hũ
+        // chĩa xuống → mọi quà rơi ra do gravity. UFO / OSIN sẽ cứu lại sau.
+        async function fxPourOut() {
+            if (tiltAnimating || jarStolen || spillInProgress) return;
+            const cfg = config.effects?.pourOut || {};
+            const angleDeg = Math.max(120, Math.min(180, cfg.angleDeg ?? 165));
+            const holdMs = Math.max(500, Math.min(4000, cfg.holdMs ?? 1400));
+            const dir = Math.random() < 0.5 ? -1 : 1;
+            const maxAngle = (angleDeg * Math.PI / 180) * dir;
+
+            tiltAnimating = true;
+            const r = jarRect();
+            const pivot = { x: r.cx, y: r.cy };
+            const visualEls = [jarBottomEl, jarGlassEl].filter(Boolean);
+            const origTr = visualEls.map(el => el.style.transform || '');
+            visualEls.forEach((el) => {
+                el.style.transition = 'none';
+                el.style.transformOrigin = '50% 50%';
+            });
+            const applyTilt = (theta) => {
+                const delta = theta - currentTiltAngle;
+                if (delta === 0) return;
+                for (const w of jarWalls) {
+                    try { Body.rotate(w, delta, pivot); } catch (e) {}
+                }
+                currentTiltAngle = theta;
+                const deg = (theta * 180 / Math.PI).toFixed(2);
+                visualEls.forEach(el => { el.style.transform = `rotate(${deg}deg)`; });
+            };
+
+            // Toast cảnh báo
+            showComboToast(
+                `🔄 Hũ bị <b>DỐC NGƯỢC</b> — quà đổ tung tóe!`,
+                'linear-gradient(135deg, #f59e0b, #ef4444)'
+            );
+            if (config.features.audio) audio.pourOut();
+
+            // Phase 1: nghiêng nhanh tới góc max (1.2s)
+            await tween(t => {
+                const e = 1 - Math.pow(1 - t, 2.5);
+                applyTilt(maxAngle * e);
+            }, 1200);
+
+            // Phase 2: giữ ở góc max → bodies sẽ tự rơi ra do gravity
+            // Đồng thời boost velocity cho từng body để chắc chắn chúng văng ra
+            for (const b of bodies) {
+                try {
+                    Body.setVelocity(b, {
+                        x: b.velocity.x + (Math.random() - 0.5) * 3,
+                        y: b.velocity.y + Math.random() * 2
+                    });
+                } catch (e) {}
+            }
+            await wait(holdMs);
+
+            // Phase 3: dựng lại hũ (1s)
+            await tween(t => {
+                const e = t * t;
+                applyTilt(maxAngle * (1 - e));
+            }, 1000);
+            applyTilt(0);
+
+            visualEls.forEach((el, i) => {
+                el.style.transition = '';
+                el.style.transform = origTr[i];
+            });
+            tiltAnimating = false;
+        }
+        // ===== Temp lid — tạm khóa miệng hũ trong gravflip/tornado để quà không bay ra =====
+        let _tempLid = null;
+        function addTempLid() {
+            if (_tempLid) return;
+            const r = jarRect();
+            const T = 14;
+            const nty = r.y + r.h * SHAPE.neckTopY;
+            const nlx = r.x + r.w * SHAPE.neckLeftX;
+            const nrx = r.x + r.w * SHAPE.neckRightX;
+            _tempLid = makeWall((nlx + nrx) / 2, nty - T, nrx - nlx + T * 2, T);
+            Composite.add(engine.world, _tempLid);
+        }
+        function removeTempLid() {
+            if (!_tempLid) return;
+            try { Composite.remove(engine.world, _tempLid); } catch (e) {}
+            _tempLid = null;
+        }
+
         function fxGravFlip() {
             const dur = (config.effects?.gravflip?.durationMs ?? 2200);
+            // Khóa miệng hũ để quà không bay ra qua opening khi đảo gravity
+            addTempLid();
             engine.gravity.y = -Math.abs(engine.gravity.y);
-            setTimeout(() => engine.gravity.y = Math.abs(config.physics.gravity), dur);
+            if (config.features.audio) audio.gravflip();
+            setTimeout(() => {
+                engine.gravity.y = Math.abs(config.physics.gravity);
+                removeTempLid();
+            }, dur);
         }
+
+        // Lốc dọc giữa canvas: tháo tường hũ tạm để bodies bay tự do thành cột xoắn ốc
+        // giữa màn hình. Sau effect → rebuild walls + bodies rơi xuống lại theo gravity.
+        // Khác cũ (bám vào hũ, bị block): bodies thoát ra ngoài jar walls → swirl thoải mái.
         function fxTornado() {
-            const k = (config.effects?.tornado?.intensity ?? 1);
-            const r = jarRect();
+            const k = Math.max(0.3, Math.min(2, config.effects?.tornado?.intensity ?? 1));
+            if (config.features.audio) audio.tornado();
+            // Tháo jar walls tạm — bodies không bị jar block
+            removeJarWalls();
+            // Cột tornado ở giữa canvas (không bám vào hũ)
+            const columnX = CANVAS_W / 2;
+            const columnCenterY = CANVAS_H * 0.4;   // giữa trên canvas
+            const TOTAL = 70;
+            const maxV = 10;
             let t = 0;
-            const TOTAL = 90;
             const iv = setInterval(() => {
-                if (t++ > TOTAL) { clearInterval(iv); return; }
-                const intensity = Math.sin((t / TOTAL) * Math.PI) * k;
+                if (t++ > TOTAL) {
+                    clearInterval(iv);
+                    // Rebuild walls — bodies sẽ rơi xuống do gravity, một số rơi vào hũ
+                    buildJarWalls();
+                    return;
+                }
+                const intensity = Math.sin((t / TOTAL) * Math.PI) * k * 0.7;
                 bodies.forEach(b => {
-                    const dx = b.position.x - r.cx;
-                    const dy = b.position.y - r.cy;
-                    const dist = Math.max(Math.hypot(dx, dy), 1);
-                    const nx = dx / dist, ny = dy / dist;
-                    const tgX = -ny, tgY = nx;
-                    const swirl = 8 * intensity * b.mass;
-                    const suck = 2.5 * intensity * b.mass;
-                    const lift = 2.2 * intensity * b.mass;
+                    const dx = b.position.x - columnX;
+                    const dy = b.position.y - columnCenterY;
+                    // Pull về tâm cột tornado
+                    const pullX = -dx * 0.06;
+                    const pullY = -dy * 0.05;
+                    // Helical X oscillation theo Y position → xoắn ốc dọc
+                    const phase = (b.position.y - columnCenterY) / 60 + t * 0.22;
+                    const oscX = Math.cos(phase) * 3 * intensity;
+                    const oscY = Math.sin(phase * 0.7) * 1.2 * intensity;
+                    const newVx = b.velocity.x * 0.82 + pullX + oscX;
+                    const newVy = b.velocity.y * 0.82 + pullY + oscY;
                     Body.setVelocity(b, {
-                        x: b.velocity.x * 0.82 + tgX * swirl - nx * suck,
-                        y: b.velocity.y * 0.82 + tgY * swirl - ny * suck - lift
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
                     });
-                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4 * intensity);
+                    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.2 * intensity);
                 });
             }, 30);
+            showComboToast('🌪 <b>Lốc xoáy</b> giữa canvas!', 'linear-gradient(135deg, #6366f1, #8b5cf6)');
         }
         function fxSlow() {
             const ts = (config.effects?.slow?.timeScale ?? 0.25);
             const dur = (config.effects?.slow?.durationMs ?? 3000);
             engine.timing.timeScale = ts;
+            if (config.features.audio) audio.slow();
             setTimeout(() => engine.timing.timeScale = 1, dur);
+        }
+
+        // ===== ✨ Mưa quà — spawn N gifts từ trên trời rơi xuống hũ =====
+        function fxRain() {
+            const cfg = config.effects?.rain || {};
+            const count = Math.max(5, Math.min(60, cfg.count ?? 25));
+            const durMs = Math.max(500, Math.min(8000, cfg.durationMs ?? 3000));
+            if (config.features.audio) audio.rain();
+            // Lấy ngẫu nhiên giftMap để có icon đa dạng — fallback dùng bodies trong hũ nếu trống
+            const allGms = [];
+            for (const b of bodies) if (b.gm) allGms.push(b.gm);
+            if (!allGms.length) return showComboToast('☔ Mưa quà cần ít nhất 1 quà trong hũ', 'linear-gradient(135deg,#6b7280,#4b5563)');
+            const interval = durMs / count;
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    const gm = allGms[Math.floor(Math.random() * allGms.length)];
+                    const x = CANVAS_W * (0.2 + Math.random() * 0.6);   // 20-80% width
+                    const y = -50;
+                    const body = Bodies.circle(x, y, gm.sz / 2, {
+                        restitution: config.physics.bounce,
+                        friction: config.physics.friction,
+                        density: 0.002
+                    });
+                    body.gm = gm;
+                    Body.setVelocity(body, { x: (Math.random() - 0.5) * 3, y: 3 + Math.random() * 4 });
+                    Composite.add(engine.world, body);
+                    bodies.push(body);
+                    if (i % 4 === 0 && config.features.audio) audio.plop();
+                }, i * interval);
+            }
+            setTimeout(() => {
+                updateCountDisplay();
+                onCountChange(bodies.length);
+            }, durMs + 200);
+            showComboToast('☔ <b>Mưa quà</b> đang rơi xuống!', 'linear-gradient(135deg, #0ea5e9, #6366f1)');
+        }
+
+        // ===== 🚀 Phun trào — hút quà NGOÀI hũ về phía hũ (như máy hút bụi) =====
+        // Khác hẳn version cũ (phun từ trong hũ lên — ngược logic). Giờ hút từ ngoài vào.
+        function fxGeyser() {
+            const cfg = config.effects?.geyser || {};
+            const dur = Math.max(800, Math.min(4000, cfg.durationMs ?? 1800));
+            const power = Math.max(0.4, Math.min(2.5, cfg.power ?? 1.0));
+            if (config.features.audio) audio.geyser();
+            const r = jarRect();
+            const mouthX = r.cx;
+            const mouthY = r.y + r.h * SHAPE.neckTopY;
+            const targetY = mouthY - 80;   // điểm hút phía trên miệng hũ → gravity sẽ kéo xuống
+            const TOTAL = Math.floor(dur / 30);
+            const maxV = 14;
+            let t = 0;
+            const iv = setInterval(() => {
+                if (t++ > TOTAL) { clearInterval(iv); return; }
+                const env = Math.sin((t / TOTAL) * Math.PI);
+                // Re-fetch escaped bodies mỗi tick (status thay đổi liên tục)
+                const escaped = findEscapedBodies();
+                escaped.forEach(b => {
+                    const dx = mouthX - b.position.x;
+                    const dy = targetY - b.position.y;
+                    const dist = Math.max(Math.hypot(dx, dy), 1);
+                    const factor = 0.18 * env * power;
+                    const newVx = b.velocity.x * 0.85 + (dx / dist) * Math.min(dist, 600) * factor * 0.05;
+                    const newVy = b.velocity.y * 0.85 + (dy / dist) * Math.min(dist, 600) * factor * 0.05;
+                    Body.setVelocity(b, {
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
+                    });
+                });
+            }, 30);
+            showComboToast('🚀 <b>Phun trào</b> — hút quà về hũ!', 'linear-gradient(135deg, #f59e0b, #ef4444)');
+        }
+
+        // ===== 🧲 Nam châm — bodies hút lẫn nhau tạo cụm =====
+        function fxMagnet() {
+            const cfg = config.effects?.magnet || {};
+            const dur = Math.max(1000, Math.min(8000, cfg.durationMs ?? 3500));
+            const pull = Math.max(0.3, Math.min(2.5, cfg.pullStrength ?? 1.0));
+            if (config.features.audio) audio.magnet();
+            // 🧲 TARGET: vùng đầu idol — top-center của màn hình (idol đang LIVE thường ở 15% top)
+            // Sau duration, gravity tự kéo quà rơi xuống → tạo cảm giác idol "hút lên" rồi "thả ra"
+            const centerX = CANVAS_W * 0.5;
+            const centerY = CANVAS_H * 0.15;
+            // Mở miệng hũ để quà bay LÊN được (nếu vẫn bám hũ thì hút lên bị chặn)
+            removeJarWalls();
+            const TOTAL = Math.floor(dur / 30);
+            const maxV = 14;   // tăng max velocity → quà bay lên nhanh hơn
+            let t = 0;
+            const iv = setInterval(() => {
+                if (t++ > TOTAL) {
+                    clearInterval(iv);
+                    // Restore walls để quà rơi lại không bị mất ra ngoài
+                    setTimeout(() => { try { buildJarWalls(); } catch(e){} }, 200);
+                    return;
+                }
+                // Envelope ramp up then hold — release nhanh hơn để quà bị "thả" rơi xuống
+                const env = t < 10 ? t / 10 : (t > TOTAL - 20 ? Math.max(0, (TOTAL - t) / 20) : 1);
+                bodies.forEach(b => {
+                    const dx = centerX - b.position.x;
+                    const dy = centerY - b.position.y;
+                    const dist = Math.max(Math.hypot(dx, dy), 20);
+                    // Pull mạnh hơn theo trục Y → quà bay LÊN trước rồi mới gom horizontal
+                    const factor = 0.08 * pull * env;
+                    const newVx = b.velocity.x * 0.92 + (dx / dist) * dist * factor * 0.08;
+                    const newVy = b.velocity.y * 0.88 + (dy / dist) * dist * factor * 0.12;
+                    Body.setVelocity(b, {
+                        x: Math.max(-maxV, Math.min(maxV, newVx)),
+                        y: Math.max(-maxV, Math.min(maxV, newVy))
+                    });
+                });
+            }, 30);
+            showComboToast('🧲 <b>Nam châm</b> hút quà lên trên cao!', 'linear-gradient(135deg, #8b5cf6, #ec4899)');
         }
 
         // ===== Tạo hình quà (hút bodies → ghép hình/chữ → giữ → rơi tự do) =====
@@ -1529,6 +2130,236 @@
                 el.style.setProperty('--cs', String(s));
             }
         }
+        // Đẩy actorScales (thief/police/osin) vào CSS variables của thiefLayer
+        // → mọi .tt-thief / .tt-police con sẽ pick up tự động qua var().
+        function applyActorScales() {
+            if (!thiefLayer) return;
+            const a = config.actorScales || {};
+            const clamp = (v) => Math.max(0.3, Math.min(3, v ?? 1));
+            thiefLayer.style.setProperty('--tt-thief-scale', String(clamp(a.thief)));
+            thiefLayer.style.setProperty('--tt-police-scale', String(clamp(a.police)));
+            thiefLayer.style.setProperty('--tt-ufo-scale', String(clamp(a.ufo)));
+            // osin dùng inline width/height % → đọc config trực tiếp lúc spawn (triggerOsin).
+        }
+        // Đổi PNG hũ ngoài theo theme — chỉ thay src của jarGlassEl
+        function applyJarTheme() {
+            if (!jarGlassEl) return;
+            const theme = config.jarTheme || 'default';
+            const newSrc = JAR_THEME_PATHS[theme] || JAR_THEME_PATHS.default;
+            // Compare relative path (img.src returns absolute URL)
+            if (!jarGlassEl.src.endsWith(newSrc)) {
+                jarGlassEl.src = newSrc;
+            }
+        }
+
+        // Accessory SVG element — gắn vào DOM 1 lần, position theo jar mỗi lần positionJar()
+        let _accessoryEl = null;
+        function ensureAccessoryEl() {
+            if (_accessoryEl) return _accessoryEl;
+            if (!jarBottomEl?.parentElement) return null;
+            _accessoryEl = document.createElement('div');
+            _accessoryEl.className = 'tt-jar-accessory';
+            _accessoryEl.style.cssText = 'position:absolute;pointer-events:none;z-index:5;display:none';
+            // Insert sau jarGlassEl để accessory nằm trên cùng
+            jarBottomEl.parentElement.appendChild(_accessoryEl);
+            return _accessoryEl;
+        }
+        function applyJarAccessory() {
+            const el = ensureAccessoryEl();
+            if (!el) return;
+            const acc = config.jarAccessory || 'none';
+            const svg = JAR_ACCESSORIES[acc];
+            if (!svg) {
+                el.style.display = 'none';
+                el.innerHTML = '';
+                return;
+            }
+            el.style.display = 'block';
+            el.innerHTML = svg;
+            positionAccessory();
+        }
+        function positionAccessory() {
+            if (!_accessoryEl) return;
+            const r = jarRect();
+            // Vị trí: căn giữa X theo jar, Y nằm ngay trên cổ hũ (nắp)
+            // Width = 80% jar width (TĂNG từ 50%), aspect 2:1 do SVG viewBox 200x100
+            const accW = r.w * 0.8;
+            const accH = accW * 0.5;
+            const accX = r.cx - accW / 2;
+            // Y: ngay trên neckTop, nhô lên trên 80% accH (đè lên nắp đẹp hơn)
+            const accY = r.y + r.h * SHAPE.neckTopY - accH * 0.8;
+            _accessoryEl.style.left = (accX / CANVAS_W * 100) + '%';
+            _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
+            _accessoryEl.style.width  = (accW / CANVAS_W * 100) + '%';
+            _accessoryEl.style.height = (accH / CANVAS_H * 100) + '%';
+        }
+
+        // ===== 🏷 Badge hiệu ứng quà — render danh sách quà đã gán effect lên overlay =====
+        let _badgesContainer = null;
+        function ensureBadgesContainer() {
+            if (_badgesContainer) return _badgesContainer;
+            if (!overlayLayer) return null;
+            _badgesContainer = document.createElement('div');
+            _badgesContainer.className = 'tt-badges tt-drag-panel';
+            _badgesContainer.dataset.panel = 'badges';
+            overlayLayer.appendChild(_badgesContainer);
+            // Wire drag — chỉ trong app preview (mirrorMode=false), OBS static
+            if (!mirrorMode) wireDragPanels();
+            return _badgesContainer;
+        }
+        function renderBadges() {
+            const cfg = config.badges || {};
+            // Khi tắt: REMOVE hẳn container khỏi DOM (fix bug: container ẩn nhưng vẫn chiếm chỗ).
+            // Kết hợp clean stale container nếu có nhiều phiên render cũ còn sót.
+            if (!cfg.enabled) {
+                if (_badgesContainer) {
+                    try { _badgesContainer.remove(); } catch(e) {}
+                    _badgesContainer = null;
+                }
+                // Đề phòng: xóa MỌI .tt-badges trong overlayLayer (bao gồm DOM leftover từ instance cũ)
+                if (overlayLayer) {
+                    overlayLayer.querySelectorAll('.tt-badges').forEach(n => n.remove());
+                }
+                return;
+            }
+            const el = ensureBadgesContainer();
+            if (!el) return;
+            el.style.display = '';
+            // Reset & apply container class — GIỮ tt-drag-panel + class tt-positioned cho drag
+            // Container vị trí default top-left, user drag để move tự do
+            const keepPositioned = el.classList.contains('tt-positioned');
+            const keepDragging = el.classList.contains('tt-dragging');
+            el.className = 'tt-badges tt-drag-panel layout-' + (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')
+                + (keepPositioned ? ' tt-positioned' : '')
+                + (keepDragging ? ' tt-dragging' : '')
+                + (cfg.locked ? ' tt-locked' : '');
+            // Apply iconScale via CSS custom property — cascade tới mọi .tt-badge bên trong
+            el.style.setProperty('--icon-scale', String(cfg.iconScale ?? 1));
+            el.style.setProperty('--badge-scale', String(cfg.scale || 1));
+            el.style.setProperty('--badge-gap', String(cfg.gap ?? 0.8));
+            el.style.setProperty('--name-scale', String(cfg.nameScale ?? 1));
+            // Render từng badge từ config.triggers + config.badges.items
+            const triggers = config.triggers || {};
+            const items = cfg.items || {};
+            // Fallback icon — HP Media logo (bundled trong public/) cho quà không có image
+            const FALLBACK_ICON = '/hp-logo.png';
+            const iconSrc = (url) => (url && String(url).trim()) ? url : FALLBACK_ICON;
+            // Lookup gift metadata qua window.__giftSheet (app.js cache giftSheet vào đây)
+            // Hoặc fallback dùng bodies[].gm trong physics world (đã spawn quà rồi)
+            const sheet = (typeof window !== 'undefined' && window.__giftSheet) || [];
+            const localMap = {};
+            for (const g of sheet) if (g?.id) localMap[String(g.id)] = g;
+            // Bổ sung từ bodies (case mới spawn, chưa có trong sheet)
+            for (const b of bodies) {
+                if (b.gm?.id && !localMap[String(b.gm.id)]) {
+                    localMap[String(b.gm.id)] = { id: b.gm.id, name: b.gm.name, image: b.gm.img?.src || '' };
+                }
+            }
+            // Default namePos cho tất cả badges nếu per-card không set
+            const globalNamePos = cfg.defaultNamePos || (cfg.layout === 'horizontal' ? 'top' : 'right');
+            const frag = document.createDocumentFragment();
+            // 1. Badges từ triggers (effects đã gán)
+            for (const giftId of Object.keys(triggers)) {
+                const action = triggers[giftId];
+                const itemCfg = items[giftId] || {};
+                if (itemCfg.enabled === false) continue;
+                const giftMeta = localMap[String(giftId)];
+                if (!giftMeta) continue;
+                const label = (itemCfg.customLabel || actionLabel(action) || action).trim();
+                const namePos = itemCfg.namePos || globalNamePos;
+                const borderStyle = (itemCfg.borderStyle && itemCfg.borderStyle !== 'none') ? itemCfg.borderStyle : '';
+                const badge = document.createElement('div');
+                badge.className = 'tt-badge name-' + namePos + (borderStyle ? ' border-' + borderStyle : '');
+                badge.title = `${giftMeta.name || ''} · ${label}`;
+                badge.innerHTML = `
+                    <img class="tt-badge-ico" src="${escAttr(iconSrc(giftMeta.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
+                    <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
+                `;
+                frag.appendChild(badge);
+            }
+            // 2. Badges thủ công bổ sung (extras) — quà không cần gán effect
+            const extras = Array.isArray(cfg.extras) ? cfg.extras : [];
+            for (const ex of extras) {
+                if (ex.enabled === false) continue;
+                if (!ex.id || !ex.name) continue;
+                const label = (ex.customLabel || ex.name).trim();
+                const namePos = ex.namePos || globalNamePos;
+                const borderStyle = (ex.borderStyle && ex.borderStyle !== 'none') ? ex.borderStyle : '';
+                const badge = document.createElement('div');
+                badge.className = 'tt-badge name-' + namePos + (borderStyle ? ' border-' + borderStyle : '');
+                badge.title = `${ex.name} · ${label}`;
+                badge.innerHTML = `
+                    <img class="tt-badge-ico" src="${escAttr(iconSrc(ex.image))}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_ICON}'"/>
+                    <div class="tt-badge-name"><span>${escHtml(label)}</span></div>
+                `;
+                frag.appendChild(badge);
+            }
+            // Đếm trước khi append (fragment.children.length = 0 sau khi append)
+            const total = frag.children.length;
+            el.innerHTML = '';
+            // 🔢 Counter pill — ĐẶT NGOÀI vùng cuộn (vertical=trên, horizontal=trái)
+            if (total >= 2) {
+                const counter = document.createElement('div');
+                counter.className = 'tt-badges-counter';
+                counter.textContent = String(total);
+                counter.title = `${total} quà có badge`;
+                el.appendChild(counter);   // first child — ngoài scroll area
+            }
+            // Inner list div — chứa badges + áp dụng scroll/auto-scroll
+            const listEl = document.createElement('div');
+            listEl.className = 'tt-badges-list';
+            // 🎞 Auto-scroll marquee — render duplicated track nếu enabled + đủ badges
+            const as = cfg.autoScroll || {};
+            const visibleCount = Math.max(2, parseInt(as.visibleCount || 5, 10));
+            if (as.enabled && total > visibleCount) {
+                listEl.classList.add('tt-auto-scroll');
+                const dir = as.direction || 'up';
+                listEl.classList.add('tt-scroll-' + dir);
+                // Track inner + duplicate badges để loop seamless
+                const track = document.createElement('div');
+                track.className = 'tt-badges-track';
+                track.appendChild(frag);
+                for (const card of [...track.children]) {
+                    track.appendChild(card.cloneNode(true));
+                }
+                listEl.appendChild(track);
+                // Set animation duration: total badges × speed giây
+                const speed = parseFloat(as.speed) || 2;
+                listEl.style.setProperty('--scroll-duration', (total * speed) + 's');
+                // Size list = visibleCount cards (cqw-based)
+                const cardSize = (cfg.layout === 'horizontal' ? 7 : 4.5);
+                const scale = parseFloat(cfg.scale) || 1;
+                const gap = parseFloat(cfg.gap ?? 0.8);
+                const iconScale = parseFloat(cfg.iconScale) || 1;
+                const visibleSize = visibleCount * cardSize * scale
+                                    + Math.max(0, visibleCount - 1) * gap * scale
+                                    + 4 * iconScale;
+                if (cfg.layout === 'horizontal') {
+                    listEl.style.maxWidth = visibleSize + 'cqw';
+                } else {
+                    listEl.style.maxHeight = visibleSize + 'cqw';
+                }
+            } else {
+                listEl.appendChild(frag);
+            }
+            el.appendChild(listEl);
+            // Apply user-saved position (nếu user đã kéo trước đó)
+            applyPanelPosition('badges', el);
+        }
+        // Lookup action label từ EFFECTS list (defined ngoài scope, dùng config.triggers)
+        // Map tĩnh cho fallback nếu không có context EFFECTS:
+        function actionLabel(action) {
+            const M = {
+                thief: 'Trộm', joinPolice: 'Gia nhập CS', osin: 'Osin nhặt quà', ufo: 'UFO hút quà',
+                shape: 'Tạo hình', fireworks: 'Pháo hoa', megaboom: 'Megaboom', tornado: 'Lốc xoáy',
+                tilt: 'Nghiêng hũ', pourOut: 'Dốc ngược hũ', gravflip: 'Đảo trọng lực',
+                shake: 'Lắc hũ', slow: 'Slow motion', rain: 'Mưa quà', geyser: 'Phun trào',
+                magnet: 'Nam châm', crackJar: 'Nứt hũ', stealJar: 'Trộm cả hũ',
+                combo: 'Combo', clear: 'Xoá hết hũ', kickJar: 'OSIN đá hũ', throwJar: 'OSIN ném hũ'
+            };
+            return M[action] || action;
+        }
+
         function bailUser(uid) {
             if (!uid) return;
             bannedUntilByUid.delete(String(uid));
@@ -1545,19 +2376,29 @@
                 el.style.right = 'auto';
                 el.style.bottom = 'auto';
                 el.classList.add('tt-positioned');
+            } else {
+                // pos null/undefined → reset → để pos-* class (top-left/etc) hoạt động
+                el.classList.remove('tt-positioned');
+                el.style.left = '';
+                el.style.top = '';
+                el.style.right = '';
+                el.style.bottom = '';
             }
         }
-        // Cho phép kéo thả 2 panel (chỉ trong preview app, overlay OBS thì static)
-        let dragWired = false;
+        // Cho phép kéo thả các panel (chỉ trong preview app, overlay OBS thì static)
+        // Dùng WeakSet để track panel đã wire — cho phép gọi nhiều lần (khi panel mới được tạo)
+        const _wiredPanels = new WeakSet();
         function wireDragPanels() {
-            if (dragWired) return;
-            dragWired = true;
             overlayLayer.querySelectorAll('.tt-drag-panel').forEach(panel => {
+                if (_wiredPanels.has(panel)) return;
+                _wiredPanels.add(panel);
                 let dragging = false, startX, startY, baseLeft, baseTop;
                 panel.style.pointerEvents = 'auto';
                 panel.addEventListener('mousedown', (ev) => {
                     if (ev.button !== 0) return;
                     if (ev.target.closest('a, button, input, select, textarea')) return;
+                    // Khóa panel — không cho drag (vd badgesLocked = true cho .tt-badges)
+                    if (panel.classList.contains('tt-locked')) return;
                     const stage = overlayLayer.parentElement;
                     const r = stage.getBoundingClientRect();
                     const pr = panel.getBoundingClientRect();
@@ -1918,7 +2759,7 @@
                     return p.x >= r.x && p.x <= r.x + r.w
                         && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomY;
                 });
-                const preferInside = insideJar.length > 0 && Math.random() < 0.75;  // 75% prefer inside
+                const preferInside = insideJar.length > 0 && Math.random() < 0.9;  // 90% prefer inside
                 const pool = preferInside ? insideJar : bodies;
                 const targetBody = pool[Math.floor(Math.random() * pool.length)];
                 const targetX = targetBody.position.x;
@@ -2162,7 +3003,7 @@
                 return p.x >= r.x && p.x <= r.x + r.w
                     && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= r.y + r.h * 0.95;
             });
-            const pool = (insideJar.length && Math.random() < 0.75) ? insideJar : bodies;
+            const pool = (insideJar.length && Math.random() < 0.9) ? insideJar : bodies;
             const target = pool[Math.floor(Math.random() * pool.length)];
             let lootGm = null;
             const idx = bodies.indexOf(target);
@@ -2400,7 +3241,8 @@
             const enterX = fromLeft ? -CANVAS_W * 0.13 : CANVAS_W * 1.13;
             const exitX = enterX;   // exit về lại nơi đến
             const groundY = CANVAS_H * 0.91;
-            const personW = 12, personH = 16;
+            const osinScale = Math.max(0.3, Math.min(3, config.actorScales?.osin ?? 1));
+            const personW = 12 * osinScale, personH = 16 * osinScale;
             wrap.style.position = 'absolute';
             wrap.style.width = personW + '%';
             wrap.style.height = personH + '%';
@@ -2510,6 +3352,701 @@
             );
         }
 
+        // ===== 😡 OSIN GIẬN — đá hũ bay lên không + nứt + vỡ + quà rơi =====
+        // Flow: OSIN từ trái → đi qua hũ về phải → quay lại nhìn hũ → KICK!
+        //   → hũ bay parabolic tới điểm cao giữa canvas → nứt giữa đường
+        //   → tới target thì shatterJar() → quà rơi → OSIN bỏ đi
+        let kickJarBusy = false;
+        async function fxKickJar(opts = {}) {
+            if (kickJarBusy || jarStolen) return;
+            if (!thiefLayer) return;
+            kickJarBusy = true;
+
+            const r = jarRect();
+            // OSIN groundY — đặt ngang với đáy hũ (cảm giác đứng cạnh hũ chứ không xa)
+            // Trước: 0.91 (sát đáy canvas, OSIN quá thấp so với hũ)
+            const groundY = Math.max(CANVAS_H * 0.78, r.y + r.h * 0.92);
+            const { name } = opts;
+
+            // ===== 1. Spawn OSIN từ trái =====
+            const wrap = buildOsinNode({ name: name ? '😡 ' + name : '😡 OSIN giận' });
+            thiefLayer.appendChild(wrap);
+            const personW = 12, personH = 16;
+            wrap.style.position = 'absolute';
+            wrap.style.width = personW + '%';
+            wrap.style.height = personH + '%';
+            const startX = -CANVAS_W * 0.13;
+            wrap.style.left = (startX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)';   // không scaleX vì đi từ trái sang phải
+            wrap.style.transition = 'left 1.4s linear, top 0.5s ease, transform 0.3s ease';
+            wrap.classList.add('osin-walking');
+            await wait(80);
+
+            // ===== 2. Đi từ trái sang phải, qua hũ =====
+            const rightOfJarX = r.x + r.w + CANVAS_W * 0.06;
+            wrap.style.left = (rightOfJarX / CANVAS_W * 100) + '%';
+            await wait(1420);
+
+            // ===== 3. Quay sang trái (mặt hướng về hũ) =====
+            wrap.style.transition = 'transform 0.3s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1)';   // flip ngang
+            wrap.classList.remove('osin-walking');
+            await wait(320);
+
+            // ===== 4. Wind-up: cúi xuống tích lực (osin-jumping class) =====
+            wrap.classList.add('osin-jumping');
+            await wait(280);
+
+            // ===== 5. KICK! Body nghiêng + nhảy về phía hũ một chút =====
+            wrap.style.transition = 'transform 0.2s cubic-bezier(.5,1.5,.5,1)';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1) rotate(-15deg)';
+            if (config.features.audio) audio.steal();
+            await wait(220);
+
+            // ===== 6. Hũ bay parabolic tới target (45% X, 37% Y) =====
+            // GIỮ jar walls + bodies INSIDE jar cùng bay → quà ngoài hũ (đã rớt) giữ nguyên.
+            // Khi tới target mới shatterJarAt → walls remove + bodies inside scatter ra ngoài.
+
+            // Snapshot bodies INSIDE jar (trước khi bay) — chỉ những bodies này được dịch chuyển
+            const jarBottomYThresh = r.y + r.h * 0.95;
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                const insideX = p.x >= r.x - 30 && p.x <= r.x + r.w + 30;
+                const insideY = p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomYThresh + 40;
+                return insideX && insideY;
+            });
+
+            const targetCx = CANVAS_W * 0.45;
+            const targetCy = CANVAS_H * 0.37;
+            const newJarX = r.x + (targetCx - r.cx);
+            const newJarY = r.y + (targetCy - r.cy);
+
+            // Save original styles + tắt CSS transition trên jar elements (mình tween bằng JS)
+            const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
+            const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
+            const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+            if (jarBottomEl) jarBottomEl.style.transition = 'none';
+            if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
+            if (_accessoryEl) _accessoryEl.style.transition = 'none';
+
+            // Pause physics — bodies + walls không bị gravity affect trong flight,
+            // chỉ di chuyển bởi setPosition theo tween.
+            const savedTimeScale = engine.timing.timeScale;
+            engine.timing.timeScale = 0;
+
+            const flyDur = 1100;
+            let lastCx = r.cx, lastCy = r.cy;
+            await tween(t => {
+                // X: easeOut. Y: linear + parabolic peak (15% canvas height above midpoint)
+                const easeX = 1 - Math.pow(1 - t, 2);
+                const newCx = r.cx + (targetCx - r.cx) * easeX;
+                const yLinear = r.cy + (targetCy - r.cy) * t;
+                const peakDepth = CANVAS_H * 0.18;
+                const newCy = yLinear - peakDepth * Math.sin(t * Math.PI);
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
+
+                // Move jar walls (physics)
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                // CHỈ move bodies INSIDE jar — bodies ngoài (escaped) giữ nguyên vị trí
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
+
+                // Visual jar
+                const angle = t * 35;
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarBottomEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarGlassEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    const accX = newCx - accW / 2;
+                    const accY = newY + r.h * SHAPE.neckTopY - accH * 0.8;
+                    _accessoryEl.style.left = (accX / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
+                    _accessoryEl.style.transform = `rotate(${angle}deg)`;
+                }
+
+                // Crack overlay khi t ~ 0.55 (giữa đường, lần đầu chạm)
+                if (t > 0.55 && !wrap.__crackedOnce) {
+                    wrap.__crackedOnce = true;
+                    if (overlayLayer && !jarStolen) {
+                        const crackEl = document.createElement('div');
+                        crackEl.className = 'tt-crack show';
+                        crackEl.style.position = 'absolute';
+                        crackEl.style.left = (newX / CANVAS_W * 100) + '%';
+                        crackEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                        crackEl.style.width  = (r.w / CANVAS_W * 100) + '%';
+                        crackEl.style.height = (r.h / CANVAS_H * 100) + '%';
+                        crackEl.style.transform = `rotate(${angle}deg)`;
+                        crackEl.innerHTML = generateCrackSvg(8);
+                        overlayLayer.appendChild(crackEl);
+                        crackElements.push(crackEl);
+                        if (config.features.audio) audio.steal();
+                    }
+                }
+
+                lastCx = newCx;
+                lastCy = newCy;
+            }, flyDur);
+
+            // ===== 7. OSIN reset pose, walk back trái (sau khi đá xong) =====
+            wrap.style.transition = 'transform 0.4s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1)';
+            setTimeout(() => {
+                wrap.classList.remove('osin-jumping');
+                wrap.classList.add('osin-walking');
+                wrap.style.transition = 'left 1.3s linear, transform 0.3s ease';
+                wrap.style.transform = 'translate(-50%, -100%)';
+                wrap.style.left = ((CANVAS_W + CANVAS_W * 0.18) / CANVAS_W * 100) + '%';
+            }, 100);
+
+            // ===== 8. Tại target → SHATTER (chỉ scatter bodies inside jar) =====
+            engine.timing.timeScale = savedTimeScale;
+            shatterJarAt(targetCx, targetCy, insideBodies);
+
+            // ===== 10. Chờ 3s rồi respawn jar tại vị trí gốc =====
+            setTimeout(() => {
+                // EXPLICIT clear transform trước khi restore — fix bug jar bị nghiêng
+                if (jarBottomEl) {
+                    jarBottomEl.style.transform = '';
+                    jarBottomEl.style.cssText = jbStyle;
+                    jarBottomEl.style.transform = '';   // safety: clear lại sau cssText
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.transform = '';
+                    jarGlassEl.style.cssText = jgStyle;
+                    jarGlassEl.style.transform = '';
+                }
+                if (_accessoryEl) {
+                    _accessoryEl.style.transform = '';
+                    _accessoryEl.style.cssText = accStyle;
+                    _accessoryEl.style.transform = '';
+                }
+                positionJar();
+                positionAccessory();
+            }, 3200);
+
+            // OSIN remove after walks off
+            setTimeout(() => wrap.remove(), 2400);
+            kickJarBusy = false;
+        }
+        // ===== 💪 OSIN KÉO + NÉM hũ — drag to middle then throw up =====
+        // Flow: OSIN tới hũ → grab → kéo về giữa canvas → wind-up → NÉM lên cao
+        //   → hũ bay parabolic UP tới target → crack mid-air → shatter ở target → quà rơi
+        let throwJarBusy = false;
+        async function fxThrowJar(opts = {}) {
+            if (throwJarBusy || kickJarBusy || jarStolen) return;
+            if (!thiefLayer) return;
+            throwJarBusy = true;
+
+            const r = jarRect();
+            const groundY = Math.max(CANVAS_H * 0.78, r.y + r.h * 0.92);
+            const { name } = opts;
+
+            // 1. Spawn OSIN từ trái
+            const wrap = buildOsinNode({ name: name ? '💪 ' + name : '💪 OSIN ném hũ' });
+            thiefLayer.appendChild(wrap);
+            const personW = 12, personH = 16;
+            wrap.style.position = 'absolute';
+            wrap.style.width = personW + '%';
+            wrap.style.height = personH + '%';
+            const startX = -CANVAS_W * 0.13;
+            wrap.style.left = (startX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)';
+            wrap.style.transition = 'left 1.2s linear, top 0.4s ease, transform 0.3s ease';
+            wrap.classList.add('osin-walking');
+            await wait(80);
+
+            // 2. Đi tới CẠNH PHẢI hũ
+            const rightOfJarX = r.x + r.w + CANVAS_W * 0.04;
+            wrap.style.left = (rightOfJarX / CANVAS_W * 100) + '%';
+            await wait(1220);
+
+            // 3. Quay sang trái + bend down (grab pose)
+            wrap.style.transition = 'transform 0.3s ease';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1)';
+            wrap.classList.remove('osin-walking');
+            wrap.classList.add('osin-carrying');
+            await wait(380);
+
+            // 4. KÉO HŨ về giữa canvas — OSIN walk leftward, jar follows
+            const middleCx = CANVAS_W * 0.5;
+            const middleCy = groundY - r.h * 0.45;   // hũ ở ground level, center y = groundY - half jar height
+            const dragDur = 1300;
+
+            // Snapshot bodies INSIDE jar (trước khi kéo) — chỉ những bodies này được dịch
+            // chuyển. Bodies ngoài hũ (escaped) giữ nguyên vị trí.
+            const jarBottomYThresh = r.y + r.h * 0.95;
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                const insideX = p.x >= r.x - 30 && p.x <= r.x + r.w + 30;
+                const insideY = p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= jarBottomYThresh + 40;
+                return insideX && insideY;
+            });
+
+            // Pause physics + sync jar walls + bodies during drag
+            const savedTimeScale = engine.timing.timeScale;
+            engine.timing.timeScale = 0;
+            if (jarBottomEl) jarBottomEl.style.transition = 'none';
+            if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
+            if (_accessoryEl) _accessoryEl.style.transition = 'none';
+            const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
+            const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
+            const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+
+            // OSIN walks left to middle (dragging)
+            const osinDragX = middleCx + r.w * 0.55;   // OSIN stand slightly right of jar
+            wrap.style.transition = `left ${dragDur}ms linear`;
+            wrap.style.left = (osinDragX / CANVAS_W * 100) + '%';
+
+            let lastCx = r.cx, lastCy = r.cy;
+            await tween(t => {
+                const newCx = r.cx + (middleCx - r.cx) * t;
+                const newCy = r.cy + (middleCy - r.cy) * t;
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    _accessoryEl.style.left = ((newCx - accW/2) / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
+                }
+                lastCx = newCx;
+                lastCy = newCy;
+            }, dragDur);
+
+            // 5. Wind-up: OSIN bend down further + tilt body
+            wrap.classList.remove('osin-carrying');
+            wrap.classList.add('osin-jumping');
+            wrap.style.transition = 'transform 0.25s cubic-bezier(.5,1.5,.5,1)';
+            wrap.style.transform = 'translate(-50%, -100%) scaleX(-1) rotate(15deg)';
+            if (config.features.audio) audio.steal();
+            await wait(280);
+
+            // 6. THROW! Jar parabolic UP tới target (red rectangle area)
+            const targetCx = CANVAS_W * 0.5;   // chính giữa X
+            const targetCy = CANVAS_H * 0.25;  // upper area (red rect)
+            const throwDur = 850;
+
+            await tween(t => {
+                // X: linear from middleCx to targetCx
+                const newCx = middleCx + (targetCx - middleCx) * t;
+                // Y: parabolic — bay vọt LÊN cao rồi xuống tại target
+                // Cong cao hơn: peakDepth lớn
+                const yLinear = middleCy + (targetCy - middleCy) * t;
+                const peakDepth = CANVAS_H * 0.12;   // peak 12% ABOVE midpoint của arc
+                const newCy = yLinear - peakDepth * Math.sin(t * Math.PI);
+                const dx = newCx - lastCx;
+                const dy = newCy - lastCy;
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                for (const b of insideBodies) {
+                    Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                    Body.setVelocity(b, { x: 0, y: 0 });
+                }
+
+                const angle = t * 360;   // 1 vòng xoay full → tumble
+                const newX = newCx - r.w / 2;
+                const newY = newCy - r.h / 2;
+                if (jarBottomEl) {
+                    jarBottomEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarBottomEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarBottomEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.left = (newX / CANVAS_W * 100) + '%';
+                    jarGlassEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                    jarGlassEl.style.transform = `rotate(${angle}deg)`;
+                }
+                if (_accessoryEl) {
+                    const accW = r.w * 0.8;
+                    const accH = accW * 0.5;
+                    _accessoryEl.style.left = ((newCx - accW/2) / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
+                    _accessoryEl.style.transform = `rotate(${angle}deg)`;
+                }
+
+                // Crack overlay khi t ~ 0.6 (gần tới target)
+                if (t > 0.6 && !wrap.__crackedOnceThrow) {
+                    wrap.__crackedOnceThrow = true;
+                    if (overlayLayer && !jarStolen) {
+                        const crackEl = document.createElement('div');
+                        crackEl.className = 'tt-crack show';
+                        crackEl.style.position = 'absolute';
+                        crackEl.style.left = (newX / CANVAS_W * 100) + '%';
+                        crackEl.style.top  = (newY / CANVAS_H * 100) + '%';
+                        crackEl.style.width  = (r.w / CANVAS_W * 100) + '%';
+                        crackEl.style.height = (r.h / CANVAS_H * 100) + '%';
+                        crackEl.style.transform = `rotate(${angle}deg)`;
+                        crackEl.innerHTML = generateCrackSvg(10);
+                        overlayLayer.appendChild(crackEl);
+                        crackElements.push(crackEl);
+                        if (config.features.audio) audio.steal();
+                    }
+                }
+
+                lastCx = newCx;
+                lastCy = newCy;
+            }, throwDur);
+
+            // 7. OSIN reset + walk off left
+            wrap.style.transition = 'transform 0.3s ease, left 1.3s linear';
+            wrap.style.transform = 'translate(-50%, -100%)';
+            wrap.classList.remove('osin-jumping');
+            wrap.classList.add('osin-walking');
+            wrap.style.left = ((-CANVAS_W * 0.15) / CANVAS_W * 100) + '%';
+
+            // 8. Resume physics + SHATTER ở target (chỉ scatter bodies inside)
+            engine.timing.timeScale = savedTimeScale;
+            shatterJarAt(targetCx, targetCy, insideBodies);
+
+            // 9. Sau 3s respawn jar — EXPLICIT clear transform (fix bug nghiêng)
+            setTimeout(() => {
+                if (jarBottomEl) {
+                    jarBottomEl.style.transform = '';
+                    jarBottomEl.style.cssText = jbStyle;
+                    jarBottomEl.style.transform = '';
+                }
+                if (jarGlassEl) {
+                    jarGlassEl.style.transform = '';
+                    jarGlassEl.style.cssText = jgStyle;
+                    jarGlassEl.style.transform = '';
+                }
+                if (_accessoryEl) {
+                    _accessoryEl.style.transform = '';
+                    _accessoryEl.style.cssText = accStyle;
+                    _accessoryEl.style.transform = '';
+                }
+                positionJar();
+                positionAccessory();
+            }, 3200);
+            setTimeout(() => wrap.remove(), 1400);
+            throwJarBusy = false;
+        }
+
+        // Variant của shatterJar nhận vị trí explosion center custom
+        // targetBodies (optional): chỉ scatter mảng bodies này (default: all bodies)
+        function shatterJarAt(cx, cy, targetBodies) {
+            // KHÔNG hiện shatter toast — user không muốn note chữ cho Kick/Throw effects
+            if (config.features.audio) { audio.fanfare(); audio.big(); }
+            if (jarBottomEl) jarBottomEl.style.transition = 'opacity 0.4s, filter 0.4s';
+            if (jarGlassEl) jarGlassEl.style.transition = 'opacity 0.4s, filter 0.4s';
+            if (jarBottomEl) jarBottomEl.style.filter = 'brightness(2) hue-rotate(330deg)';
+            if (jarGlassEl) jarGlassEl.style.filter = 'brightness(2) hue-rotate(330deg)';
+            setTimeout(() => {
+                if (jarBottomEl) { jarBottomEl.style.opacity = '0.1'; jarBottomEl.style.filter = ''; }
+                if (jarGlassEl) { jarGlassEl.style.opacity = '0.1'; jarGlassEl.style.filter = ''; }
+            }, 250);
+
+            const scatterPool = (targetBodies && targetBodies.length) ? targetBodies : bodies;
+            scatterPool.forEach(b => {
+                const dx = b.position.x - cx;
+                const dist = Math.max(Math.abs(dx), 1);
+                Body.setVelocity(b, {
+                    x: (dx / dist) * (10 + Math.random() * 12) + (Math.random() - 0.5) * 8,
+                    y: -(4 + Math.random() * 8)
+                });
+                Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.6);
+            });
+            fxAnimations.push({ type: 'megaboom', x: cx, y: cy, age: 0, life: 50 });
+
+            // Rebuild jar walls + restore visual sau 3s — KHÔNG toast
+            setTimeout(() => {
+                buildJarWalls();
+                if (jarBottomEl) { jarBottomEl.style.opacity = '1'; }
+                if (jarGlassEl) { jarGlassEl.style.opacity = '1'; }
+                crackElements.forEach(c => c.remove());
+                crackElements.length = 0;
+                crackLevel = 0;
+            }, 3000);
+        }
+
+        // ===== UFO: VIP PRO hơn OSIN — hút 5-10 quà trong phạm vi → thả vào hũ =====
+        // Flow: spawn off-screen → fly tới scan center → tractor beam hút N quà → fly tới
+        // miệng hũ → tractor beam thả từng quà → bay khỏi màn hình.
+        let ufoBusy = false;
+        function ufoSvg() {
+            // SVG đĩa bay đơn giản: thân + dome + đèn nhấp nháy
+            return `
+<svg viewBox="0 0 120 60" xmlns="http://www.w3.org/2000/svg" class="ufo-craft">
+  <defs>
+    <linearGradient id="ufoBody" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#cbd5e1"/>
+      <stop offset="0.5" stop-color="#94a3b8"/>
+      <stop offset="1" stop-color="#475569"/>
+    </linearGradient>
+    <radialGradient id="ufoDome" cx="0.5" cy="0.8" r="0.7">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="1" stop-color="#0369a1"/>
+    </radialGradient>
+  </defs>
+  <!-- Thân chính: ellipse dẹt -->
+  <ellipse cx="60" cy="38" rx="55" ry="12" fill="url(#ufoBody)" stroke="#1e293b" stroke-width="1.5"/>
+  <!-- Dome trên -->
+  <path d="M30 35 Q60 5 90 35 Z" fill="url(#ufoDome)" stroke="#1e293b" stroke-width="1.5" opacity="0.85"/>
+  <!-- Đèn dưới (3 đèn nhấp nháy) -->
+  <circle class="ufo-light l1" cx="35" cy="46" r="3.2" fill="#fbbf24"/>
+  <circle class="ufo-light l2" cx="60" cy="48" r="3.2" fill="#f87171"/>
+  <circle class="ufo-light l3" cx="85" cy="46" r="3.2" fill="#34d399"/>
+</svg>`;
+        }
+        function buildUFONode({ name, avatar }) {
+            const wrap = document.createElement('div');
+            wrap.className = 'tt-ufo';
+            wrap.innerHTML = `
+                <div class="ufo-name">${name ? '🛸 ' + escHtml(name) : '🛸 UFO'}</div>
+                <div class="ufo-craft-wrap">${ufoSvg()}</div>
+                <div class="ufo-beam"></div>
+            `;
+            return wrap;
+        }
+        async function triggerUFO(opts = {}) {
+            if (!thiefLayer || ufoBusy) return;
+            // UFO chỉ hút quà NGOÀI hũ (escaped) — VIP PRO version của OSIN.
+            // Picking-from-jar-and-dropping-back-into-jar là vô nghĩa.
+            const escaped = findEscapedBodies();
+            if (!escaped.length) {
+                showComboToast(
+                    `🛸 UFO tới nhưng không có quà rớt ngoài hũ để cứu`,
+                    'linear-gradient(135deg, #6b7280, #4b5563)'
+                );
+                return;
+            }
+            ufoBusy = true;
+            const { name, avatar } = opts;
+            const cfg = config.effects?.ufo || {};
+            const minN = Math.max(1, cfg.minCapacity ?? 5);
+            const maxN = Math.max(minN, cfg.maxCapacity ?? 10);
+            const capacity = minN + Math.floor(Math.random() * (maxN - minN + 1));
+            const radiusPct = Math.max(10, Math.min(80, cfg.radiusPct ?? 40));
+            const radius = CANVAS_W * radiusPct / 100;
+
+            const r = jarRect();
+            const wrap = buildUFONode({ name, avatar });
+            thiefLayer.appendChild(wrap);
+
+            // Start UFO hum drone — chạy suốt animation, tắt khi UFO exit
+            let stopHum = () => {};
+            if (config.features.audio) {
+                stopHum = audio.ufoHum();
+                audio.ufoArrive();
+            }
+
+            // Random độ cao bay: 15-35% canvas height (THẤP hơn version cũ 8-30%)
+            // - Min 15%: vẫn còn cao đủ thấy rõ, không sát đỉnh
+            // - Max clamp dưới miệng hũ - 3% để chừa khoảng kéo beam
+            //   (idol thường ngồi tầm 50-70% nên UFO ở 15-35% gần idol — dễ nhìn)
+            const mouthYPct = (r.y + r.h * SHAPE.neckTopY) / CANVAS_H * 100;
+            const maxFlyPct = Math.max(20, Math.min(35, mouthYPct - 3));
+            const flyYPct = 15 + Math.random() * (maxFlyPct - 15);
+            const flyY = CANVAS_H * flyYPct / 100;
+            const fromLeft = Math.random() < 0.5;
+            const startX = fromLeft ? -CANVAS_W * 0.18 : CANVAS_W * 1.18;
+
+            // Pick scan center: random escaped body → tâm scan
+            const anchor = escaped[Math.floor(Math.random() * escaped.length)];
+            const scanCenterX = Math.max(CANVAS_W * 0.15, Math.min(CANVAS_W * 0.85, anchor.position.x));
+            const scanCenterY = Math.max(CANVAS_H * 0.3, Math.min(CANVAS_H * 0.88, anchor.position.y));
+
+            const posUFO = (xCanvas, yCanvas) => {
+                wrap.style.position = 'absolute';
+                wrap.style.left = (xCanvas / CANVAS_W * 100) + '%';
+                wrap.style.top = (yCanvas / CANVAS_H * 100) + '%';
+            };
+            posUFO(startX, flyY);
+            wrap.style.transition = 'left 1.4s cubic-bezier(.25,.46,.45,.94), top 1.4s ease-out';
+            await wait(60);
+
+            // Phase 1: bay tới scan center (giữ độ cao flyY)
+            posUFO(scanCenterX, flyY);
+            await wait(1400);
+            if (config.features.audio) audio.ufoBeam();
+
+            // Phase 2: extend tractor beam xuống dưới
+            // height tính bằng cqi (= % container width 1080) để independent với wrap nhỏ.
+            const beam = wrap.querySelector('.ufo-beam');
+            const beamLenPx = (scanCenterY + radius * 0.4) - flyY;
+            beam.style.height = (beamLenPx / CANVAS_W * 100) + 'cqi';
+            beam.classList.add('active');
+            await wait(450);
+
+            // Phase 3: tìm escaped bodies trong phạm vi & hút lên
+            // Re-fetch escaped (có thể đã đổi sau khi chờ phase 1+2)
+            const escapedNow = findEscapedBodies();
+            const candidates = escapedNow
+                .map(b => ({
+                    b,
+                    d: Math.hypot(b.position.x - scanCenterX, b.position.y - scanCenterY)
+                }))
+                .filter(x => x.d <= radius)
+                .sort((a, b) => a.d - b.d)
+                .slice(0, capacity);
+
+            const cargo = [];   // { gm, sourceX, sourceY } để spawn lại lúc thả
+            for (const item of candidates) {
+                const tb = item.b;
+                const idx = bodies.indexOf(tb);
+                if (idx < 0) continue;
+                const sourceX = tb.position.x;
+                const sourceY = tb.position.y;
+                const gm = tb.gm;
+                bodies.splice(idx, 1);
+                Composite.remove(engine.world, tb);
+                cargo.push({ gm, sourceX, sourceY });
+
+                // Ghost img bay lên UFO — wobble nhẹ + shrink dần → mất hút vào đĩa bay
+                if (gm?.img) {
+                    const ghost = document.createElement('img');
+                    ghost.src = gm.img.src;
+                    ghost.className = 'tt-ufo-ghost';
+                    ghost.style.left = (sourceX / CANVAS_W * 100) + '%';
+                    ghost.style.top = (sourceY / CANVAS_H * 100) + '%';
+                    thiefLayer.appendChild(ghost);
+                    // Stagger 80ms mỗi quà — tạo cảm giác hút từng cái chứ không đồng loạt
+                    const delay = 60 + Math.random() * 200;
+                    setTimeout(() => {
+                        // Wobble X nhẹ trên đường lên (random ±5% canvas width)
+                        const wobble = (Math.random() - 0.5) * CANVAS_W * 0.05;
+                        ghost.style.left = ((scanCenterX + wobble) / CANVAS_W * 100) + '%';
+                        ghost.style.top = (flyY / CANVAS_H * 100) + '%';
+                        // Shrink xuống 15% size + xoay nhẹ 180° trong khi bay
+                        ghost.style.transform = 'translate(-50%, -50%) scale(0.15) rotate(180deg)';
+                        ghost.style.opacity = '0';
+                        // Whoosh up audio cho từng quà — staggered theo delay
+                        if (config.features.audio) audio.ufoSuck();
+                    }, delay);
+                    setTimeout(() => ghost.remove(), delay + 1200);
+                }
+            }
+            updateCountDisplay();
+            onCountChange(bodies.length);
+            // Chờ ghost bay xong (suck 1.1s + max stagger 260ms ≈ 1.4s)
+            await wait(1300);
+
+            // Retract beam
+            beam.classList.remove('active');
+            beam.style.height = '0cqi';
+            await wait(250);
+
+            if (cargo.length === 0) {
+                // Không hút được quà nào (bodies đã bị di chuyển hoặc race condition)
+                if (config.features.audio) audio.ufoExit();
+                wrap.style.transition = 'left 1.2s ease-in, opacity .4s ease';
+                wrap.style.left = (fromLeft ? CANVAS_W * 1.18 : -CANVAS_W * 0.18) / CANVAS_W * 100 + '%';
+                wrap.style.opacity = '0';
+                await wait(1200);
+                stopHum();
+                wrap.remove();
+                ufoBusy = false;
+                return;
+            }
+
+            // Phase 4: bay tới trên miệng hũ
+            const jarCenterX = r.x + r.w / 2;
+            const dropY = flyY;
+            wrap.style.transition = 'left 1.2s cubic-bezier(.25,.46,.45,.94)';
+            wrap.style.left = (jarCenterX / CANVAS_W * 100) + '%';
+            await wait(1220);
+
+            // Phase 5: extend beam xuống miệng hũ
+            const mouthY = r.y + r.h * SHAPE.neckTopY + 30;
+            const dropBeamPx = mouthY - flyY;
+            beam.style.height = (dropBeamPx / CANVAS_W * 100) + 'cqi';
+            beam.classList.add('active');
+            if (config.features.audio) audio.ufoBeam();
+            await wait(400);
+
+            // Phase 6: thả từng quà — stagger 180ms, mỗi quà tạo physics body mới rơi vào hũ
+            for (let i = 0; i < cargo.length; i++) {
+                const { gm } = cargo[i];
+                if (!gm) continue;
+                const respawnX = jarCenterX + (Math.random() - 0.5) * r.w * 0.5;
+                const respawnY = r.y + r.h * SHAPE.neckTopY + 60;
+                const newBody = Bodies.circle(respawnX, respawnY, gm.sz / 2, {
+                    restitution: config.physics.bounce,
+                    friction: config.physics.friction,
+                    density: 0.002
+                });
+                newBody.gm = gm;
+                Body.setVelocity(newBody, { x: 0, y: 4 });
+                Composite.add(engine.world, newBody);
+                bodies.push(newBody);
+
+                // Visual: ghost rơi từ UFO xuống miệng hũ
+                if (gm.img) {
+                    const ghost = document.createElement('img');
+                    ghost.src = gm.img.src;
+                    ghost.className = 'tt-ufo-ghost drop';
+                    ghost.style.left = (jarCenterX / CANVAS_W * 100) + '%';
+                    ghost.style.top = (flyY / CANVAS_H * 100) + '%';
+                    thiefLayer.appendChild(ghost);
+                    requestAnimationFrame(() => {
+                        ghost.style.top = (mouthY / CANVAS_H * 100) + '%';
+                        ghost.style.opacity = '0';
+                    });
+                    setTimeout(() => ghost.remove(), 600);
+                }
+                if (config.features.audio) audio.ufoDrop();
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                await wait(180);
+            }
+
+            // Retract beam + fly off
+            beam.classList.remove('active');
+            beam.style.height = '0cqi';
+            await wait(250);
+            if (config.features.audio) audio.ufoExit();
+            const exitX = fromLeft ? CANVAS_W * 1.18 : -CANVAS_W * 0.18;
+            wrap.style.transition = 'left 1.4s cubic-bezier(.25,.46,.45,.94), opacity .6s ease';
+            wrap.style.left = (exitX / CANVAS_W * 100) + '%';
+            wrap.style.opacity = '0';
+            await wait(1400);
+            stopHum();
+            wrap.remove();
+            ufoBusy = false;
+
+            const thankName = (name || '').trim() || 'Khách';
+            showComboToast(
+                `🛸 <b>UFO của ${escHtml(thankName)}</b> đã cứu <b>${cargo.length}</b> quà rớt vào hũ!`,
+                'linear-gradient(135deg, #0ea5e9, #6366f1)'
+            );
+        }
+
         // ===== Crown SVG =====
         function crownIconSvg() {
             return 'data:image/svg+xml;utf8,' + encodeURIComponent(
@@ -2597,14 +4134,13 @@
 
         function updateCountDisplay() {
             if (!countDisplay) return;
-            if (config.gift.showCount && bodies.length > 0) {
+            // Hiện counter khi feature on, BẤT KỂ bodies = 0 (user thấy '0' khi hũ trống)
+            if (config.gift.showCount) {
                 countDisplay.style.display = 'block';
                 countDisplay.textContent = String(bodies.length);
                 const r = jarRect();
                 countDisplay.style.left = (r.cx / CANVAS_W * 100) + '%';
-                // đặt trong hũ ở vị trí ~88% chiều cao để KHÔNG đè goal bar (dưới đáy hũ)
                 countDisplay.style.top = ((r.y + r.h * 0.88) / CANVAS_H * 100) + '%';
-                // tự co theo chiều cao hũ
                 const fontPx = Math.max(14, Math.min(72, r.h * 0.055));
                 countDisplay.style.fontSize = fontPx + 'px';
             } else countDisplay.style.display = 'none';
@@ -2627,6 +4163,10 @@
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
             updateCaughtList(); updatePoliceForcePanel();
+            applyActorScales();
+            applyJarTheme();
+            applyJarAccessory();
+            renderBadges();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
         }
@@ -2661,7 +4201,23 @@
                 caughtList: JSON.parse(JSON.stringify(stats.caughtList)),
                 bannedUntilByUid: Array.from(bannedUntilByUid.entries()),
                 policeForce: Array.from(policeForce.entries()),
-                goalReached: !!stats.goalReached
+                goalReached: !!stats.goalReached,
+                // PERSIST bodies — quà đang trong hũ (giữ qua restart)
+                // gm có circular refs (img is HTMLImageElement) → chỉ save fields cần thiết
+                bodies: bodies.map(b => ({
+                    x: b.position.x,
+                    y: b.position.y,
+                    sz: b.gm?.sz || 40,
+                    gm: b.gm ? {
+                        id: b.gm.id,
+                        name: b.gm.name,
+                        coins: b.gm.coins,
+                        tier: b.gm.tier,
+                        sz: b.gm.sz,
+                        imgSrc: b.gm.img?.src || '',
+                        tipperUid: b.gm.tipperUid
+                    } : null
+                }))
             };
         }
         function loadState(state) {
@@ -2680,6 +4236,46 @@
                 for (const [k, v] of state.policeForce) policeForce.set(String(k), v);
             }
             stats.goalReached = !!state.goalReached;
+
+            // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart)
+            // Chỉ restore nếu state.bodies có và bodies hiện tại đang trống (tránh duplicate)
+            if (Array.isArray(state.bodies) && state.bodies.length && bodies.length === 0) {
+                for (const b of state.bodies) {
+                    if (!b.gm) continue;
+                    const sz = Math.max(20, b.sz || b.gm.sz || 40);
+                    // Re-create image từ saved src
+                    let img = null;
+                    if (b.gm.imgSrc) {
+                        if (imgCache.has(b.gm.imgSrc)) {
+                            img = imgCache.get(b.gm.imgSrc);
+                        } else {
+                            img = new Image();
+                            img.src = b.gm.imgSrc;
+                            imgCache.set(b.gm.imgSrc, img);
+                        }
+                    }
+                    const body = Bodies.circle(b.x, b.y, sz / 2, {
+                        restitution: config.physics.bounce,
+                        friction: config.physics.friction,
+                        density: 0.002
+                    });
+                    body.gm = {
+                        id: b.gm.id,
+                        name: b.gm.name,
+                        coins: b.gm.coins || 1,
+                        tier: b.gm.tier,
+                        sz: sz,
+                        img: img,
+                        tipperUid: b.gm.tipperUid
+                    };
+                    Composite.add(engine.world, body);
+                    bodies.push(body);
+                }
+                updateCountDisplay();
+                onCountChange(bodies.length);
+                console.log(`[loadState] Restored ${state.bodies.length} bodies từ disk`);
+            }
+
             updateCrown(); updateLeaderboard(); updateSessionTotals(); updateGoalBar();
             updateCaughtList(); updatePoliceForcePanel();
             // QUAN TRỌNG: re-position toàn bộ overlay sau loadState — đảm bảo display flags
@@ -2694,19 +4290,43 @@
         ensureOverlayDom();
         positionJar();
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
+        applyActorScales();
+        applyJarAccessory();
         if (config.features.randomEvents) startRandomEvents();
         if (config.features.thiefAuto) startThiefAuto();
-        Runner.run(Runner.create(), engine);
+        // Runner FIXED delta — Matter.js default isFixed:false sẽ adapt dt theo real time.
+        // Khi OBS browser source giới hạn FPS (mặc định 30fps trong OBS), dt tăng từ 16.67ms → 33ms
+        // → bodies di chuyển GẤP ĐÔI mỗi tick → dễ tunneling qua tường (đáy hũ, sàn world).
+        // isFixed: true → mỗi tick luôn dt = 1000/60ms, bodies di chuyển ổn định.
+        // Trade-off: nếu OBS chậm → vật lý chạy slow-motion thay vì bị mất quà.
+        Runner.run(Runner.create({ isFixed: true, delta: 1000 / 60 }), engine);
+
+        // Safety net: cap max velocity sau mỗi tick để bodies không bao giờ đạt tốc độ tunneling.
+        // Đáy hũ FLOOR_T=80, max safe velocity = 80 / 2 = 40 px/tick → cap ở 35.
+        const MAX_BODY_V = 35;
+        Events.on(engine, 'afterUpdate', () => {
+            for (const b of bodies) {
+                const v = b.velocity;
+                if (Math.abs(v.x) > MAX_BODY_V || Math.abs(v.y) > MAX_BODY_V) {
+                    Body.setVelocity(b, {
+                        x: Math.max(-MAX_BODY_V, Math.min(MAX_BODY_V, v.x)),
+                        y: Math.max(-MAX_BODY_V, Math.min(MAX_BODY_V, v.y))
+                    });
+                }
+            }
+        });
+
         requestAnimationFrame(render);
         requestAnimationFrame(renderFx);
 
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
             getJarRect, setJarPosition,
-            triggerThief, triggerOsin, setThiefAppearance, setPoliceAppearance,
+            triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
-            fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow,
+            fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
+            fxRain, fxGeyser, fxMagnet,
             fxCrackJar, fxStealJar, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)

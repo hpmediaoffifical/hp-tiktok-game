@@ -44,13 +44,17 @@
                 <div class="conn-actions">
                     <button id="btn-connect" class="primary block">Kết nối LIVE</button>
                 </div>
-                <div class="status-row">
+                <!-- Status row — chỉ hiện khi CHƯA kết nối (button đã có dot+name khi connected) -->
+                <div class="status-row" id="status-row">
                     <span class="dot" id="dot"></span>
                     <span id="status-text">Chưa kết nối</span>
                 </div>
-                <div class="stats-row">
-                    <span id="stat-room"></span>
-                    <span id="stat-viewer"></span>
+                <!-- Stats grid — hiển thị khi đã kết nối -->
+                <div class="live-stats-grid" id="live-stats-grid" hidden>
+                    <div class="live-stat" title="Số người xem hiện tại"><span class="live-stat-ico">👀</span><span class="live-stat-val" id="lstat-viewer">0</span></div>
+                    <div class="live-stat" title="Tổng Kim Cương phiên này"><span class="live-stat-ico">💎</span><span class="live-stat-val" id="lstat-diamond">0</span></div>
+                    <div class="live-stat" title="Tổng follow mới phiên này"><span class="live-stat-ico">➕</span><span class="live-stat-val" id="lstat-follow">0</span></div>
+                    <div class="live-stat" title="Tổng share phiên này"><span class="live-stat-ico">📤</span><span class="live-stat-val" id="lstat-share">0</span></div>
                 </div>
             </section>
 
@@ -60,7 +64,17 @@
                 <div id="game-list" class="game-list"></div>
             </section>
 
-            <div class="side-footer">© HP Media · <span id="footer-version">v1.0.3</span></div>
+            <!-- 🔊 Sound Effects — soundboard nổi cho LIVE -->
+            <section class="side-card">
+                <button id="btn-open-soundfx" class="primary block" title="Mở bảng âm thanh nổi (always-on-top) cho LIVE">
+                    <span class="soundfx-btn-ico">🔊</span><span class="soundfx-btn-text">Sound Effects</span>
+                </button>
+            </section>
+
+            <div class="side-footer">
+                © HP Media · <span id="footer-version">v1.0.3</span>
+                <div class="side-footer-author">by Nguyen Hoang Phung</div>
+            </div>
             <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Thu / Mở menu" title="Thu / Mở menu">‹</button>
         </aside>
 
@@ -84,7 +98,8 @@
                     </div>
                     <div class="overlay-bar">
                         <input id="overlay-url" type="text" readonly hidden />
-                        <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Copy link</button>
+                        <button id="btn-reset-session-top" class="ghost small" title="Reset session: clear hũ + reset stats / leaderboard / mục tiêu">↺ HŨ MỚI</button>
+                        <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Overlay OBS</button>
                         <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
                         <button id="btn-open-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
@@ -95,7 +110,7 @@
                     <div class="col col-left">
                         <div class="card tabbed-card">
                             <div class="card-tabs">
-                                <button class="tab active" data-tab="phys">⚙ Vật lý</button>
+                                <button class="tab active" data-tab="phys">⚙ Cài đặt</button>
                                 <button class="tab" data-tab="feat">✨ Tính năng</button>
                                 <button class="tab" data-tab="trig">🎯 Quà</button>
                                 <button class="tab" data-tab="act">🎬 Thử</button>
@@ -188,13 +203,60 @@
                                         <label>Tên CS</label>
                                         <input type="text" id="cfg-police-name" placeholder="Để trống = chọn ngẫu nhiên" class="text-input"/>
                                     </div>
+                                    <div class="cfg-row" title="Kích thước icon Trộm (0.5 = nhỏ, 2.0 = to gấp đôi)">
+                                        <label>Cỡ Trộm</label>
+                                        <input type="range" id="cfg-scale-thief" min="0.5" max="2.5" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-thief-v">1.0</span>
+                                    </div>
+                                    <div class="cfg-row" title="Kích thước icon Cảnh sát">
+                                        <label>Cỡ CS</label>
+                                        <input type="range" id="cfg-scale-police" min="0.5" max="2.5" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-police-v">1.0</span>
+                                    </div>
+                                    <div class="cfg-row" title="Kích thước nhân vật Osin">
+                                        <label>Cỡ Osin</label>
+                                        <input type="range" id="cfg-scale-osin" min="0.5" max="2.5" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-osin-v">1.0</span>
+                                    </div>
+                                    <div class="cfg-row" title="Kích thước UFO">
+                                        <label>Cỡ UFO</label>
+                                        <input type="range" id="cfg-scale-ufo" min="0.5" max="2.5" step="0.05"/>
+                                        <span class="cfg-val" id="cfg-scale-ufo-v">1.0</span>
+                                    </div>
+                                    <div class="cfg-row" title="Gắn phụ kiện trang trí lên miệng hũ — không che thân hũ">
+                                        <label>🎀 Phụ kiện hũ</label>
+                                        <select id="cfg-jar-accessory" class="cfg-select">
+                                            <option value="none">Không gắn</option>
+                                            <option value="bow-pink">🎀 Nơ hồng</option>
+                                            <option value="bow-blue">🎀 Nơ xanh</option>
+                                            <option value="bow-white">🎀 Nơ trắng</option>
+                                            <option value="bow-black">🎀 Nơ đen</option>
+                                            <option value="crown">👑 Vương miện</option>
+                                            <option value="flower-cherry">🌸 Hoa anh đào</option>
+                                            <option value="star-gold">⭐ Ngôi sao vàng</option>
+                                            <option value="leaves-christmas">🎄 Lá Noel</option>
+                                            <option value="gem-diamond">💎 Kim cương</option>
+                                        </select>
+                                    </div>
+                                    <div class="cfg-row" title="Đổi màu hũ ngoài (7 màu PNG)">
+                                        <label>🎨 Theme hũ</label>
+                                        <select id="cfg-jar-theme" class="cfg-select">
+                                            <option value="default">Mặc định (trắng)</option>
+                                            <option value="blue">Xanh dương</option>
+                                            <option value="cam">Cam</option>
+                                            <option value="green">Xanh lá</option>
+                                            <option value="pink">Hồng</option>
+                                            <option value="tim">Tím</option>
+                                            <option value="yellow">Vàng</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="feat-section">
                                     <div class="feat-section-title">Mục tiêu</div>
                                     <div class="cfg-row">
                                         <label>Mục tiêu</label>
-                                        <input type="range" id="cfg-goal" min="100" max="100000" step="500"/>
-                                        <span class="cfg-val" id="cfg-goal-v">1000</span>
+                                        <input type="number" id="cfg-goal" min="100" max="1000000" step="100" value="5000" class="cfg-num-input"/>
+                                        <span class="cfg-val cfg-val-hidden" id="cfg-goal-v">5000</span>
                                     </div>
                                     <div class="cfg-row">
                                         <label>Lắc khi</label>
@@ -224,6 +286,77 @@
 
                             <!-- 🎯 Quà kích hoạt -->
                             <div class="tab-pane" data-pane="trig">
+                                <!-- 🏷 Badge global config — đặt đầu tab Quà -->
+                                <div class="badges-cfg-section">
+                                    <div class="badges-cfg-title">🏷 Badge hiệu ứng quà</div>
+                                    <div class="badges-cfg-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+                                        <label class="feat compact"><input type="checkbox" id="cfg-badges-enabled"/> Hiện badge trên overlay</label>
+                                        <label class="feat compact" title="Khóa vị trí badge — không ai kéo được"><input type="checkbox" id="cfg-badges-locked"/> 🔒 Khóa vị trí</label>
+                                    </div>
+                                    <div class="badges-cfg-grid">
+                                        <div class="badges-cfg-col" title="Sắp xếp badge dọc hay ngang">
+                                            <label>Layout</label>
+                                            <select id="cfg-badges-layout" class="cfg-select">
+                                                <option value="vertical">Dọc</option>
+                                                <option value="horizontal">Ngang</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col" title="Vị trí chữ mặc định cho tất cả badge (per-card vẫn override được)">
+                                            <label>Vị trí</label>
+                                            <select id="cfg-badges-namepos" class="cfg-select">
+                                                <option value="right">Phải</option>
+                                                <option value="left">Trái</option>
+                                                <option value="top">Trên</option>
+                                                <option value="bottom">Dưới</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Kích thước card badge (0.5x - 2.0x)">
+                                            <label>Cỡ card <span class="cfg-val" id="cfg-badges-scale-v">1.0</span></label>
+                                            <input type="range" id="cfg-badges-scale" min="0.5" max="2.0" step="0.05"/>
+                                        </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Kích thước icon quà — to hơn 1.0 sẽ tràn ra ngoài card mà không che chữ">
+                                            <label>Cỡ icon <span class="cfg-val" id="cfg-badges-iconscale-v">1.0</span></label>
+                                            <input type="range" id="cfg-badges-iconscale" min="0.5" max="2.5" step="0.05"/>
+                                        </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Khoảng cách giữa các card badge (0 - 3cqw)">
+                                            <label>Khoảng cách <span class="cfg-val" id="cfg-badges-gap-v">0.8</span></label>
+                                            <input type="range" id="cfg-badges-gap" min="0" max="3" step="0.1"/>
+                                        </div>
+                                        <div class="badges-cfg-col badges-cfg-col-scale" title="Cỡ chữ tên quà (0.5 - 2.0)">
+                                            <label>Cỡ chữ <span class="cfg-val" id="cfg-badges-name-scale-v">1.0</span></label>
+                                            <input type="range" id="cfg-badges-name-scale" min="0.5" max="2.0" step="0.05"/>
+                                        </div>
+                                    </div>
+                                    <div class="hint" style="font-size:11px;color:#6b7390;padding:4px 0">
+                                        💡 Vị trí container: kéo thả trên overlay app để di chuyển tự do.
+                                    </div>
+                                    <!-- 🎞 Auto-scroll marquee — tự cuộn vô hạn khi danh sách dài -->
+                                    <div class="badges-cfg-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+                                        <label class="feat compact" style="flex:0 0 auto"><input type="checkbox" id="cfg-badges-autoscroll"/> 🎞 Tự cuộn</label>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:80px" title="Số quà hiển thị cùng lúc (2-10)">
+                                            <label>Số hiện <span class="cfg-val" id="cfg-badges-visible-v">5</span></label>
+                                            <input type="range" id="cfg-badges-visible" min="2" max="10" step="1"/>
+                                        </div>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:90px" title="Hướng cuộn (tuỳ layout)">
+                                            <label>Hướng</label>
+                                            <select id="cfg-badges-scroll-dir" class="cfg-select">
+                                                <option value="up">Lên ↑</option>
+                                                <option value="down">Xuống ↓</option>
+                                                <option value="left">Trái ←</option>
+                                                <option value="right">Phải →</option>
+                                            </select>
+                                        </div>
+                                        <div class="badges-cfg-col" style="flex:1;min-width:80px" title="Tốc độ — giây/quà (nhỏ = nhanh)">
+                                            <label>Tốc độ <span class="cfg-val" id="cfg-badges-speed-v">2</span>s</label>
+                                            <input type="range" id="cfg-badges-speed" min="0.5" max="5" step="0.1"/>
+                                        </div>
+                                    </div>
+                                    <div class="badges-extras-row">
+                                        <div class="badges-extras-title">Badge thủ công bổ sung</div>
+                                        <button id="btn-add-extra-badge" class="ghost mini">➕ Thêm badge</button>
+                                    </div>
+                                    <div id="badges-extras-list" class="badges-extras-list"></div>
+                                </div>
                                 <div class="hint" style="padding:6px 12px 0">Quà chỉ định KHÔNG rơi vào hũ. Bấm ⚙ để cài thông số.</div>
                                 <div class="trigger-list" id="trigger-list"></div>
                                 <datalist id="gift-options"></datalist>
@@ -232,16 +365,16 @@
                             <!-- 🎬 Thao tác thử -->
                             <div class="tab-pane" data-pane="act">
                                 <div class="cfg-actions">
-                                    <button id="btn-clear-jar" class="ghost small">🗑 Xoá hết</button>
-                                    <button id="btn-shake" class="ghost small">💥 Lắc</button>
-                                    <button id="btn-reset-session" class="ghost small">↺ Phiên mới</button>
-                                </div>
-                                <div class="cfg-actions">
                                     <button id="btn-thief" class="ghost small">🥷 Thả trộm</button>
                                     <button id="btn-osin" class="ghost small">🧹 Gọi OSIN</button>
                                     <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
                                     <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
                                     <button id="btn-fx-shape" class="ghost small">🎨 Tạo hình</button>
+                                </div>
+                                <div class="quick-test-section">
+                                    <div class="quick-test-title">⚡ Có <span id="quick-test-count">0</span> hiệu ứng đã sẵn sàng</div>
+                                    <div class="quick-test-grid" id="quick-test-grid"></div>
+                                    <div class="quick-test-empty" id="quick-test-empty">Chưa gán hiệu ứng cho quà nào. Vào tab 🎯 Quà để gán.</div>
                                 </div>
                             </div>
 
@@ -551,11 +684,108 @@
                 </div>
             </section>
 
+            <!-- ============ GAME VIEW: VIP Welcome ============ -->
+            <section id="view-vipwelcome" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="vipwelcome-title">🎊 Chào Mừng VIP</h2>
+                        <div class="game-sub">Phát video/âm thanh khi user vào phòng LIVE hoặc tặng quà — theo TikTok ID hoặc theo cấp độ.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <input id="vipwelcome-overlay-url" type="text" readonly hidden />
+                        <label class="pktiktok-switch" title="Bật / Tắt toàn bộ game"><input id="vipwelcome-enabled" type="checkbox" checked /><span>Bật</span></label>
+                        <button id="vipwelcome-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
+                        <button id="vipwelcome-btn-reload" class="ghost small" title="Buộc OBS browser source reload — dùng khi đổi style mà overlay vẫn hiện cũ (do cache)">🔄 Reload overlay</button>
+                        <button id="vipwelcome-btn-stop" class="danger small" title="Dừng phát + xoá hàng đợi ngay">⏹ DỪNG</button>
+                    </div>
+                </header>
+
+                <div class="game-body vipwelcome-body">
+                    <div class="col col-left vipwelcome-left">
+                        <div class="card vipwelcome-card">
+                            <!-- Profile picker — chọn nhóm hồ sơ đang edit, bật/tắt từng nhóm -->
+                            <div class="vw-profile-bar" id="vw-profile-bar">
+                                <button id="vw-profile-collapse" class="vw-profile-collapse-btn" title="Thu gọn / Mở rộng thanh nhóm">▼</button>
+                                <div class="vw-profile-bar-title">📁 Nhóm hồ sơ</div>
+                                <div class="vw-profile-active-name" id="vw-profile-active-name" hidden></div>
+                                <div class="vw-profile-chips" id="vw-profile-chips"></div>
+                                <div class="vw-profile-actions">
+                                    <button id="vw-btn-new-profile" class="primary small" title="Tạo nhóm hồ sơ mới">➕ Tạo nhóm</button>
+                                    <button id="vw-btn-rename-profile" class="ghost small" title="Đổi tên nhóm đang chọn">✏ Đổi tên</button>
+                                    <button id="vw-btn-clone-profile" class="ghost small" title="Sao chép nhóm đang chọn">📋 Nhân bản</button>
+                                    <button id="vw-btn-export-profile" class="ghost small" title="Tải nhóm đang chọn xuống file JSON (backup hoặc share)">📥 Export</button>
+                                    <button id="vw-btn-import-profile" class="ghost small" title="Import nhóm hồ sơ từ file JSON">📤 Import</button>
+                                    <button id="vw-btn-delete-profile" class="danger small" title="Xoá nhóm đang chọn">🗑 Xoá</button>
+                                </div>
+                            </div>
+                            <div class="card-tabs vw-tabs">
+                                <button class="tab vw-tab active" data-vw-tab="users">👤 Người chỉ định</button>
+                                <button class="tab vw-tab" data-vw-tab="global">🌐 Tất cả user</button>
+                                <button class="tab vw-tab" data-vw-tab="settings">⚙ Cài đặt</button>
+                                <button class="tab vw-tab" data-vw-tab="queue">📜 Hàng đợi (<span id="vipwelcome-queue-size">0</span>)</button>
+                            </div>
+
+                            <!-- TAB: User cụ thể -->
+                            <div class="tab-pane vw-pane active" data-vw-pane="users">
+                                <div class="vw-pane-head">
+                                    <div class="vw-pane-hint">Cài hiệu ứng riêng cho từng TikTok ID — 7 trigger: Vào phòng / Táp tim / Follow / Share / Comment / Bao lì xì / Lên cấp.</div>
+                                    <input type="text" id="vw-rule-search" class="vw-search-input" placeholder="🔍 Tìm rule theo ID / lời chúc..." />
+                                    <button id="vw-btn-test-all" class="ghost small" title="Test toàn bộ rule trong nhóm hiện tại theo thứ tự — verify media + overlay hoạt động">🧪 Test toàn nhóm</button>
+                                    <button id="vw-btn-add-user-rule" class="primary small">➕ Thêm user</button>
+                                </div>
+                                <div class="vw-note">
+                                    <b>📡 Cách phát hiện user vào phòng (theo thứ tự ưu tiên):</b>
+                                    <br>① <b>Top contributors list</b> (~30s/lần, TỰ ĐỘNG) — bắt được user top trong phòng KHÔNG cần tương tác. Đây là cách CHÍNH.
+                                    <br>② <b>Member event</b> — TikTok tự gửi cho viewer "đáng kể" vào phòng.
+                                    <br>③ <b>❤️ Táp tim / Comment / Follow</b> — fallback nếu user không trong top: chỉ cần táp 1 cái tim → fire ngay.
+                                    <br><b>🔁 Vào lại phòng:</b> sau khi user vắng mặt <b>30 giây</b> (không có signal), nếu họ quay lại sẽ fire effect LẠI. Ở liên tục trong phòng → KHÔNG re-fire (tránh spam).
+                                    <br><b>⚠ Giới hạn TikTok:</b> User level rất thấp + lurk hoàn toàn + không trong top → không phát hiện được (giới hạn protobuf TikTok).
+                                </div>
+                                <div id="vw-user-rules-list" class="vw-user-rules-list"></div>
+                            </div>
+
+                            <!-- TAB: Tất cả user -->
+                            <div class="tab-pane vw-pane" data-vw-pane="global">
+                                <div class="vw-pane-hint">Trigger cho BẤT KỲ user nào trong phòng LIVE. Đặt Min Level đủ cao để tránh spam.</div>
+                                <div id="vw-global-join-card"></div>
+                                <div id="vw-global-gift-card"></div>
+                            </div>
+
+                            <!-- TAB: Settings -->
+                            <div class="tab-pane vw-pane" data-vw-pane="settings">
+                                <div id="vw-settings-pane"></div>
+                            </div>
+
+                            <!-- TAB: Queue -->
+                            <div class="tab-pane vw-pane" data-vw-pane="queue">
+                                <div class="vw-pane-head">
+                                    <div class="vw-pane-hint">Server quản lý hàng đợi — overlay nhận từng item theo nhịp <code>perItemMinMs</code>.</div>
+                                    <div>
+                                        <button id="vipwelcome-btn-clear-queue" class="ghost small" title="Chỉ xoá các item đang đợi phát">🗑 Xoá hàng đợi</button>
+                                        <button id="vipwelcome-btn-clear-log" class="ghost small" title="Xoá toàn bộ log để giảm spam">🧹 Xoá log</button>
+                                        <button id="vipwelcome-btn-reset-cooldown" class="ghost small" title="Reset cooldown để test lại user/rule trong vòng 60s">↺ Reset cooldown</button>
+                                        <button id="vipwelcome-btn-reset-session" class="ghost small" title="Reset toàn bộ session state (level tracker, first-seen, userId cache, cooldown). Test lại từ đầu mà không cần reconnect LIVE.">🔄 Reset phiên</button>
+                                    </div>
+                                </div>
+                                <div class="vw-queue-block">
+                                    <div class="vw-block-title">⏳ Đang chờ</div>
+                                    <div id="vw-queue-list" class="vw-queue-list"></div>
+                                </div>
+                                <div class="vw-queue-block">
+                                    <div class="vw-block-title">📜 Log gần nhất</div>
+                                    <div id="vw-log" class="vw-log"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ============ GAME VIEW: PK TikTok ============ -->
             <section id="view-pktiktok" class="view game-view">
                 <header class="game-header">
                     <div>
-                        <h2 id="pktiktok-title">🎬 PK TikTok — Hiệu ứng trận PK</h2>
+                        <h2 id="pktiktok-title">🥊 Hiệu ứng PK</h2>
                     </div>
                     <div class="overlay-bar">
                         <input id="pktiktok-overlay-url" type="text" readonly hidden />
@@ -569,7 +799,7 @@
                         <div class="card pktiktok-card">
                             <div class="pktiktok-toolbar">
                                 <label class="pktiktok-switch" title="Bật hiệu ứng PK"><input id="pktiktok-enabled" type="checkbox" checked /><span>Bật PK</span></label>
-                                <label class="pktiktok-switch" title="Tự động theo engine PK (start/10s/win/lose)"><input id="pktiktok-autobind" type="checkbox" checked /><span>Auto bind</span></label>
+                                <label class="pktiktok-switch" title="Tự động fire theo TikTok event PK match (BETA — auto-detect: start / mission / 10s cuối / win/lose). Mở Console (Ctrl+Shift+I) để xem log [pktiktok] khi PK chạy. Phase x2/x3/items hiện chưa auto — phải test thủ công."><input id="pktiktok-autobind" type="checkbox" checked /><span>Auto bind (BETA)</span></label>
                                 <label class="pktiktok-switch" title="Hiện chữ trên overlay khi fire"><input id="pktiktok-show-label" type="checkbox" /><span>Hiện chữ</span></label>
                                 <span class="pktiktok-toolbar-spacer"></span>
                                 <span id="pktiktok-stats" class="pktiktok-stats">0/13</span>
@@ -586,6 +816,16 @@
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <section id="view-live-translate" class="view game-view live-translate-view">
+                <header class="game-header">
+                    <div>
+                        <h2>🌐 DỊCH VÀ ĐỌC LIVE</h2>
+                        <div class="game-sub">Dịch bình luận LIVE, đọc bình luận, và phụ đề giọng Creator cho OBS.</div>
+                    </div>
+                </header>
+                <div id="live-translate-workspace" class="live-translate-workspace"></div>
             </section>
         </main>
     </div>
@@ -628,6 +868,129 @@
         <div class="comments-popup-foot">Idol thường xem bình luận trên TikTok Studio — đây chỉ là backup.</div>
     </div>
 
+    <!-- Floating Dịch bình luận LIVE — popup -->
+    <button id="translate-fab" class="comments-fab translate-fab" title="Dịch bình luận LIVE">
+        🌐<span class="badge" id="translate-badge" hidden>0</span>
+    </button>
+    <div id="translate-popup" class="comments-popup translate-popup" hidden>
+        <div class="comments-popup-head">
+            <span>🌐 Dịch bình luận</span>
+            <div class="head-actions">
+                <button id="btn-translate-copy" class="ghost mini">Copy OBS</button>
+                <button id="translate-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div class="translate-settings">
+            <div class="translate-actions translate-main-actions">
+                <button id="btn-translate-toggle" class="primary block">BẮT ĐẦU</button>
+                <button id="btn-translate-save" class="primary block">Lưu cài đặt dịch</button>
+            </div>
+            <label class="translate-check"><input type="checkbox" id="lt-enabled" checked /> Bật dịch bình luận</label>
+            <label class="translate-check"><input type="checkbox" id="lt-tts" checked /> Đọc thành tiếng trên overlay</label>
+            <label class="translate-check"><input type="checkbox" id="lt-ignore-icons" checked /> Bỏ qua icon/emoji, chỉ dịch chữ</label>
+            <label class="translate-check"><input type="checkbox" id="lt-clean-unreadable" checked /> Bỏ phần trong [] và ký tự đặc biệt khó đọc</label>
+            <div class="translate-row">
+                <label>Dịch từ</label>
+                <select id="lt-source">
+                    <option value="auto">Tự nhận diện mọi ngôn ngữ</option>
+                    <option value="en">English</option><option value="vi">Tiếng Việt</option><option value="th">Thai</option>
+                    <option value="id">Indonesia</option><option value="ja">Japanese</option><option value="ko">Korean</option>
+                    <option value="zh">Chinese</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option>
+                </select>
+            </div>
+            <div class="translate-row">
+                <label>Ngôn ngữ đích</label>
+                <select id="lt-target">
+                    <option value="vi">Tiếng Việt</option><option value="en">English</option><option value="th">Thai</option>
+                    <option value="id">Indonesia</option><option value="ja">Japanese</option><option value="ko">Korean</option>
+                    <option value="zh">Chinese</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option>
+                </select>
+            </div>
+            <div class="translate-row">
+                <label>Giọng đọc</label>
+                <select id="lt-voice">
+                    <option value="auto">Tự chọn theo máy</option><option value="female">Ưu tiên giọng Nữ</option><option value="male">Ưu tiên giọng Nam</option>
+                    <option value="random">Giọng ngẫu nhiên</option><option value="randomGender">Nam/Nữ ngẫu nhiên</option>
+                    <option value="variant1">Giọng 1</option><option value="variant2">Giọng 2</option><option value="variant3">Giọng 3</option><option value="variant4">Giọng 4</option><option value="variant5">Giọng 5</option>
+                </select>
+            </div>
+            <div class="translate-row"><label>Chế độ đọc</label><select id="lt-read-mode"><option value="nameAndComment">Tên + bình luận</option><option value="commentOnly">Chỉ bình luận</option><option value="nameOnly">Chỉ tên</option></select></div>
+            <div class="translate-row"><label>Ưu tiên đọc</label><select id="lt-priority"><option value="all">Tất cả bình luận</option><option value="gifters">Chỉ user vừa tặng quà</option><option value="members">Chỉ user vừa vào LIVE</option><option value="giftersOrMembers">Tặng quà hoặc vừa vào LIVE</option></select></div>
+            <div class="translate-row"><label>Chống spam</label><select id="lt-cooldown"><option value="0">Không giới hạn</option><option value="3">3 giây/user</option><option value="4">4 giây/user</option><option value="5">5 giây/user</option><option value="8">8 giây/user</option><option value="10">10 giây/user</option></select></div>
+            <div class="translate-row"><label>Âm lượng</label><input type="range" id="lt-volume" min="0" max="100" step="5" /><span class="translate-val" id="lt-volume-v">85%</span></div>
+            <div class="translate-row"><label>Tốc độ đọc</label><input type="range" id="lt-rate" min="0.5" max="2" step="0.1" value="1" /><span class="translate-val" id="lt-rate-v">1.0x</span></div>
+            <button id="btn-translate-test-voice" class="ghost block">Test giọng tiếng Việt</button>
+            <details class="translate-collapse"><summary>Từ tắt / cụm thay thế bổ sung</summary><div class="translate-row vertical"><label>Quy tắc từ xa tự đồng bộ. Mục này chỉ để bổ sung local.</label><textarea id="lt-glossary" rows="5" spellcheck="false" placeholder="hp=HP Media\nidk=I don't know\nny=người yêu"></textarea></div></details>
+            <details class="translate-collapse"><summary>Từ cấm / tên user cấm bổ sung</summary><div class="translate-row vertical"><label>Quy tắc từ xa tự đồng bộ. Mục này chỉ để bổ sung local.</label><textarea id="lt-forbidden" rows="6" spellcheck="false" placeholder="spam\nkeyword\nusername"></textarea></div></details>
+            <div class="translate-sheet-row">
+                <span id="lt-sheet-status">Quy tắc: tự đồng bộ khi kết nối</span>
+                <button id="btn-translate-sync-sheet" class="ghost mini">Đồng bộ</button>
+            </div>
+            <input id="lt-overlay-url" type="text" readonly hidden />
+            <div id="lt-status" class="translate-status"></div>
+        </div>
+    </div>
+
+    <button id="creator-caption-fab" class="comments-fab creator-caption-fab" title="Phụ đề giọng Creator">
+        🎙️
+    </button>
+    <div id="creator-caption-popup" class="comments-popup creator-caption-popup" hidden>
+        <div class="comments-popup-head">
+            <span>🎙️ Phụ đề giọng Creator</span>
+            <div class="head-actions">
+                <button id="btn-cc-copy" class="ghost mini" title="Copy OBS">Copy OBS</button>
+                <button id="creator-caption-close" class="modal-close" title="Đóng">✕</button>
+            </div>
+        </div>
+        <div class="translate-settings">
+            <label class="translate-check"><input type="checkbox" id="cc-enabled" /> Bật nhận giọng Creator</label>
+            <label class="translate-check"><input type="checkbox" id="cc-original" checked /> Hiện cả câu gốc</label>
+            <div class="translate-row">
+                <label>Creator nói</label>
+                <select id="cc-source">
+                    <option value="vi-VN">Tiếng Việt</option><option value="en-US">English</option><option value="th-TH">Thai</option>
+                    <option value="id-ID">Indonesia</option><option value="ja-JP">Japanese</option><option value="ko-KR">Korean</option>
+                    <option value="zh-CN">Chinese</option><option value="fr-FR">French</option><option value="de-DE">German</option><option value="es-ES">Spanish</option>
+                    <option value="ru-RU">Russian</option><option value="pt-BR">Portuguese</option><option value="hi-IN">Hindi</option><option value="ar-SA">Arabic</option><option value="tr-TR">Turkish</option>
+                </select>
+            </div>
+            <div class="translate-row">
+                <label>Micro</label>
+                <select id="cc-mic"><option value="default">Micro mặc định của máy</option></select>
+                <button id="btn-cc-mic-test" class="ghost mini" title="Kiểm tra quyền micro">✓</button>
+            </div>
+            <div class="translate-row"><label>Dừng nói sau</label><input type="range" id="cc-silence" min="0.5" max="8" step="0.5" value="2" /><span class="translate-val" id="cc-silence-v">2s</span></div>
+            <div class="translate-row vertical">
+                <label>Dịch ra nhiều ngôn ngữ</label>
+                <div class="cc-lang-grid">
+                    <label><input type="checkbox" name="cc-targets" value="en" checked /> English</label>
+                    <label><input type="checkbox" name="cc-targets" value="vi" /> Tiếng Việt</label>
+                    <label><input type="checkbox" name="cc-targets" value="th" /> Thai</label>
+                    <label><input type="checkbox" name="cc-targets" value="id" /> Indonesia</label>
+                    <label><input type="checkbox" name="cc-targets" value="ja" /> Japanese</label>
+                    <label><input type="checkbox" name="cc-targets" value="ko" /> Korean</label>
+                    <label><input type="checkbox" name="cc-targets" value="zh" /> Chinese</label>
+                    <label><input type="checkbox" name="cc-targets" value="fr" /> French</label>
+                    <label><input type="checkbox" name="cc-targets" value="de" /> German</label>
+                    <label><input type="checkbox" name="cc-targets" value="es" /> Spanish</label>
+                    <label><input type="checkbox" name="cc-targets" value="ru" /> Russian</label>
+                    <label><input type="checkbox" name="cc-targets" value="pt" /> Portuguese</label>
+                    <label><input type="checkbox" name="cc-targets" value="hi" /> Hindi</label>
+                    <label><input type="checkbox" name="cc-targets" value="ar" /> Arabic</label>
+                    <label><input type="checkbox" name="cc-targets" value="tr" /> Turkish</label>
+                    <label><input type="checkbox" name="cc-targets" value="ms" /> Malay</label>
+                    <label><input type="checkbox" name="cc-targets" value="fil" /> Filipino</label>
+                </div>
+            </div>
+            <div class="creator-caption-actions">
+                <button id="btn-cc-toggle" class="primary block">BẮT ĐẦU NGHE</button>
+                <button id="btn-cc-test" class="ghost block">Test phụ đề</button>
+            </div>
+            <div id="cc-status" class="translate-status"></div>
+        </div>
+        <div class="comments-popup-foot">Overlay riêng: chỉ hiện chữ dịch giọng Creator, không phát âm thanh.</div>
+    </div>
+
     <!-- Modal cài đặt riêng cho từng hiệu ứng -->
     <div id="effect-modal" class="modal" hidden>
         <div class="modal-card">
@@ -646,10 +1009,109 @@
                     <div class="ef-gift-picker" id="ef-gift-picker" hidden></div>
                 </div>
                 <div class="modal-section" id="ef-params"></div>
+                <div class="modal-section" id="ef-badge-section" hidden>
+                    <div class="modal-sec-title">🏷 Badge hiển thị trên overlay</div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Bật badge</label>
+                        <label class="switch-mini"><input type="checkbox" id="ef-badge-enabled" checked/> hiện trên overlay</label>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Tên hiển thị</label>
+                        <input type="text" id="ef-badge-label" class="text-input" placeholder="Mặc định = tên hành động" style="flex:1"/>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Vị trí tên</label>
+                        <select id="ef-badge-namepos" class="cfg-select">
+                            <option value="">Theo mặc định (global)</option>
+                            <option value="right">Phải icon</option>
+                            <option value="left">Trái icon</option>
+                            <option value="top">Trên icon</option>
+                            <option value="bottom">Dưới icon</option>
+                        </select>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">✨ Viền badge</label>
+                        <select id="ef-badge-border" class="cfg-select">
+                            <option value="none">Không viền</option>
+                            <option value="gold">🟡 Vàng sáng (pulse)</option>
+                            <option value="blue">🔵 Xanh dương</option>
+                            <option value="red">🔴 Đỏ rực</option>
+                            <option value="purple">🟣 Tím neon</option>
+                            <option value="green">🟢 Xanh lá</option>
+                            <option value="rainbow">🌈 Cầu vồng</option>
+                            <option value="sparkle">✨ Lấp lánh</option>
+                            <option value="fire">🔥 Lửa</option>
+                        </select>
+                    </div>
+                </div>
             </div>
             <div class="modal-foot">
                 <button class="ghost" id="ef-modal-cancel">Đóng</button>
                 <button class="primary" id="ef-modal-save">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal thêm badge extra (quà không cần gán effect — chỉ show trên badge list) -->
+    <div id="extra-badge-modal" class="modal" hidden>
+        <div class="modal-card" style="max-width:460px">
+            <div class="modal-head">
+                <div class="modal-title">➕ Thêm badge thủ công</div>
+                <button class="modal-close" id="ebm-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <div class="modal-sec-title">Chọn từ danh sách quà</div>
+                    <input type="text" id="ebm-search" class="text-input" placeholder="Tìm quà theo tên hoặc ID..." style="width:100%;margin-bottom:8px"/>
+                    <div class="ebm-filter-row">
+                        <label class="ebm-exclude-toggle" title="Ẩn các quà đã được gán hiệu ứng hoặc đã có trong badge list">
+                            <input type="checkbox" id="ebm-exclude-assigned" checked/>
+                            <span>Ẩn quà đã có trong MENU hiệu ứng</span>
+                        </label>
+                    </div>
+                    <div class="ebm-diamond-chips" id="ebm-diamond-chips"></div>
+                    <div id="ebm-picker" class="ef-gift-picker" style="max-height:320px;overflow-y:auto"></div>
+                    <div class="ebm-result-count" id="ebm-result-count"></div>
+                    <!-- hidden inputs kept for backward compat with save handler -->
+                    <input type="hidden" id="ebm-id"/>
+                    <input type="hidden" id="ebm-name"/>
+                    <input type="hidden" id="ebm-image"/>
+                </div>
+                <div class="modal-section">
+                    <div class="modal-sec-title">Hiển thị badge</div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Tên hiển thị</label>
+                        <input type="text" id="ebm-label" class="text-input" placeholder="Mặc định = tên quà" style="flex:1"/>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">Vị trí tên</label>
+                        <select id="ebm-namepos" class="cfg-select">
+                            <option value="">Theo mặc định (global)</option>
+                            <option value="right">Phải icon</option>
+                            <option value="left">Trái icon</option>
+                            <option value="top">Trên icon</option>
+                            <option value="bottom">Dưới icon</option>
+                        </select>
+                    </div>
+                    <div class="ef-param-row">
+                        <label class="ef-param-lbl">✨ Viền badge</label>
+                        <select id="ebm-border" class="cfg-select">
+                            <option value="none">Không viền</option>
+                            <option value="gold">🟡 Vàng sáng (pulse)</option>
+                            <option value="blue">🔵 Xanh dương</option>
+                            <option value="red">🔴 Đỏ rực</option>
+                            <option value="purple">🟣 Tím neon</option>
+                            <option value="green">🟢 Xanh lá</option>
+                            <option value="rainbow">🌈 Cầu vồng</option>
+                            <option value="sparkle">✨ Lấp lánh</option>
+                            <option value="fire">🔥 Lửa</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="ghost" id="ebm-cancel">Đóng</button>
+                <button class="primary" id="ebm-save">Thêm badge</button>
             </div>
         </div>
     </div>
@@ -775,6 +1237,8 @@
     <script src="/games/caro/caro-panel.js"></script>
     <script src="/games/pktiktok/game.js"></script>
     <script src="/games/pktiktok/pktiktok-panel.js"></script>
+    <script src="/games/vipwelcome/game.js"></script>
+    <script src="/games/vipwelcome/vipwelcome-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

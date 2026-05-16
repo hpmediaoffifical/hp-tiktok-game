@@ -2,7 +2,7 @@
  * HP Action LIVE — Electron Desktop Wrapper
  * Khởi động server Express + mở cửa sổ Chromium tới http://localhost:PORT
  */
-const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -13,6 +13,7 @@ const APP_NAME = 'HP Action LIVE';
 
 let mainWindow = null;
 let splashWindow = null;
+let soundfxWindow = null;
 let tray = null;
 let serverStarted = false;
 let isQuitting = false;
@@ -168,6 +169,11 @@ function createMainWindow() {
 
     // Hyperlinks trỏ ra ngoài → mở bằng trình duyệt mặc định
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // /soundfx → mở cửa sổ soundboard nổi riêng (always-on-top, resize)
+        if (url === `${APP_URL}/soundfx` || url.startsWith(`${APP_URL}/soundfx`)) {
+            openSoundfxWindow();
+            return { action: 'deny' };
+        }
         if (url.startsWith(APP_URL)) {
             return { action: 'allow' };
         }
@@ -216,6 +222,7 @@ function buildTray() {
         tray = new Tray(getIcon().resize({ width: 16, height: 16 }));
         const contextMenu = Menu.buildFromTemplate([
             { label: 'Mở HP Action LIVE', click: showMainWindow },
+            { label: '🔊 Mở Sound Effects', click: () => openSoundfxWindow() },
             { label: 'Mở overlay OBS trong trình duyệt', click: () => shell.openExternal(`${APP_URL}/overlay/thuytinh`) },
             { type: 'separator' },
             { label: 'Thoát', click: () => fullQuit() }
@@ -238,7 +245,124 @@ function buildTray() {
 //   Tier 5: app.exit(0) → main process exit chính thức
 //   Hard fallback: taskkill /F /T /PID → kill TREE (kể cả grandchildren) sau 1.5s
 // ============================================================
-function fullQuit() {
+// Custom confirm popup styled cùng theme app — thay cho dialog.showMessageBoxSync xấu xí.
+// Sử dụng BrowserWindow frameless + transparent + IPC để communicate.
+function confirmQuitAsync() {
+    return new Promise((resolve) => {
+        let resolved = false;
+        const finish = (v) => { if (resolved) return; resolved = true; resolve(v); };
+        try {
+            const parent = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+            const win = new BrowserWindow({
+                width: 460, height: 280,
+                frame: false, transparent: true,
+                resizable: false, minimizable: false, maximizable: false,
+                alwaysOnTop: true, skipTaskbar: true,
+                parent, modal: !!parent,
+                show: false,
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    sandbox: false
+                }
+            });
+            const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+                html,body { margin: 0; padding: 0; height: 100%; background: transparent; font-family: 'Segoe UI', Roboto, sans-serif; overflow: hidden; user-select: none; -webkit-app-region: drag; }
+                .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+                .card {
+                    -webkit-app-region: drag;
+                    background: linear-gradient(155deg, #1f2230 0%, #181b25 100%);
+                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    border-radius: 14px;
+                    padding: 22px 26px;
+                    width: 420px; max-width: 92vw;
+                    box-shadow: 0 22px 64px rgba(0,0,0,0.75), 0 0 0 1px rgba(239, 68, 68, 0.18);
+                    animation: pop 0.25s cubic-bezier(.34,1.56,.64,1);
+                }
+                @keyframes pop { from { transform: translateY(20px) scale(0.92); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+                .head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+                .ico {
+                    width: 44px; height: 44px; flex-shrink: 0;
+                    display: flex; align-items: center; justify-content: center;
+                    background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(255, 107, 61, 0.18));
+                    border-radius: 12px; font-size: 22px;
+                }
+                .title { font-size: 16px; font-weight: 800; color: #f3f5fa; }
+                .body { font-size: 13px; color: #d6dae6; line-height: 1.55; padding: 4px 0 16px; }
+                .body .hint { color: #8b93a8; font-size: 12px; }
+                .actions { display: flex; justify-content: flex-end; gap: 10px; -webkit-app-region: no-drag; }
+                button {
+                    -webkit-app-region: no-drag;
+                    padding: 9px 22px; font-size: 13px; font-weight: 700;
+                    border-radius: 8px; cursor: pointer;
+                    transition: transform 0.1s, box-shadow 0.15s;
+                    border: 1px solid transparent;
+                    font-family: inherit;
+                }
+                button:hover { transform: translateY(-1px); }
+                .cancel { background: rgba(255,255,255,0.07); color: #d6dae6; border-color: rgba(255,255,255,0.12); }
+                .cancel:hover { background: rgba(255,255,255,0.14); }
+                .ok { background: linear-gradient(135deg, #ef4444, #f97316); color: #fff; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); }
+                .ok:hover { box-shadow: 0 6px 20px rgba(239, 68, 68, 0.55); }
+            </style></head><body>
+                <div class="overlay">
+                    <div class="card">
+                        <div class="head">
+                            <div class="ico">⏻</div>
+                            <div class="title">Xác nhận thoát HP Action LIVE</div>
+                        </div>
+                        <div class="body">
+                            Bạn có chắc muốn thoát?<br>
+                            <span class="hint">Mọi OBS overlay đang kết nối sẽ ngừng nhận tín hiệu khi app thoát. Bấm "Giữ chạy ngầm" để app tiếp tục hoạt động ở tray.</span>
+                        </div>
+                        <div class="actions">
+                            <button id="cancel" class="cancel" autofocus>Giữ chạy ngầm</button>
+                            <button id="ok" class="ok">Thoát hẳn</button>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    const { ipcRenderer } = require('electron');
+                    document.getElementById('ok').addEventListener('click', () => ipcRenderer.send('hp-quit-confirm', true));
+                    document.getElementById('cancel').addEventListener('click', () => ipcRenderer.send('hp-quit-confirm', false));
+                    document.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape') ipcRenderer.send('hp-quit-confirm', false);
+                        else if (e.key === 'Enter') ipcRenderer.send('hp-quit-confirm', false);   // Enter default = huỷ
+                    });
+                    // Focus cancel để Enter mặc định = huỷ
+                    setTimeout(() => document.getElementById('cancel').focus(), 50);
+                </script>
+            </body></html>`;
+            win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+            win.once('ready-to-show', () => win.show());
+            const { ipcMain } = require('electron');
+            const handler = (_evt, result) => { try { win.close(); } catch (e) {} finish(!!result); };
+            ipcMain.once('hp-quit-confirm', handler);
+            win.on('closed', () => { ipcMain.removeListener('hp-quit-confirm', handler); finish(false); });
+        } catch (e) {
+            // Fallback dialog nếu BrowserWindow fail
+            const choice = dialog.showMessageBoxSync({
+                type: 'question', buttons: ['Thoát hẳn', 'Huỷ'], defaultId: 1, cancelId: 1,
+                title: 'Xác nhận thoát', message: 'Bạn có chắc muốn thoát HP Action LIVE?'
+            });
+            finish(choice === 0);
+        }
+    });
+}
+
+function fullQuit(opts) {
+    if (isQuitting) return;
+    const skipConfirm = !!(opts && opts.skipConfirm);
+    if (!skipConfirm) {
+        confirmQuitAsync().then((confirmed) => {
+            if (confirmed) actualFullQuit();
+        });
+        return;
+    }
+    actualFullQuit();
+}
+
+function actualFullQuit() {
     if (isQuitting) return;
     isQuitting = true;
 
@@ -303,6 +427,118 @@ function fullQuit() {
     }, 200);
 }
 
+// ============================================================
+// 🔊 SoundFX — cửa sổ soundboard nổi, always-on-top, resize có giới hạn
+// ============================================================
+async function loadSfxWinPrefs() {
+    // Đọc bounds đã lưu từ soundfx.json (server lưu qua /api/soundfx/config)
+    try {
+        const j = await new Promise((resolve) => {
+            http.get(`${APP_URL}/api/soundfx/library`, (res) => {
+                let d = ''; res.on('data', c => d += c);
+                res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+            }).on('error', () => resolve(null));
+        });
+        return (j && j.settings && j.settings.win) ? j.settings.win : {};
+    } catch { return {}; }
+}
+async function openSoundfxWindow() {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) {
+        soundfxWindow.show(); soundfxWindow.focus(); return;
+    }
+    const win = await loadSfxWinPrefs();
+    const opts = {
+        width: 480,
+        height: 760,
+        resizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        title: 'HP Media — Sound Effects',
+        icon: getIcon(),
+        backgroundColor: '#ffffff',
+        alwaysOnTop: win.alwaysOnTop !== false,
+        autoHideMenuBar: true,
+        skipTaskbar: false,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            sandbox: false,
+            preload: path.join(__dirname, 'sfx-preload.js')
+        }
+    };
+    if (typeof win.x === 'number' && typeof win.y === 'number') { opts.x = win.x; opts.y = win.y; }
+    soundfxWindow = new BrowserWindow(opts);
+    soundfxWindow.loadURL(`${APP_URL}/soundfx`);
+    soundfxWindow.once('ready-to-show', () => soundfxWindow.show());
+    soundfxWindow.on('closed', () => { soundfxWindow = null; unregisterSfxHotkeys(); });
+    soundfxWindow.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url); return { action: 'deny' };
+    });
+}
+ipcMain.on('sfx:setAlwaysOnTop', (e, on) => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) soundfxWindow.setAlwaysOnTop(!!on);
+});
+ipcMain.on('sfx:close', () => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed()) soundfxWindow.close();
+});
+ipcMain.on('sfx:getBounds', (e) => {
+    try {
+        const b = soundfxWindow && !soundfxWindow.isDestroyed() ? soundfxWindow.getBounds() : null;
+        e.returnValue = b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null;
+    } catch { e.returnValue = null; }
+});
+ipcMain.on('sfx:setBounds', (e, b) => {
+    if (soundfxWindow && !soundfxWindow.isDestroyed() && b) {
+        try { soundfxWindow.setBounds({
+            x: b.x ?? soundfxWindow.getBounds().x,
+            y: b.y ?? soundfxWindow.getBounds().y,
+            width: b.w ?? soundfxWindow.getBounds().width,
+            height: b.h ?? soundfxWindow.getBounds().height
+        }); } catch {}
+    }
+});
+// Main app mở SoundFX qua IPC
+ipcMain.on('open-soundfx', () => openSoundfxWindow());
+
+// 📂 Chọn file audio từ máy
+ipcMain.handle('sfx:pickAudio', async () => {
+    try {
+        const r = await dialog.showOpenDialog(soundfxWindow || mainWindow, {
+            title: 'Chọn file âm thanh',
+            properties: ['openFile'],
+            filters: [{ name: 'Âm thanh', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'] }]
+        });
+        if (r.canceled || !r.filePaths[0]) return null;
+        const p = r.filePaths[0];
+        return { path: p, name: path.basename(p).replace(/\.[a-z0-9]+$/i, '') };
+    } catch { return null; }
+});
+
+// ⌨️ Global shortcuts — hoạt động MỌI NƠI (không cần focus cửa sổ soundfx)
+let _registeredAccels = [];
+function unregisterSfxHotkeys() {
+    for (const a of _registeredAccels) { try { globalShortcut.unregister(a); } catch (_) {} }
+    _registeredAccels = [];
+}
+ipcMain.on('sfx:registerHotkeys', (e, payload) => {
+    unregisterSfxHotkeys();
+    if (!payload || !payload.enabled) return;
+    const sendFire = (data) => {
+        if (soundfxWindow && !soundfxWindow.isDestroyed()) {
+            soundfxWindow.webContents.send('sfx:hotkeyFired', data);
+        }
+    };
+    const reg = (accel, data) => {
+        if (!accel) return;
+        try {
+            if (globalShortcut.register(accel, () => sendFire(data))) _registeredAccels.push(accel);
+        } catch (_) {}
+    };
+    for (const it of (payload.sounds || [])) reg(it.accel, { soundId: it.soundId });
+    if (payload.play) reg(payload.play, { action: 'play' });
+    if (payload.stop) reg(payload.stop, { action: 'stop' });
+});
+
 app.whenReady().then(async () => {
     startServer();
     createSplash();
@@ -310,14 +546,15 @@ app.whenReady().then(async () => {
         await waitForServerReady();
     } catch (e) {
         dialog.showErrorBox('Server không phản hồi', 'Không thể kết nối tới ' + APP_URL);
-        fullQuit();
+        fullQuit({ skipConfirm: true });
         return;
     }
     createMainWindow();
     buildTray();
 });
 
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', () => { isQuitting = true; try { unregisterSfxHotkeys(); } catch (_) {} });
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (_) {} });
 app.on('window-all-closed', () => {
     // Theo behavior cũ: macOS auto-quit, Windows giữ ở tray.
     // KHÔNG fullQuit ở đây — nếu GPU crash khiến windows đóng trước khi tray dựng xong,
@@ -330,5 +567,6 @@ app.on('activate', () => {
 });
 
 // Kéo signal ctrl+c / kill từ terminal về fullQuit để cleanup đầy đủ
-process.on('SIGINT', fullQuit);
-process.on('SIGTERM', fullQuit);
+// SIGINT/SIGTERM = user dứt khoát muốn thoát (ctrl+c terminal, OS shutdown) → bỏ qua confirm dialog
+process.on('SIGINT', () => fullQuit({ skipConfirm: true }));
+process.on('SIGTERM', () => fullQuit({ skipConfirm: true }));

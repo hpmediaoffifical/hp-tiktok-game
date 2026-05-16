@@ -56,7 +56,7 @@
         <div id="content">
             <img class="jar-bottom" src="/assets/thuytinh/jar-bottom.png" />
             <canvas id="game-canvas" width="1080" height="1920"></canvas>
-            <img class="jar-glass" src="/assets/thuytinh/jar-glass.png" />
+            <img class="jar-glass" src="/assets/thuytinh/ben-ngoai/jar-glass.png" />
             <canvas id="fx-canvas" width="1080" height="1920"></canvas>
             <div class="stage-overlays" id="stage-overlays"></div>
             <div class="jar-count" id="jar-count">0</div>
@@ -222,10 +222,51 @@
         // Chỉ listen 1 event để tránh duplicate (server emit cả 'gift' broadcast + 'gameGift' vào room overlay)
         socket.on('gift', handleGift);
 
+        // Cache giftSheet để renderBadges() lookup metadata (image, name) cho gifts đã gán effect
+        socket.on('giftSheet', (data) => {
+            window.__giftSheet = Array.isArray(data) ? data : [];
+            // Trigger re-render badges nếu game đã ready
+            if (game && typeof game.setConfig === 'function') {
+                try { game.setConfig({}); } catch (e) {}
+            }
+        });
+
         // Lệnh điều khiển từ App (authoritative) — OBS replay 1:1 mọi action.
         // App đẩy đủ payload (user info, mode...) để OBS hiển thị cùng nội dung.
-        socket.on('gameCmd', ({ gameId, cmd, payload }) => {
+        //
+        // DEDUP theo seq: tránh duplicate spawn khi
+        //   (1) OBS cache stale code cũ từng gây 1 quà ra 2 trộm
+        //   (2) socket reconnect re-attach listener
+        //   (3) browser source nhân bản scene → 2 overlay cùng render
+        // Server gán seq monotonic. Overlay nhớ 50 seq cuối, skip nếu đã thấy.
+        const seenSeqs = new Set();
+        const seqOrder = [];
+        // Defensive dedup #2: cmd-type + payload-hash trong cửa sổ 800ms — chặn duplicate khi seq
+        // bị mất (vd server restart reset seq counter, OBS browser source duplicate).
+        const recentCmdHashes = new Map();   // hash → timestamp
+        socket.on('gameCmd', ({ gameId, cmd, payload, seq }) => {
             if (gameId !== 'thuytinh' || !game) return;
+            // Dedup nếu có seq (cmd cũ không có → vẫn process — backward compat)
+            if (seq != null) {
+                if (seenSeqs.has(seq)) return;
+                seenSeqs.add(seq);
+                seqOrder.push(seq);
+                if (seqOrder.length > 50) {
+                    const old = seqOrder.shift();
+                    seenSeqs.delete(old);
+                }
+            }
+            // Dedup phụ: same cmd+payload trong 800ms → bỏ qua
+            const now = Date.now();
+            const hashKey = cmd + ':' + JSON.stringify(payload?.thieves?.map(t=>t.uid) || payload?.uid || payload?.name || '');
+            const lastTs = recentCmdHashes.get(hashKey);
+            if (lastTs && (now - lastTs) < 800) return;
+            recentCmdHashes.set(hashKey, now);
+            // Cleanup map cũ (giữ tối đa 30 entries)
+            if (recentCmdHashes.size > 30) {
+                const oldestKey = recentCmdHashes.keys().next().value;
+                recentCmdHashes.delete(oldestKey);
+            }
             if (cmd === 'thief') {
                 // payload có thể là 1 object userInfo, hoặc {thieves:[...]}.
                 const thieves = (payload && payload.thieves && payload.thieves.length)
@@ -234,6 +275,9 @@
                 thieves.forEach((t, i) => setTimeout(() => game.triggerThief(t), i * 400));
             }
             else if (cmd === 'osin') game.triggerOsin(payload || {});
+            else if (cmd === 'ufo') game.triggerUFO(payload || {});
+            else if (cmd === 'kickJar') { if (game.fxKickJar) game.fxKickJar(payload || {}); }
+            else if (cmd === 'throwJar') { if (game.fxThrowJar) game.fxThrowJar(payload || {}); }
             else if (cmd === 'joinPolice') {
                 // User gia nhập / rời lực lượng CS — payload là userInfo
                 if (typeof game.togglePoliceMembership === 'function') {
@@ -244,9 +288,13 @@
             else if (cmd === 'tornado') game.fxTornado();
             else if (cmd === 'megaboom') game.fxMegaboom();
             else if (cmd === 'tilt') game.fxTilt();
+            else if (cmd === 'pourOut') { if (game.fxPourOut) game.fxPourOut(); }
             else if (cmd === 'gravflip') game.fxGravFlip();
             else if (cmd === 'shake') game.shake();
             else if (cmd === 'slow') { if (game.fxSlow) game.fxSlow(); }
+            else if (cmd === 'rain') { if (game.fxRain) game.fxRain(); }
+            else if (cmd === 'geyser') { if (game.fxGeyser) game.fxGeyser(); }
+            else if (cmd === 'magnet') { if (game.fxMagnet) game.fxMagnet(); }
             else if (cmd === 'crackJar') { if (game.fxCrackJar) game.fxCrackJar(); }
             else if (cmd === 'stealJar') { if (game.fxStealJar) game.fxStealJar(); }
             else if (cmd === 'combo') { if (game.fxCombo) game.fxCombo(payload || {}); }

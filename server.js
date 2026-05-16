@@ -53,6 +53,7 @@ const GAMES = {
         icon: '🫙',
         overlayPath: '/overlay/thuytinh',
         defaultConfig: {
+            enabled: true,
             jar: { xPercent: 50, yPercent: 56, height: 1200 },
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
             physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
@@ -67,6 +68,7 @@ const GAMES = {
         icon: '🎯',
         overlayPath: '/overlay/caro',
         defaultConfig: {
+            enabled: true,
             board: { cols: 12, rows: 12, winLength: 5 },
             match: { bestOf: 3, idolFirst: true, alternateFirst: true },
             registration: { giftId: '', minCount: 1, autoCloseSeconds: 0 },
@@ -85,11 +87,19 @@ const GAMES = {
     },
     pktiktok: {
         id: 'pktiktok',
-        name: 'PK TikTok — Hiệu ứng trận PK',
+        name: 'Hiệu ứng PK',
         description: 'Gán video/âm thanh cho từng phase trận PK TikTok (start, x2/x3, items, 10s cuối, thắng/thua).',
-        icon: '🎬',
+        icon: '🥊',
         overlayPath: '/overlay/pktiktok',
         defaultConfig: makeDefaultPkTiktokConfig()
+    },
+    vipwelcome: {
+        id: 'vipwelcome',
+        name: 'Chào Mừng VIP',
+        description: 'Phát video/âm thanh khi user vào phòng LIVE hoặc khi user tặng quà — theo TikTok ID hoặc theo cấp độ.',
+        icon: '🎊',
+        overlayPath: '/overlay/vipwelcome',
+        defaultConfig: makeDefaultVipWelcomeConfig()
     }
 };
 
@@ -121,6 +131,109 @@ function makeDefaultPkTiktokConfig() {
     };
 }
 
+// VIP Welcome — default config: nhiều "Nhóm hồ sơ" (profiles) — mỗi nhóm có tên + bật/tắt riêng.
+// Nhiều người chia chung máy có thể tạo nhóm riêng. Khi nhiều nhóm cùng "Bật" — server gộp rule từ
+// tất cả nhóm enabled (mỗi nhóm độc lập cooldown qua ruleId namespacing 'p:<profileId>:...').
+function makeDefaultVipWelcomeProfile(name) {
+    return {
+        id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: name || 'Nhóm mặc định',
+        enabled: true,
+        userRules: [],          // [{ id, uniqueId, trigger, mediaUrl, mediaName, mediaType, volume, message, minLevel, minDiamond, enabled }]
+        globalJoin: {
+            enabled: false,
+            mediaUrl: '', mediaName: '', mediaType: '',
+            volume: 100,
+            message: 'Chào mừng {nickname} (cấp {level}) đã ghé phòng!',
+            minLevel: 30,
+            requireVerified: false    // Chỉ phát cho TikTok có tích xanh
+        },
+        globalGift: {
+            enabled: false,
+            mediaUrl: '', mediaName: '', mediaType: '',
+            volume: 100,
+            message: 'Chúc mừng {nickname} vừa lên cấp {level}!',
+            minLevel: 30,
+            requireVerified: false
+        }
+    };
+}
+
+function makeDefaultVipWelcomeConfig() {
+    const def = makeDefaultVipWelcomeProfile('Nhóm mặc định');
+    return {
+        enabled: true,
+        activeProfileId: def.id,           // panel đang edit profile nào
+        profiles: [def],
+        queue: {
+            maxLen: 20,
+            perUserCooldownSec: 60,
+            perItemMinMs: 200,           // 200ms — overlay tự queue + play serial nên không cần pace cao
+            rejoinThresholdSec: 60        // 60s — vắng mặt N giây = coi như rời phòng → re-fire khi vào lại
+        },
+        display: {
+            scale: 100, xPercent: 50, yPercent: 50,
+            showText: true,
+            textPosition: 'bottom',
+            labelStyle: 'goldpink',
+            showAvatar: true             // hiện avatar tròn của user (lấy từ profilePicture TikTok)
+        }
+    };
+}
+
+// Migrate config cũ (single-profile) sang multi-profile schema.
+// Config v1 (cũ): { enabled, userRules, globalJoin, globalGift, queue, display }
+// Config v2 (mới): { enabled, activeProfileId, profiles: [...], queue, display }
+function migrateVipWelcomeConfig(cfg) {
+    if (!cfg) return makeDefaultVipWelcomeConfig();
+    if (Array.isArray(cfg.profiles) && cfg.profiles.length > 0) {
+        // Đã ở schema mới — đảm bảo có activeProfileId hợp lệ + dọn field minDiamond cũ
+        const ids = cfg.profiles.map(p => p.id);
+        if (!cfg.activeProfileId || !ids.includes(cfg.activeProfileId)) {
+            cfg.activeProfileId = cfg.profiles[0].id;
+        }
+        // Strip legacy minDiamond + minLevel khỏi user rules (user yêu cầu chỉ định ID = không cần level filter)
+        for (const p of cfg.profiles) {
+            if (Array.isArray(p.userRules)) {
+                p.userRules = p.userRules.map(r => {
+                    const { minDiamond, minLevel, ...rest } = r || {};
+                    return rest;
+                });
+            }
+            if (p.globalGift && 'minDiamond' in p.globalGift) {
+                const { minDiamond, ...rest } = p.globalGift;
+                p.globalGift = rest;
+            }
+        }
+        // Auto-update perItemMinMs từ default cũ (2500) sang default mới (200) — user không
+        // chủ động customize sẽ được nâng cấp tốc độ tự động.
+        if (cfg.queue && cfg.queue.perItemMinMs === 2500) {
+            cfg.queue.perItemMinMs = 200;
+        }
+        return cfg;
+    }
+    // Có rules ở top-level → wrap thành 1 profile "Mặc định"
+    const def = makeDefaultVipWelcomeProfile('Nhóm mặc định');
+    if (Array.isArray(cfg.userRules)) {
+        def.userRules = cfg.userRules.map(r => {
+            const { minDiamond, minLevel, ...rest } = r || {};   // strip legacy minDiamond + minLevel
+            return rest;
+        });
+    }
+    if (cfg.globalJoin) def.globalJoin = { ...def.globalJoin, ...cfg.globalJoin };
+    if (cfg.globalGift) {
+        const { minDiamond, ...rest } = cfg.globalGift;
+        def.globalGift = { ...def.globalGift, ...rest };
+    }
+    const out = makeDefaultVipWelcomeConfig();
+    out.enabled = cfg.enabled !== false;
+    out.profiles = [def];
+    out.activeProfileId = def.id;
+    if (cfg.queue) out.queue = { ...out.queue, ...cfg.queue };
+    if (cfg.display) out.display = { ...out.display, ...cfg.display };
+    return out;
+}
+
 // ====== App config / persistence ======
 function loadAppConfig() {
     try {
@@ -134,10 +247,464 @@ function saveAppConfig() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2));
 }
 const appConfig = loadAppConfig();
+const DEFAULT_LIVE_TRANSLATE_CONFIG = {
+    enabled: false,
+    sourceLang: 'auto',
+    targetLang: 'vi',
+    ttsEnabled: true,
+    ttsVoice: 'auto',
+    ttsReadMode: 'nameAndComment',
+    ttsCooldownSeconds: 4,
+    ttsPriority: 'all',
+    ttsVolume: 85,
+    ttsRate: 1,
+    ignoreIcons: true,
+    cleanUnreadable: true,
+    readUsername: true,
+    maxItems: 8,
+    glossary: [],
+    forbiddenWords: []
+};
+const DEFAULT_CREATOR_CAPTION_CONFIG = {
+    enabled: false,
+    sourceLang: 'vi-VN',
+    targetLang: 'en',
+    targetLangs: ['en'],
+    showOriginal: true,
+    maxItems: 3,
+    holdSeconds: 12,
+    silenceSeconds: 2
+};
+const LIVE_TRANSLATE_LANG_LABELS = {
+    auto: 'Tự nhận diện',
+    vi: 'Tiếng Việt',
+    en: 'English',
+    th: 'Thai',
+    id: 'Indonesia',
+    ja: 'Japanese',
+    ko: 'Korean',
+    zh: 'Chinese',
+    fr: 'French',
+    de: 'German',
+    es: 'Spanish',
+    ru: 'Russian',
+    pt: 'Portuguese',
+    hi: 'Hindi',
+    ar: 'Arabic',
+    tr: 'Turkish',
+    ms: 'Malay',
+    fil: 'Filipino'
+};
 for (const gId of Object.keys(GAMES)) {
     if (!appConfig.games[gId]) appConfig.games[gId] = { ...GAMES[gId].defaultConfig };
 }
+// Migrate vipwelcome config từ schema cũ (single profile) sang multi-profile.
+if (appConfig.games.vipwelcome) {
+    appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
+}
+appConfig.liveTranslate = {
+    ...DEFAULT_LIVE_TRANSLATE_CONFIG,
+    ...(appConfig.liveTranslate || {}),
+    glossary: Array.isArray(appConfig.liveTranslate?.glossary) ? appConfig.liveTranslate.glossary : [],
+    forbiddenWords: Array.isArray(appConfig.liveTranslate?.forbiddenWords) ? appConfig.liveTranslate.forbiddenWords : []
+};
+if (appConfig.liveTranslate.manualStartVersion !== 1) {
+    appConfig.liveTranslate.enabled = false;
+    appConfig.liveTranslate.manualStartVersion = 1;
+}
+appConfig.creatorCaption = sanitizeCreatorCaptionConfig(appConfig.creatorCaption || {});
 saveAppConfig();
+
+// ====== Live Translate MVP ======
+const translationCache = new Map();
+const TRANSLATION_CACHE_LIMIT = 500;
+const COMMENT_RULES_SHEET_ID = '1Fv9Jdno_pPMTx_-tnwSfRObm1r1wKds_gaMBnfCDm4M';
+const COMMENT_RULES_GID = '211090113';
+const COMMENT_RULES_REFRESH_MS = 5 * 60 * 1000;
+let commentSheetRules = { forbiddenWords: [], glossary: [], loadedAt: 0, error: '' };
+const liveTranslateRecentGifts = new Map();
+const liveTranslateRecentMembers = new Map();
+const liveTranslateLastSpoken = new Map();
+const LIVE_TRANSLATE_PRIORITY_WINDOW_MS = 10 * 60 * 1000;
+const LIVE_TRANSLATE_TEST_PHRASE = 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.';
+const liveTranslateStats = {
+    chatSeen: 0,
+    skippedDisabled: 0,
+    skippedEmpty: 0,
+    skippedBlocked: 0,
+    emitted: 0,
+    translateErrors: 0,
+    lastChatAt: 0,
+    lastEmitAt: 0,
+    lastSkipReason: '',
+    lastBlockedWord: '',
+    lastError: ''
+};
+
+function normalizeModerationText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
+
+async function loadCommentRulesSheet() {
+    const url = `https://docs.google.com/spreadsheets/d/${COMMENT_RULES_SHEET_ID}/export?format=csv&gid=${COMMENT_RULES_GID}`;
+    const res = await fetch(url, { timeout: 15000 });
+    if (!res.ok) throw new Error(`comment_rules_http_${res.status}`);
+    const csv = await res.text();
+    const rows = parseCsvSimple(csv);
+    const forbiddenWords = [];
+    const glossary = [];
+    for (let i = 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        const blocked = String(r[0] || '').trim();
+        const from = String(r[2] || '').trim();
+        const to = String(r[3] || '').trim();
+        if (blocked) forbiddenWords.push(blocked);
+        if (from && to) glossary.push(`${from}=${to}`);
+    }
+    commentSheetRules = { forbiddenWords, glossary, loadedAt: Date.now(), error: '' };
+    io.emit('translate:rules', getCommentRulesMeta());
+    console.log(`[comment-rules] Đã tải ${forbiddenWords.length} từ cấm, ${glossary.length} cụm thay thế.`);
+    return commentSheetRules;
+}
+
+function getCommentRulesMeta() {
+    return {
+        forbiddenCount: commentSheetRules.forbiddenWords.length,
+        glossaryCount: commentSheetRules.glossary.length,
+        loadedAt: commentSheetRules.loadedAt,
+        error: commentSheetRules.error || ''
+    };
+}
+
+async function refreshCommentRulesSheet() {
+    try { return await loadCommentRulesSheet(); }
+    catch (e) {
+        commentSheetRules.error = e.message || 'comment_rules_failed';
+        io.emit('translate:rules', getCommentRulesMeta());
+        console.warn('[comment-rules] Không tải được quy tắc:', commentSheetRules.error);
+        return commentSheetRules;
+    }
+}
+
+function sanitizeLiveTranslateConfig(input) {
+    const cfg = { ...DEFAULT_LIVE_TRANSLATE_CONFIG, ...(input || {}) };
+    cfg.enabled = cfg.enabled === true;
+    cfg.ttsEnabled = !!cfg.ttsEnabled;
+    cfg.ignoreIcons = cfg.ignoreIcons !== false;
+    cfg.cleanUnreadable = cfg.cleanUnreadable !== false;
+    cfg.readUsername = cfg.readUsername !== false;
+    cfg.sourceLang = String(cfg.sourceLang || 'auto').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'auto';
+    cfg.targetLang = String(cfg.targetLang || 'vi').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'vi';
+    cfg.ttsVoice = ['auto', 'male', 'female', 'random', 'randomGender', 'variant1', 'variant2', 'variant3', 'variant4', 'variant5'].includes(cfg.ttsVoice) ? cfg.ttsVoice : 'auto';
+    cfg.ttsReadMode = ['nameAndComment', 'commentOnly', 'nameOnly'].includes(cfg.ttsReadMode) ? cfg.ttsReadMode : (cfg.readUsername === false ? 'commentOnly' : 'nameAndComment');
+    cfg.ttsPriority = ['all', 'gifters', 'members', 'giftersOrMembers'].includes(cfg.ttsPriority) ? cfg.ttsPriority : 'all';
+    const cooldown = parseInt(cfg.ttsCooldownSeconds, 10);
+    cfg.ttsCooldownSeconds = Math.max(0, Math.min(60, Number.isFinite(cooldown) ? cooldown : DEFAULT_LIVE_TRANSLATE_CONFIG.ttsCooldownSeconds));
+    const volume = parseInt(cfg.ttsVolume, 10);
+    cfg.ttsVolume = Math.max(0, Math.min(100, Number.isFinite(volume) ? volume : DEFAULT_LIVE_TRANSLATE_CONFIG.ttsVolume));
+    const rate = parseFloat(cfg.ttsRate);
+    cfg.ttsRate = Math.max(0.5, Math.min(2, Number.isFinite(rate) ? rate : DEFAULT_LIVE_TRANSLATE_CONFIG.ttsRate));
+    cfg.maxItems = Math.max(3, Math.min(20, parseInt(cfg.maxItems, 10) || DEFAULT_LIVE_TRANSLATE_CONFIG.maxItems));
+    if (typeof cfg.glossary === 'string') cfg.glossary = cfg.glossary.split(/\r?\n/);
+    cfg.glossary = (Array.isArray(cfg.glossary) ? cfg.glossary : []).map(x => String(x || '').trim()).filter(Boolean).slice(0, 300);
+    if (typeof cfg.forbiddenWords === 'string') cfg.forbiddenWords = cfg.forbiddenWords.split(/\r?\n|,/);
+    cfg.forbiddenWords = (Array.isArray(cfg.forbiddenWords) ? cfg.forbiddenWords : []).map(w => String(w || '').trim()).filter(Boolean).slice(0, 300);
+    return cfg;
+}
+
+function sanitizeCreatorCaptionConfig(input) {
+    const cfg = { ...DEFAULT_CREATOR_CAPTION_CONFIG, ...(input || {}) };
+    cfg.enabled = cfg.enabled === true;
+    cfg.sourceLang = String(cfg.sourceLang || DEFAULT_CREATOR_CAPTION_CONFIG.sourceLang).trim().replace(/[^a-zA-Z-]/g, '').slice(0, 12) || DEFAULT_CREATOR_CAPTION_CONFIG.sourceLang;
+    cfg.targetLang = String(cfg.targetLang || DEFAULT_CREATOR_CAPTION_CONFIG.targetLang).trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || DEFAULT_CREATOR_CAPTION_CONFIG.targetLang;
+    const allowed = Object.keys(LIVE_TRANSLATE_LANG_LABELS).filter(x => x !== 'auto');
+    const rawTargets = Array.isArray(cfg.targetLangs) ? cfg.targetLangs : [cfg.targetLang];
+    cfg.targetLangs = rawTargets.map(x => String(x || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12)).filter(x => allowed.includes(x)).slice(0, 8);
+    if (!cfg.targetLangs.length) cfg.targetLangs = [cfg.targetLang || DEFAULT_CREATOR_CAPTION_CONFIG.targetLang];
+    cfg.targetLang = cfg.targetLangs[0];
+    cfg.showOriginal = cfg.showOriginal !== false;
+    cfg.maxItems = Math.max(1, Math.min(6, parseInt(cfg.maxItems, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.maxItems));
+    cfg.holdSeconds = Math.max(3, Math.min(30, parseInt(cfg.holdSeconds, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.holdSeconds));
+    const silence = parseFloat(cfg.silenceSeconds);
+    cfg.silenceSeconds = Math.max(0.5, Math.min(8, Number.isFinite(silence) ? silence : DEFAULT_CREATOR_CAPTION_CONFIG.silenceSeconds));
+    return cfg;
+}
+
+function sourceLangForTranslate(lang) {
+    const short = String(lang || '').toLowerCase().split('-')[0];
+    return short || 'auto';
+}
+
+async function processCreatorCaptionSpeech(payload) {
+    const cfg = sanitizeCreatorCaptionConfig(appConfig.creatorCaption);
+    if (Array.isArray(payload?.targetLangs) && payload.targetLangs.length) {
+        cfg.targetLangs = sanitizeCreatorCaptionConfig({ ...cfg, targetLangs: payload.targetLangs }).targetLangs;
+        cfg.targetLang = cfg.targetLangs[0];
+    }
+    if (!cfg.enabled) return;
+    const originalText = String(payload?.text || '').trim().replace(/\s{2,}/g, ' ').slice(0, 450);
+    if (!originalText) return;
+    try {
+        const translations = await Promise.all(cfg.targetLangs.map(async targetLang => {
+            const result = await translateTextToTarget(originalText, sourceLangForTranslate(cfg.sourceLang), targetLang);
+            return {
+                targetLang,
+                targetLangLabel: liveTranslateLangLabel(targetLang),
+                translatedText: result.translatedText,
+                sourceLang: result.detectedLang || sourceLangForTranslate(cfg.sourceLang),
+                sourceLangLabel: liveTranslateLangLabel(result.detectedLang || sourceLangForTranslate(cfg.sourceLang))
+            };
+        }));
+        const first = translations[0] || {};
+        io.emit('creatorCaption:line', {
+            id: crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(12).toString('hex'),
+            originalText,
+            translatedText: first.translatedText || originalText,
+            translations,
+            sourceLang: first.sourceLang || sourceLangForTranslate(cfg.sourceLang),
+            targetLang: first.targetLang || cfg.targetLang,
+            sourceLangLabel: first.sourceLangLabel || liveTranslateLangLabel(sourceLangForTranslate(cfg.sourceLang)),
+            targetLangLabel: first.targetLangLabel || liveTranslateLangLabel(cfg.targetLang),
+            showOriginal: cfg.showOriginal,
+            maxItems: cfg.maxItems,
+            holdSeconds: cfg.holdSeconds,
+            createTime: Date.now()
+        });
+    } catch (e) {
+        io.emit('creatorCaption:line', {
+            id: crypto.randomBytes(12).toString('hex'),
+            originalText,
+            translatedText: originalText,
+            translations: cfg.targetLangs.map(targetLang => ({ targetLang, targetLangLabel: liveTranslateLangLabel(targetLang), translatedText: originalText })),
+            sourceLang: sourceLangForTranslate(cfg.sourceLang),
+            targetLang: cfg.targetLang,
+            sourceLangLabel: liveTranslateLangLabel(sourceLangForTranslate(cfg.sourceLang)),
+            targetLangLabel: liveTranslateLangLabel(cfg.targetLang),
+            showOriginal: cfg.showOriginal,
+            maxItems: cfg.maxItems,
+            holdSeconds: cfg.holdSeconds,
+            error: e?.message || 'caption_translate_failed',
+            createTime: Date.now()
+        });
+    }
+}
+
+function applyLiveTranslateGlossary(text, glossary) {
+    let out = String(text || '');
+    for (const row of glossary || []) {
+        const parts = String(row).split(/=>|=/);
+        if (parts.length < 2) continue;
+        const from = parts.shift().trim();
+        const to = parts.join('=').trim();
+        if (!from || !to) continue;
+        const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(escaped, 'gi'), to);
+    }
+    return out;
+}
+
+function stripLiveTranslateIcons(text) {
+    return String(text || '')
+        .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D]/gu, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function cleanLiveTranslateUnreadableText(text) {
+    return String(text || '')
+        .replace(/[\[［][^\]］]{0,160}[\]］]/g, ' ')
+        .replace(/^[^\p{L}\p{N}]+/u, '')
+        .replace(/[^\p{L}\p{N}\s.,!?;:'"()\-]{3,}/gu, ' ')
+        .replace(/([.,!?;:'"()\-])\1{2,}/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function liveTranslateLangLabel(lang) {
+    return LIVE_TRANSLATE_LANG_LABELS[String(lang || '').toLowerCase()] || String(lang || '').toUpperCase();
+}
+
+function liveTranslateUserKeys(user) {
+    return [user?.userId, user?.uniqueId].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+}
+function rememberLiveTranslateUser(map, user) {
+    const now = Date.now();
+    for (const key of liveTranslateUserKeys(user)) map.set(key, now);
+}
+function wasLiveTranslateUserRecent(map, user) {
+    const now = Date.now();
+    return liveTranslateUserKeys(user).some(key => (now - (map.get(key) || 0)) <= LIVE_TRANSLATE_PRIORITY_WINDOW_MS);
+}
+
+function liveTranslateForbiddenMatch(haystack, word) {
+    const needle = normalizeModerationText(word).trim();
+    if (!needle) return false;
+    if (!/[a-z0-9]/i.test(needle)) return false;
+    if (needle.length <= 2) return haystack.trim() === needle;
+    if (/\s/.test(needle)) return haystack.includes(needle);
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(haystack);
+}
+
+function findLiveTranslateBlockedWord(chat, cfg) {
+    const words = [...(commentSheetRules.forbiddenWords || []), ...(cfg.forbiddenWords || [])];
+    if (!words.length) return '';
+    const haystack = normalizeModerationText(String(chat.comment || ''));
+    for (const word of words) {
+        if (liveTranslateForbiddenMatch(haystack, word)) return String(word || '').trim();
+    }
+    return '';
+}
+
+function shouldSpeakLiveTranslate(chat, cfg) {
+    if (!cfg.ttsEnabled) return false;
+    const user = { userId: chat.userId, uniqueId: chat.uniqueId };
+    const isGifter = wasLiveTranslateUserRecent(liveTranslateRecentGifts, user);
+    const isMember = wasLiveTranslateUserRecent(liveTranslateRecentMembers, user);
+    if (cfg.ttsPriority === 'gifters' && !isGifter) return false;
+    if (cfg.ttsPriority === 'members' && !isMember) return false;
+    if (cfg.ttsPriority === 'giftersOrMembers' && !isGifter && !isMember) return false;
+    const cooldownMs = (cfg.ttsCooldownSeconds || 0) * 1000;
+    if (cooldownMs > 0) {
+        const key = liveTranslateUserKeys(user)[0] || 'guest';
+        const now = Date.now();
+        if (now - (liveTranslateLastSpoken.get(key) || 0) < cooldownMs) return false;
+        liveTranslateLastSpoken.set(key, now);
+    }
+    return true;
+}
+
+async function translateTextToTarget(text, sourceLang, targetLang) {
+    const cleanText = String(text || '').trim().slice(0, 450);
+    if (!cleanText) return { translatedText: '', detectedLang: sourceLang || 'auto' };
+    const sl = sourceLang && sourceLang !== 'auto' ? sourceLang : 'auto';
+    const cacheKey = `${sl}:${targetLang}:${cleanText}`;
+    if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+    let translated = '';
+    let detectedLang = sl;
+    try {
+        const googleUrl = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl='
+            + encodeURIComponent(sl) + '&tl=' + encodeURIComponent(targetLang) + '&q=' + encodeURIComponent(cleanText);
+        const res = await fetch(googleUrl, { timeout: 10000, headers: { 'User-Agent': 'HP-Action-LIVE/translate-mvp' } });
+        if (!res.ok) throw new Error(`google_http_${res.status}`);
+        const body = await res.json();
+        translated = Array.isArray(body?.[0]) ? body[0].map(part => part?.[0] || '').join('') : '';
+        if (body?.[2]) detectedLang = String(body[2]).toLowerCase();
+    } catch (e) {
+        const fallbackUrl = 'https://api.mymemory.translated.net/get?q='
+            + encodeURIComponent(cleanText) + '&langpair=' + encodeURIComponent(sl) + '|' + encodeURIComponent(targetLang);
+        const res = await fetch(fallbackUrl, { timeout: 10000, headers: { 'User-Agent': 'HP-Action-LIVE/translate-mvp' } });
+        if (!res.ok) throw new Error(`translate_http_${res.status}`);
+        const body = await res.json();
+        translated = String(body?.responseData?.translatedText || '').trim();
+    }
+    const result = { translatedText: String(translated || cleanText).trim() || cleanText, detectedLang };
+    translationCache.set(cacheKey, result);
+    if (translationCache.size > TRANSLATION_CACHE_LIMIT) {
+        const firstKey = translationCache.keys().next().value;
+        if (firstKey) translationCache.delete(firstKey);
+    }
+    return result;
+}
+
+function processLiveTranslateChat(chat) {
+    liveTranslateStats.chatSeen += 1;
+    liveTranslateStats.lastChatAt = Date.now();
+    const cfg = sanitizeLiveTranslateConfig(appConfig.liveTranslate);
+    // CHAT chỉ fire khi TikTok connection còn sống; không chặn thêm bằng state phụ
+    // vì một số phiên tiktok-live-connector không cập nhật isConnected ổn định.
+    if (!cfg.enabled) {
+        liveTranslateStats.skippedDisabled += 1;
+        liveTranslateStats.lastSkipReason = 'disabled';
+        return;
+    }
+    if (!chat?.comment) {
+        liveTranslateStats.skippedEmpty += 1;
+        liveTranslateStats.lastSkipReason = 'empty_comment';
+        return;
+    }
+    const blockedWord = findLiveTranslateBlockedWord(chat, cfg);
+    if (blockedWord) {
+        liveTranslateStats.skippedBlocked += 1;
+        liveTranslateStats.lastSkipReason = 'blocked_rule';
+        liveTranslateStats.lastBlockedWord = blockedWord;
+        return;
+    }
+    let textOnlyComment = cfg.ignoreIcons ? stripLiveTranslateIcons(chat.comment) : String(chat.comment || '').trim();
+    if (cfg.cleanUnreadable) textOnlyComment = cleanLiveTranslateUnreadableText(textOnlyComment);
+    if (!textOnlyComment) {
+        liveTranslateStats.skippedEmpty += 1;
+        liveTranslateStats.lastSkipReason = 'empty_after_clean';
+        return;
+    }
+    const normalizedComment = applyLiveTranslateGlossary(textOnlyComment, [...(commentSheetRules.glossary || []), ...(cfg.glossary || [])]);
+    if (!normalizedComment) {
+        liveTranslateStats.skippedEmpty += 1;
+        liveTranslateStats.lastSkipReason = 'empty_after_glossary';
+        return;
+    }
+    translateTextToTarget(normalizedComment, cfg.sourceLang, cfg.targetLang)
+        .then(result => {
+            const sourceLang = result.detectedLang || cfg.sourceLang || 'auto';
+            liveTranslateStats.emitted += 1;
+            liveTranslateStats.lastEmitAt = Date.now();
+            liveTranslateStats.lastSkipReason = '';
+            io.emit('translate:comment', {
+                id: crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(12).toString('hex'),
+                uniqueId: chat.uniqueId,
+                nickname: chat.nickname,
+                userId: chat.userId,
+                profilePicture: chat.profilePicture,
+                originalText: chat.comment,
+                normalizedText: normalizedComment,
+                translatedText: result.translatedText,
+                sourceLang,
+                targetLang: cfg.targetLang,
+                sourceLangLabel: liveTranslateLangLabel(sourceLang),
+                targetLangLabel: liveTranslateLangLabel(cfg.targetLang),
+                readUsername: cfg.readUsername,
+                ttsEnabled: cfg.ttsEnabled,
+                ttsVoice: cfg.ttsVoice,
+                ttsReadMode: cfg.ttsReadMode,
+                ttsVolume: cfg.ttsVolume,
+                ttsRate: cfg.ttsRate,
+                canSpeak: shouldSpeakLiveTranslate(chat, cfg),
+                createTime: chat.createTime || Date.now()
+            });
+        })
+        .catch(err => {
+            liveTranslateStats.translateErrors += 1;
+            liveTranslateStats.lastError = err?.message || 'translate_failed';
+            liveTranslateStats.emitted += 1;
+            liveTranslateStats.lastEmitAt = Date.now();
+            io.emit('translate:comment', {
+                id: crypto.randomBytes(12).toString('hex'),
+                uniqueId: chat.uniqueId,
+                nickname: chat.nickname,
+                userId: chat.userId,
+                profilePicture: chat.profilePicture,
+                originalText: chat.comment,
+                normalizedText: normalizedComment,
+                translatedText: normalizedComment,
+                sourceLang: cfg.sourceLang,
+                targetLang: cfg.targetLang,
+                sourceLangLabel: liveTranslateLangLabel(cfg.sourceLang),
+                targetLangLabel: liveTranslateLangLabel(cfg.targetLang),
+                readUsername: cfg.readUsername,
+                ttsEnabled: cfg.ttsEnabled,
+                ttsVoice: cfg.ttsVoice,
+                ttsReadMode: cfg.ttsReadMode,
+                ttsVolume: cfg.ttsVolume,
+                ttsRate: cfg.ttsRate,
+                canSpeak: shouldSpeakLiveTranslate(chat, cfg),
+                error: err?.message || 'translate_failed',
+                createTime: chat.createTime || Date.now()
+            });
+        });
+}
 
 // ====== Gift list loader (via license-server proxy) ======
 let giftMap = {};
@@ -321,21 +888,55 @@ async function validateLicenseKey(rawKey) {
 let connection = null;
 let currentUsername = null;
 let connecting = false;
+let liveConnected = false;
 let currentRoomId = null;
+let currentHostUserId = '';   // owner.userId của room đang connect — dùng để identify host team trong PK
+// Hook để emitGift gọi vào PK gift tracking (set bởi attachConnectionEvents khi PK active)
+let pktiktokTrackPkGift = null;
+// Lưu thông tin TOP 1 contributor khi PK kết thúc — dùng cho rule override
+let pkLastTopContributor = null;
+// Session stats — counters for connection card display
+let liveStats = {
+    viewerCount: 0,
+    totalDiamond: 0,
+    totalLikes: 0,
+    totalShares: 0,
+    totalFollows: 0,
+    followerCount: 0
+};
+function resetLiveStats() {
+    liveStats = { viewerCount: 0, totalDiamond: 0, totalLikes: 0, totalShares: 0, totalFollows: 0, followerCount: 0 };
+}
+// Broadcast stats với throttle để không spam socket
+let lastStatsEmit = 0;
+function emitLiveStatsThrottled() {
+    const now = Date.now();
+    if (now - lastStatsEmit < 500) return;
+    lastStatsEmit = now;
+    io.emit('liveStats', liveStats);
+}
+function emitLiveStatsImmediate() {
+    lastStatsEmit = Date.now();
+    io.emit('liveStats', liveStats);
+}
 
 function broadcast(type, payload) { io.emit(type, payload); }
+function isTikTokLiveConnected() { return !!(connection && liveConnected); }
 
 function attachConnectionEvents(conn) {
     conn.on(ControlEvent.CONNECTED, (state) => {
+        liveConnected = true;
         currentRoomId = state?.roomId;
         broadcast('status', { connected: true, username: currentUsername, roomId: currentRoomId });
         console.log(`[tiktok] Connected to roomId=${currentRoomId}`);
     });
     conn.on(ControlEvent.DISCONNECTED, () => {
+        liveConnected = false;
         broadcast('status', { connected: false, username: currentUsername });
         console.log('[tiktok] Disconnected');
     });
     conn.on(ControlEvent.STREAM_END, () => {
+        liveConnected = false;
         broadcast('status', { connected: false, username: currentUsername, reason: 'streamEnd' });
     });
     conn.on(ControlEvent.ERROR, (err) => {
@@ -344,24 +945,40 @@ function attachConnectionEvents(conn) {
     });
 
     conn.on(WebcastEvent.CHAT, (data) => {
-        broadcast('chat', {
-            uniqueId: data?.user?.uniqueId,
-            nickname: data?.user?.nickname,
-            userId: data?.user?.userId,
-            profilePicture: data?.user?.profilePicture?.url || data?.user?.profilePictureUrl,
-            comment: data?.comment,
+        liveConnected = true;
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        const comment = data?.comment;
+        rememberUserMapping(userId, uniqueId);
+        const chatPayload = {
+            uniqueId, nickname,
+            userId,
+            profilePicture,
+            comment,
             createTime: Date.now()
-        });
+        };
+        broadcast('chat', chatPayload);
+        processLiveTranslateChat(chatPayload);
+        // First-seen JOIN fallback + dedicated 'comment' trigger
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'chat', verified, userId);
+        try { handleVipWelcomeEvent('comment', { uniqueId, nickname, level, profilePicture, verified, comment }); } catch (e) {}
     });
 
     conn.on(WebcastEvent.GIFT, (data) => {
         const giftType = data?.giftDetails?.giftType ?? data?.gift?.gift_type ?? data?.giftType;
         const isStreak = giftType === 1;
         if (isStreak && !data?.repeatEnd) return;
+        rememberUserMapping(data?.user?.userId, data?.user?.uniqueId);
         emitGift({
             uniqueId: data?.user?.uniqueId,
             nickname: data?.user?.nickname,
             userId: data?.user?.userId,
+            level: Number(data?.user?.userHonor?.level) || 0,
+            verified: !!data?.user?.verified,
             profilePicture: data?.user?.profilePicture?.url || data?.user?.profilePictureUrl,
             giftId: String(data?.giftId ?? data?.gift?.gift_id ?? data?.giftDetails?.giftId ?? ''),
             giftName: data?.giftDetails?.giftName || data?.gift?.name || data?.giftName,
@@ -373,16 +990,349 @@ function attachConnectionEvents(conn) {
     });
 
     conn.on(WebcastEvent.MEMBER, (data) => {
-        broadcast('member', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname });
+        // TikTok đôi khi strip user.uniqueId → fallback userId (numeric) + actionDescription
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId || data?.userId;   // MemberMessage có userId riêng
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        const action = data?.action;     // 1=JOINED, 3=SUBSCRIBED
+        const actionDesc = data?.actionDescription || '';
+        rememberUserMapping(userId, uniqueId);
+        rememberLiveTranslateUser(liveTranslateRecentMembers, { userId, uniqueId });
+        broadcast('member', { uniqueId, nickname, level, verified });
+        // Verbose log — dump tất cả field hữu ích để user thấy TikTok gửi gì
+        console.log(`[vipwelcome] MEMBER event raw: uniqueId="${uniqueId || ''}" userId="${userId || ''}" nickname="${nickname || ''}" level=${level} verified=${verified} action=${action} desc="${actionDesc}"`);
+        // Primary join path — fire (resolve uniqueId từ cache nếu thiếu)
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'member', verified, userId);
     });
     conn.on(WebcastEvent.LIKE, (data) => {
-        broadcast('like', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname, likeCount: data?.likeCount });
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        const likeCount = data?.likeCount || 1;
+        rememberUserMapping(userId, uniqueId);
+        broadcast('like', { uniqueId, nickname, likeCount });
+        liveStats.totalLikes += likeCount; emitLiveStatsThrottled();
+        // Fire 'join' fallback + dedicated 'like' trigger
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'like', verified, userId);
+        try { handleVipWelcomeEvent('like', { uniqueId, nickname, level, profilePicture, verified, likeCount }); } catch (e) {}
     });
     conn.on(WebcastEvent.SOCIAL, (data) => {
-        broadcast('social', { uniqueId: data?.user?.uniqueId, nickname: data?.user?.nickname, label: data?.label });
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        broadcast('social', { uniqueId, nickname, label: data?.label });
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'social', verified, userId);
+    });
+    // FOLLOW event
+    conn.on(WebcastEvent.FOLLOW, (data) => {
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        liveStats.totalFollows += 1; emitLiveStatsThrottled();
+        console.log(`[vipwelcome] FOLLOW: @${uniqueId} "${nickname || ''}"`);
+        try { handleVipWelcomeEvent('follow', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'follow', verified, userId);
+    });
+    // SHARE event
+    conn.on(WebcastEvent.SHARE, (data) => {
+        const uniqueId = data?.user?.uniqueId;
+        const userId = data?.user?.userId;
+        const nickname = data?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        liveStats.totalShares += 1; emitLiveStatsThrottled();
+        console.log(`[vipwelcome] SHARE: @${uniqueId} "${nickname || ''}"`);
+        try { handleVipWelcomeEvent('share', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'share', verified, userId);
+    });
+    // ENVELOPE event — TikTok bao lì xì
+    conn.on(WebcastEvent.ENVELOPE, (data) => {
+        const uniqueId = data?.user?.uniqueId || data?.envelopeInfo?.user?.uniqueId;
+        const userId = data?.user?.userId || data?.envelopeInfo?.user?.userId;
+        const nickname = data?.user?.nickname || data?.envelopeInfo?.user?.nickname;
+        const level = Number(data?.user?.userHonor?.level) || 0;
+        const profilePicture = data?.user?.profilePicture?.url || data?.user?.profilePictureUrl;
+        const verified = !!data?.user?.verified;
+        rememberUserMapping(userId, uniqueId);
+        console.log(`[vipwelcome] ENVELOPE (bao lì xì): @${uniqueId}`);
+        try { handleVipWelcomeEvent('envelope', { uniqueId, nickname, level, profilePicture, verified }); } catch (e) {}
+        maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'envelope', verified, userId);
     });
     conn.on(WebcastEvent.ROOM_USER, (data) => {
-        broadcast('roomUser', { viewerCount: data?.viewerCount ?? data?.totalUser });
+        const v = data?.viewerCount ?? data?.totalUser;
+        broadcast('roomUser', { viewerCount: v });
+        if (typeof v === 'number') { liveStats.viewerCount = v; emitLiveStatsThrottled(); }
+        try {
+            const lists = [];
+            if (Array.isArray(data?.ranksList)) lists.push(...data.ranksList);
+            if (Array.isArray(data?.seatsList)) lists.push(...data.seatsList);
+            // Build set uniqueId trong seq hiện tại
+            const currentSeqSet = new Set();
+            const contributorMeta = [];   // giữ thông tin user để fire
+            for (const contributor of lists) {
+                const u = contributor?.user;
+                if (!u) continue;
+                const uniqueId = u.uniqueId;
+                const userId = u.userId;
+                rememberUserMapping(userId, uniqueId);
+                if (uniqueId) {
+                    currentSeqSet.add(String(uniqueId).toLowerCase());
+                }
+                contributorMeta.push({ user: u, uniqueId, userId });
+            }
+            // Detect DROP-OUT: user trong seq trước nhưng KHÔNG trong seq này → đánh dấu leftSeq
+            for (const uid of vipSessionInLatestSeq) {
+                if (!currentSeqSet.has(uid)) {
+                    vipSessionLeftSeqAt.set(uid, Date.now());
+                    console.log(`[vipwelcome] Seq DROP-OUT: @${uid} đã rời top contributors — chờ rejoin`);
+                }
+            }
+            // Update seq snapshot
+            vipSessionInLatestSeq = currentSeqSet;
+            // Fire (firstTime hoặc rejoin) cho từng user
+            for (const meta of contributorMeta) {
+                const u = meta.user;
+                const level = Number(u.userHonor?.level) || 0;
+                const profilePicture = u.profilePicture?.url || u.profilePictureUrl;
+                const verified = !!u.verified;
+                maybeFireFirstSeenJoin(meta.uniqueId, u.nickname, level, profilePicture, 'roomUserSeq', verified, meta.userId);
+            }
+            if (lists.length > 0) {
+                console.log(`[vipwelcome] ROOM_USER seq: viewer=${data?.viewerCount}, contributors=${lists.length}, seqSize=${currentSeqSet.size}`);
+            }
+        } catch (e) { console.error('[vipwelcome] ROOM_USER process error:', e); }
+    });
+
+    // ====== PK TikTok auto-bind (BETA — refined) ======
+    // BattleAction: 4=OPEN, 5=FINISH, 6=CUT_SHORT
+    // BattleTaskMessageType: 0=START, 1=UPDATE, 2=SETTLE, 3=REWARD_SETTLE
+    //
+    // Phase mapping:
+    //   start    ← LINK_MIC_BATTLE action=4
+    //   mission  ← LINK_MIC_BATTLE_TASK type=0
+    //   x2 / x3  ← LINK_MIC_BATTLE_TASK with task config (multiplier in description)
+    //   warn10s  ← fallback timer hoặc khi server gửi countdown
+    //   lead/behind ← periodic check ARMIES (mỗi 30s)
+    //   win/lose ← FINISH + so sánh scores với hostTeamIndex
+    //   glove/mist/hammer/time ← chưa map (TikTok không expose enum riêng)
+
+    // Server-side QUEUE — drain serial để effect không overlap
+    let pkAutoQueue = [];
+    let pkAutoDrainTimer = null;
+    const PK_AUTO_DRAIN_GAP_MS = 3500;   // ~3.5s giữa các effect (đủ cho video ngắn)
+    function pkAutoEnqueue(key, reason) {
+        const cfg = appConfig.games?.pktiktok;
+        if (!cfg || cfg.enabled === false || !cfg.autoBindPkDuo) return;
+        // Dedupe: nếu phase này đã ở cuối queue, skip
+        if (pkAutoQueue.length > 0 && pkAutoQueue[pkAutoQueue.length - 1].key === key) {
+            console.log(`[pktiktok] AUTO skip dup "${key}"`);
+            return;
+        }
+        pkAutoQueue.push({ key, reason, ts: Date.now() });
+        console.log(`[pktiktok] AUTO queued → ${key} (reason: ${reason}), queue=${pkAutoQueue.length}`);
+        if (!pkAutoDrainTimer) drainPkAutoNow();
+    }
+    function drainPkAutoNow() {
+        if (pkAutoQueue.length === 0) { pkAutoDrainTimer = null; return; }
+        const item = pkAutoQueue.shift();
+        console.log(`[pktiktok] AUTO emit → ${item.key} (reason: ${item.reason})`);
+        io.emit('pktiktok:autoTrigger', item);
+        pkAutoDrainTimer = setTimeout(drainPkAutoNow, PK_AUTO_DRAIN_GAP_MS);
+    }
+    function clearPkAutoQueue() {
+        pkAutoQueue = [];
+        if (pkAutoDrainTimer) { clearTimeout(pkAutoDrainTimer); pkAutoDrainTimer = null; }
+    }
+
+    // PK match state
+    let pkActive = false;
+    let pkStartTs = 0;
+    let pkTimers = [];
+    let pkHostTeamIndex = -1;
+    let pkLastScoreSnap = null;
+    let pkLastLeadState = '';
+    let pkLastPeriodicScore = 0;
+    const PK_PERIODIC_LEAD_CHECK_MS = 30_000;
+    // Track gifts gửi vào HOST trong khoảng PK active — để detect TOP 1 khi PK end
+    let pkGiftDuringMatch = new Map();
+    // Expose tracker cho emitGift
+    pktiktokTrackPkGift = (g) => {
+        if (!pkActive || !g.uniqueId) return;
+        const k = String(g.uniqueId).toLowerCase();
+        const cur = pkGiftDuringMatch.get(k) || {
+            uniqueId: g.uniqueId, nickname: g.nickname, profilePicture: g.profilePicture, level: g.level || 0,
+            totalDiamond: 0, totalCount: 0
+        };
+        cur.totalDiamond += Number(g.diamond) || 0;
+        cur.totalCount += 1;
+        if (g.nickname) cur.nickname = g.nickname;
+        if (g.profilePicture) cur.profilePicture = g.profilePicture;
+        if (g.level) cur.level = g.level;
+        pkGiftDuringMatch.set(k, cur);
+    };
+    function resetPkState() {
+        pkActive = false;
+        pkHostTeamIndex = -1;
+        pkLastScoreSnap = null;
+        pkLastLeadState = '';
+        pkLastPeriodicScore = 0;
+        pkGiftDuringMatch.clear();
+        clearPkTimers();
+    }
+    function clearPkTimers() {
+        for (const t of pkTimers) {
+            if (t && t._isInterval) clearInterval(t._handle);
+            else clearTimeout(t);
+        }
+        pkTimers = [];
+    }
+
+    // Helper: extract teams + scores từ raw armies/battle data — log tất cả để debug
+    function parseTeamsArmies(data) {
+        const teams = [];
+        const raw = data?.battleItems || data?.teams || data?.armies || [];
+        if (Array.isArray(raw)) {
+            for (let i = 0; i < raw.length; i++) {
+                const t = raw[i];
+                const score = Number(t?.totalScore ?? t?.score ?? t?.totalUserCount ?? 0);
+                const anchorIds = (t?.hostsList || t?.hosts || t?.userList || []).map(u => String(u?.userId || u?.uniqueId || u || ''));
+                teams.push({ index: i, score, anchorIds, raw: t });
+            }
+        }
+        return teams;
+    }
+
+    conn.on(WebcastEvent.LINK_MIC_BATTLE, (data) => {
+        const action = data?.battleConfig?.battleAction ?? data?.action ?? null;
+        const battleStatus = data?.battleStatus;
+        const currentRound = data?.currentRound;
+        console.log(`[pktiktok] LINK_MIC_BATTLE action=${action} status=${battleStatus} round=${currentRound} keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
+        if (action === 4 /* OPEN */) {
+            resetPkState();
+            pkActive = true;
+            pkStartTs = Date.now();
+            clearPkAutoQueue();
+            pkAutoEnqueue('start', 'battle_open');
+            // Identify host team — match userId của owner
+            try {
+                const teams = parseTeamsArmies(data?.battleConfig || data);
+                const ownerId = String(currentHostUserId || '');
+                if (ownerId) {
+                    for (const t of teams) {
+                        if (t.anchorIds.includes(ownerId)) { pkHostTeamIndex = t.index; break; }
+                    }
+                }
+                if (pkHostTeamIndex < 0 && teams.length > 0) pkHostTeamIndex = 0;
+                console.log(`[pktiktok] PK OPEN: hostTeamIndex=${pkHostTeamIndex}, teams=${teams.length}, ownerId=${ownerId}`);
+            } catch (e) {}
+            // warn10s — TỪ duration của trận PK nếu battleConfig có. Bỏ rigid 110s timer cũ.
+            const durationSec = Number(
+                data?.battleConfig?.battleSetting?.duration ||
+                data?.battleConfig?.duration ||
+                data?.duration || 0
+            );
+            if (durationSec > 20) {
+                const warnDelay = (durationSec - 10) * 1000;
+                console.log(`[pktiktok] PK duration=${durationSec}s → warn10s scheduled at +${warnDelay/1000}s`);
+                pkTimers.push(setTimeout(() => {
+                    if (pkActive) pkAutoEnqueue('warn10s', `duration_based (${durationSec}s match)`);
+                }, warnDelay));
+            } else {
+                console.log(`[pktiktok] PK duration không phát hiện được — skip warn10s auto (user trigger thủ công khi cần)`);
+            }
+            // Periodic lead/behind check (mỗi 30s)
+            const periodicCheck = setInterval(() => {
+                if (!pkActive) { clearInterval(periodicCheck); return; }
+                if (!pkLastScoreSnap || pkHostTeamIndex < 0) return;
+                const hostScore = pkLastScoreSnap[pkHostTeamIndex] || 0;
+                const others = pkLastScoreSnap.filter((_, i) => i !== pkHostTeamIndex);
+                const maxOther = Math.max(0, ...others);
+                let newState = '';
+                if (hostScore > maxOther) newState = 'lead';
+                else if (hostScore < maxOther) newState = 'behind';
+                else newState = 'tie';
+                if (newState !== pkLastLeadState && (newState === 'lead' || newState === 'behind')) {
+                    pkLastLeadState = newState;
+                    pkAutoEnqueue(newState, `periodic_30s (host=${hostScore} vs max_opp=${maxOther})`);
+                }
+            }, PK_PERIODIC_LEAD_CHECK_MS);
+            // Lưu interval handle để clear khi PK end
+            pkTimers.push({ _isInterval: true, _handle: periodicCheck });
+        } else if (action === 5 /* FINISH */ || action === 6 /* CUT_SHORT */) {
+            // Determine win/lose
+            let resultKey = 'win';
+            if (pkLastScoreSnap && pkHostTeamIndex >= 0) {
+                const hostScore = pkLastScoreSnap[pkHostTeamIndex] || 0;
+                const others = pkLastScoreSnap.filter((_, i) => i !== pkHostTeamIndex);
+                const maxOther = Math.max(0, ...others);
+                resultKey = hostScore >= maxOther ? 'win' : 'lose';
+                console.log(`[pktiktok] PK FINISH: host=${hostScore} vs max_opp=${maxOther} → ${resultKey}`);
+            } else {
+                console.log(`[pktiktok] PK FINISH: no score data → default 'win' (action=${action})`);
+            }
+            // Detect TOP 1 contributor và lưu thông tin để rule check khi emit
+            const sorted = [...pkGiftDuringMatch.values()].sort((a, b) => b.totalDiamond - a.totalDiamond);
+            const top1 = sorted[0] || null;
+            if (top1) {
+                console.log(`[pktiktok] PK TOP 1 contributor: @${top1.uniqueId} "${top1.nickname || ''}" — ${top1.totalDiamond} 💎 (${top1.totalCount} gifts)`);
+                // Save vào last context — phase trigger handler sẽ check rule khi emit
+                pkLastTopContributor = top1;
+            } else {
+                pkLastTopContributor = null;
+                console.log(`[pktiktok] PK FINISH: không có gift nào trong trận → không TOP 1`);
+            }
+            pkAutoEnqueue(resultKey, `battle_finish (action=${action})`);
+            // Delay reset state để khi emit còn dùng được pkLastTopContributor
+            setTimeout(() => { pkLastTopContributor = null; }, 10_000);
+            // Reset pkActive nhưng giữ data tracking
+            pkActive = false;
+            clearPkTimers();
+        }
+    });
+    conn.on(WebcastEvent.LINK_MIC_BATTLE_TASK, (data) => {
+        const type = data?.battleTaskMessageType;
+        // Try parse multiplier text từ task description
+        const descText = data?.taskDescription || data?.description || data?.text || '';
+        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type} desc="${String(descText).slice(0, 100)}" keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
+        if (type === 0 /* START */) {
+            pkAutoEnqueue('mission', 'task_start');
+            // Heuristic: nếu desc text có x2/x3, queue thêm
+            const txt = String(descText).toLowerCase();
+            if (/x\s*2|nhân\s*2|speed\s*x?2/.test(txt)) pkAutoEnqueue('x2', 'task_desc_x2');
+            else if (/x\s*3|nhân\s*3|speed\s*x?3/.test(txt)) pkAutoEnqueue('x3', 'task_desc_x3');
+        } else if (type === 2 /* SETTLE */ || type === 3 /* REWARD_SETTLE */) {
+            // Task settled — heuristic guess: nếu reward = multiplier x2/x3 (chưa decode được)
+        }
+    });
+    conn.on(WebcastEvent.LINK_MIC_BATTLE_PUNISH_FINISH, (data) => {
+        console.log(`[pktiktok] LINK_MIC_BATTLE_PUNISH_FINISH`);
+        resetPkState();
+    });
+    conn.on(WebcastEvent.LINK_MIC_ARMIES, (data) => {
+        // Cập nhật score snapshot mỗi khi armies thay đổi
+        try {
+            const teams = parseTeamsArmies(data);
+            if (teams.length > 0) {
+                pkLastScoreSnap = teams.map(t => t.score);
+                console.log(`[pktiktok] LINK_MIC_ARMIES scores=[${pkLastScoreSnap.join(', ')}] hostIdx=${pkHostTeamIndex}`);
+            }
+        } catch (e) { console.error('[pktiktok] armies parse error:', e); }
     });
 }
 
@@ -421,12 +1371,26 @@ function lookupGiftFromTikTok(id) {
     const items = Array.isArray(list) ? list : Object.values(list || {});
     const target = items.find(g => String(g.id) === String(id));
     if (!target) return null;
-    // Schema TikTok: { id, name, diamond_count, image: { url_list: [...] }, icon: { url_list: [...] } }
-    const imgUrls = target.image?.url_list || target.icon?.url_list || [];
+    // TikTok response có nhiều field chứa URL ảnh — thử lần lượt để fix case
+    // gift có ID nhưng không có image (vd: streak gift, region gift, gift mới chưa cache)
+    const tryUrls = (obj) => {
+        if (!obj) return [];
+        if (Array.isArray(obj.url_list)) return obj.url_list;
+        if (Array.isArray(obj.urlList))  return obj.urlList;
+        if (typeof obj.url === 'string') return [obj.url];
+        return [];
+    };
+    const candidates = [
+        ...tryUrls(target.image),
+        ...tryUrls(target.icon),
+        ...tryUrls(target.preview_image),
+        ...tryUrls(target.thumbnail),
+        target.image_url, target.icon_url, target.url
+    ].filter(u => typeof u === 'string' && u.startsWith('http'));
     return {
-        name: target.name || '',
-        image: imgUrls[0] || '',
-        diamond: target.diamond_count || 0
+        name: target.name || target.gift_name || '',
+        image: candidates[0] || '',
+        diamond: target.diamond_count || target.diamondCount || 0
     };
 }
 
@@ -435,21 +1399,18 @@ function recordUnknownGift(g) {
     if (!id) return null;
     // Đã có trong sheet → skip
     if (giftMap[id]) return null;
-    // Thử fallback từ availableGifts của TikTok nếu event đến mà thiếu name/picture
-    // (xảy ra với streak gift hoặc khi giftDetails chưa flush) — tra cứu trong cache
-    // sẽ điền vào những field còn trống.
     const tt = lookupGiftFromTikTok(id);
-    const resolvedName = g.giftName || tt?.name || '';
-    const resolvedImage = g.giftPicture || tt?.image || '';
-    const resolvedDiamond = parseInt(g.diamondCount, 10) || tt?.diamond || 0;
-    // Cần ít nhất 1 trong (name | picture) để hữu ích — tránh ghi entry rỗng hoàn toàn
+    const resolvedName = g.giftName || g.gift_name || tt?.name || '';
+    // Thử nhiều field từ event payload (snake_case, camelCase, alternative names)
+    const resolvedImage = g.giftPicture || g.gift_picture || g.giftIcon || g.gift_icon
+        || g.image || g.icon || tt?.image || '';
+    const resolvedDiamond = parseInt(g.diamondCount, 10) || parseInt(g.diamond_count, 10) || tt?.diamond || 0;
     if (!resolvedName && !resolvedImage) return null;
     const now = Date.now();
     const prev = unknownGifts[id];
     if (prev) {
         prev.count = (prev.count || 0) + (parseInt(g.repeatCount, 10) || 1);
         prev.lastSeen = now;
-        // Update các field nếu lần này có thông tin tốt hơn
         if (!prev.name && resolvedName) prev.name = resolvedName;
         if (!prev.image && resolvedImage) prev.image = resolvedImage;
         if ((!prev.diamond || prev.diamond <= 0) && resolvedDiamond > 0) prev.diamond = resolvedDiamond;
@@ -465,9 +1426,38 @@ function recordUnknownGift(g) {
         };
     }
     scheduleSaveUnknown();
-    // Emit realtime để App show badge ngay
     io.emit('unknownGift', { entry: unknownGifts[id], total: Object.keys(unknownGifts).length });
+    // Nếu vẫn thiếu image → schedule retry sau 1-2s (availableGifts có thể chưa load đủ
+    // khi event đầu tiên đến). Retry tối đa 3 lần với gap tăng dần.
+    if (!unknownGifts[id].image) {
+        scheduleGiftIconRetry(id);
+    }
     return unknownGifts[id];
+}
+
+// Retry lookup icon cho gift chưa có image — quét lại availableGifts sau khi connect ổn định
+const giftIconRetryAttempts = new Map();   // id → number of attempts
+function scheduleGiftIconRetry(id) {
+    const attempts = giftIconRetryAttempts.get(id) || 0;
+    if (attempts >= 5) return;   // bỏ cuộc sau 5 lần
+    giftIconRetryAttempts.set(id, attempts + 1);
+    const delay = 1500 + attempts * 1500;   // 1.5s, 3s, 4.5s, 6s, 7.5s
+    setTimeout(() => {
+        const entry = unknownGifts[id];
+        if (!entry || entry.image) return;   // đã có image hoặc bị xoá
+        const tt = lookupGiftFromTikTok(id);
+        if (tt?.image) {
+            entry.image = tt.image;
+            if (!entry.name && tt.name) entry.name = tt.name;
+            if ((!entry.diamond || entry.diamond <= 0) && tt.diamond > 0) entry.diamond = tt.diamond;
+            scheduleSaveUnknown();
+            io.emit('unknownGift', { entry, total: Object.keys(unknownGifts).length });
+            console.log(`[unknown-gifts] Retry ${attempts + 1}/5 thành công cho gift ${id}: ${tt.image}`);
+            giftIconRetryAttempts.delete(id);
+        } else {
+            scheduleGiftIconRetry(id);   // try again
+        }
+    }, delay);
 }
 
 // Quét toàn bộ unknownGifts hiện có, điền lại name/image/diamond từ availableGifts
@@ -495,6 +1485,7 @@ function refreshUnknownGiftsFromTikTok() {
 }
 
 function emitGift(g) {
+    rememberLiveTranslateUser(liveTranslateRecentGifts, g);
     const sheetItem = giftMap[String(g.giftId)] || null;
     // Quà unknown → ghi vào danh sách phát hiện được
     if (!sheetItem) recordUnknownGift(g);
@@ -509,13 +1500,66 @@ function emitGift(g) {
     // Push to all game overlays
     io.to('overlay').emit('gameGift', enriched);
     io.to('preview').emit('gameGift', enriched);
+    // Track total diamond cho stats card
+    const diamond = Number(enriched.coinValue) || 0;
+    const repeat = Number(g.repeatCount) || 1;
+    if (diamond > 0) {
+        liveStats.totalDiamond += diamond * repeat;
+        emitLiveStatsThrottled();
+    }
+    // PK: track gifts gửi cho HOST trong khoảng PK active — để detect TOP 1 contributor khi PK end
+    if (pktiktokTrackPkGift && g.uniqueId) {
+        pktiktokTrackPkGift({
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            profilePicture: g.profilePicture || enriched.image,
+            level: Number(g.level) || 0,
+            diamond: diamond * repeat
+        });
+    }
+    // VIP Welcome — kiểm tra rules khi user tặng quà
+    try {
+        handleVipWelcomeEvent('gift', {
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            level: Number(g.level) || 0,
+            verified: !!g.verified,
+            profilePicture: g.profilePicture || enriched.image,
+            giftName: enriched.giftName || g.giftName,
+            giftPicture: enriched.image,
+            diamondCount: enriched.coinValue || 0,
+            repeatCount: g.repeatCount || 1
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 async function connectToUser(username) {
     if (connecting) throw new Error('Đang kết nối, vui lòng chờ...');
     if (connection) { try { await connection.disconnect(); } catch (e) {} connection = null; }
+    liveConnected = false;
     connecting = true;
     currentUsername = username.replace(/^@/, '').trim();
+    // Reset session-scoped state cho VIP Welcome + Live stats
+    resetVipSession();
+    resetLiveStats();
+    // Log VIP Welcome config — user xem để verify rules đã load đúng từ disk
+    try {
+        const vw = appConfig.games.vipwelcome;
+        if (vw) {
+            const enabledProfiles = (vw.profiles || []).filter(p => p.enabled);
+            console.log(`[vipwelcome] === Config snapshot khi connect LIVE ===`);
+            console.log(`[vipwelcome]   master enabled: ${vw.enabled !== false}`);
+            console.log(`[vipwelcome]   profiles total: ${(vw.profiles || []).length}, enabled: ${enabledProfiles.length}`);
+            for (const p of (vw.profiles || [])) {
+                const flag = p.enabled ? '✓ ON ' : '✗ off';
+                console.log(`[vipwelcome]   ${flag} "${p.name}" — userRules: ${(p.userRules || []).length}, globalJoin: ${p.globalJoin?.enabled ? 'ON' : 'off'}, globalGift: ${p.globalGift?.enabled ? 'ON' : 'off'}`);
+                for (const r of (p.userRules || [])) {
+                    console.log(`[vipwelcome]     → rule: @${r.uniqueId} (${r.trigger}) ${r.enabled === false ? '[disabled]' : '[active]'} media=${r.mediaUrl ? 'YES' : 'no'}`);
+                }
+            }
+            console.log(`[vipwelcome] === end snapshot ===`);
+        }
+    } catch (e) {}
     try {
         connection = new TikTokLiveConnection(currentUsername, {
             processInitialData: false,
@@ -524,7 +1568,23 @@ async function connectToUser(username) {
         });
         attachConnectionEvents(connection);
         const state = await connection.connect();
+        liveConnected = true;
         currentRoomId = state?.roomId;
+        // Synthetic "host vào phòng" event — TikTok không fire MEMBER cho HOST tự kết nối live của mình.
+        const hostNickname = state?.roomInfo?.owner?.nickname || state?.roomInfo?.owner?.uniqueId || currentUsername;
+        const hostLevel = Number(state?.roomInfo?.owner?.userHonor?.level) || 0;
+        const hostPic = state?.roomInfo?.owner?.profilePicture?.url || '';
+        const hostVerified = !!state?.roomInfo?.owner?.verified;
+        currentHostUserId = String(state?.roomInfo?.owner?.userId || '');
+        // Lấy followerCount của HOST từ roomInfo
+        const followerCount = Number(state?.roomInfo?.owner?.followInfo?.followerCount) || 0;
+        if (followerCount > 0) {
+            liveStats.followerCount = followerCount;
+            emitLiveStatsImmediate();
+        }
+        setTimeout(() => {
+            maybeFireFirstSeenJoin(currentUsername, hostNickname, hostLevel, hostPic, 'hostConnect', hostVerified);
+        }, 300);
         // Sau khi connect → connection.availableGifts có sẵn metadata cho mọi gift trong room.
         // Quét lại các unknown entry cũ thiếu icon/name → điền từ TikTok metadata cache.
         // Chạy sau 500ms để chắc availableGifts đã fully load.
@@ -544,6 +1604,105 @@ async function connectToUser(username) {
 
 // ====== Routes ======
 app.get('/api/gifts', (req, res) => res.json(giftList));
+
+app.get('/api/live-translate/config', (req, res) => {
+    appConfig.liveTranslate = sanitizeLiveTranslateConfig(appConfig.liveTranslate);
+    res.json({ ...appConfig.liveTranslate, sheetRules: getCommentRulesMeta() });
+});
+
+app.post('/api/live-translate/config', (req, res) => {
+    appConfig.liveTranslate = sanitizeLiveTranslateConfig(req.body || {});
+    saveAppConfig();
+    io.emit('translate:config', appConfig.liveTranslate);
+    res.json({ ok: true, config: appConfig.liveTranslate });
+});
+
+app.get('/api/live-translate/rules', (req, res) => {
+    res.json(getCommentRulesMeta());
+});
+
+app.post('/api/live-translate/rules/reload', async (req, res) => {
+    await refreshCommentRulesSheet();
+    res.json({ ok: !commentSheetRules.error, ...getCommentRulesMeta() });
+});
+
+app.post('/api/live-translate/test-tts', (req, res) => {
+    const cfg = sanitizeLiveTranslateConfig(appConfig.liveTranslate);
+    const text = String(req.body?.text || LIVE_TRANSLATE_TEST_PHRASE).trim().slice(0, 220);
+    io.emit('translate:testSpeak', {
+        translatedText: text,
+        normalizedText: text,
+        nickname: 'HP Action LIVE',
+        uniqueId: 'hpmedia',
+        targetLang: cfg.targetLang,
+        targetLangLabel: liveTranslateLangLabel(cfg.targetLang),
+        readUsername: cfg.readUsername,
+        ttsReadMode: cfg.ttsReadMode,
+        ttsRate: cfg.ttsRate,
+        canSpeak: true,
+        createTime: Date.now()
+    });
+    res.json({ ok: true });
+});
+
+app.post('/api/live-translate/test-comment', (req, res) => {
+    processLiveTranslateChat({
+        uniqueId: 'hpmedia',
+        nickname: 'HP Action LIVE',
+        userId: 'live-translate-test',
+        profilePicture: '',
+        comment: String(req.body?.text || 'Hello, this is a translated comment test.').trim().slice(0, 220),
+        createTime: Date.now()
+    });
+    res.json({ ok: true });
+});
+
+app.get('/api/live-translate/debug', (req, res) => {
+    res.json({
+        connected: isTikTokLiveConnected(),
+        username: currentUsername,
+        roomId: currentRoomId,
+        config: sanitizeLiveTranslateConfig(appConfig.liveTranslate),
+        stats: liveTranslateStats,
+        rules: getCommentRulesMeta()
+    });
+});
+
+app.get('/api/creator-caption/config', (req, res) => {
+    appConfig.creatorCaption = sanitizeCreatorCaptionConfig(appConfig.creatorCaption);
+    res.json(appConfig.creatorCaption);
+});
+
+app.post('/api/creator-caption/config', (req, res) => {
+    appConfig.creatorCaption = sanitizeCreatorCaptionConfig(req.body || {});
+    saveAppConfig();
+    io.emit('creatorCaption:config', appConfig.creatorCaption);
+    res.json({ ok: true, config: appConfig.creatorCaption });
+});
+
+app.post('/api/creator-caption/test', (req, res) => {
+    processCreatorCaptionSpeech({ text: req.body?.text || 'Xin chào mọi người, hôm nay chúng ta bắt đầu live.' });
+    res.json({ ok: true });
+});
+
+app.get('/api/live-translate/tts', async (req, res) => {
+    const text = String(req.query.text || '').trim().slice(0, 220);
+    const lang = String(req.query.lang || 'vi').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'vi';
+    if (!text) return res.status(400).json({ ok: false, error: 'missing_text' });
+    try {
+        const url = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl='
+            + encodeURIComponent(lang)
+            + '&q=' + encodeURIComponent(text);
+        const r = await fetch(url, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 HP-Action-LIVE' } });
+        if (!r.ok) throw new Error('tts_http_' + r.status);
+        const buf = Buffer.from(await r.arrayBuffer());
+        res.setHeader('Content-Type', r.headers.get('content-type') || 'audio/mpeg');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(buf);
+    } catch (e) {
+        res.status(502).json({ ok: false, error: e.message || 'tts_failed' });
+    }
+});
 
 // ===== Unknown gifts API (quà mới phát hiện ngoài Google Sheet) =====
 // Trả về sorted theo lastSeen DESC để quà vừa thấy nằm trên cùng.
@@ -685,21 +1844,72 @@ app.get('/api/games/:id/config', (req, res) => {
 app.post('/api/games/:id/config', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
+    const prevConfig = appConfig.games[g.id] || {};
+    const prevEnabled = prevConfig.enabled !== false;
     appConfig.games[g.id] = { ...appConfig.games[g.id], ...(req.body || {}) };
+    if (g.id === 'vipwelcome') {
+        appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
+    }
+    const newEnabled = appConfig.games[g.id].enabled !== false;
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
+    // Khi game vừa bị TẮT → gửi stop signal để overlay clear playback ngay lập tức
+    if (prevEnabled && !newEnabled) {
+        if (g.id === 'pktiktok') {
+            io.emit('pktiktok:stop', { ts: Date.now(), reason: 'gameDisabled' });
+        } else if (g.id === 'vipwelcome') {
+            vipWelcomeQueue = [];
+            if (vipWelcomeDrainTimer) { clearTimeout(vipWelcomeDrainTimer); vipWelcomeDrainTimer = null; }
+            io.emit('vipwelcome:stop', { ts: Date.now(), reason: 'gameDisabled' });
+            io.emit('vipwelcome:queue', { size: 0 });
+        }
+        // Generic event cho mọi game — overlay nào lắng nghe sẽ tự clear
+        io.emit('gameDisabled', { gameId: g.id, ts: Date.now() });
+        console.log(`[game-toggle] Game "${g.id}" disabled → emit stop signals`);
+    } else if (!prevEnabled && newEnabled) {
+        io.emit('gameEnabled', { gameId: g.id, ts: Date.now() });
+        console.log(`[game-toggle] Game "${g.id}" enabled`);
+    }
     res.json({ ok: true, config: appConfig.games[g.id] });
 });
 
 // Cache trạng thái game từng game — đẩy lên overlay khi (re)connect VÀ push realtime mỗi POST.
+// PERSISTENCE: lưu vào disk → restart app không mất quà đã tặng.
 // QUAN TRỌNG: app preview là authoritative source. Khi caughtList/policeForce/totalDiamonds đổi,
 // app POST state → server cache + broadcast tới room 'overlay' → OBS gọi loadState → render lại.
-// → OBS LUÔN khớp app, không bị stale, không cần Reset Browser trong OBS.
-const gameStateCache = {};
+const GAME_STATE_FILE = path.join(DATA_DIR, 'game-state.json');
+let gameStateCache = {};
+function loadGameStateCache() {
+    try {
+        if (fs.existsSync(GAME_STATE_FILE)) {
+            const raw = fs.readFileSync(GAME_STATE_FILE, 'utf8');
+            const parsed = JSON.parse(raw || '{}');
+            if (parsed && typeof parsed === 'object') gameStateCache = parsed;
+            console.log(`[game-state] Loaded ${Object.keys(gameStateCache).length} games từ disk`);
+        }
+    } catch (e) {
+        console.warn('[game-state] Load fail:', e.message);
+        gameStateCache = {};
+    }
+}
+let _gameStateSaveTimer = null;
+function scheduleSaveGameState() {
+    clearTimeout(_gameStateSaveTimer);
+    _gameStateSaveTimer = setTimeout(() => {
+        try {
+            fs.writeFileSync(GAME_STATE_FILE, JSON.stringify(gameStateCache), 'utf8');
+        } catch (e) {
+            console.warn('[game-state] Save fail:', e.message);
+        }
+    }, 1500);
+}
+loadGameStateCache();
+
 app.post('/api/games/:id/state', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     gameStateCache[g.id] = req.body || {};
+    scheduleSaveGameState();   // persist to disk debounced
     // Live broadcast tới room 'overlay' (KHÔNG echo về 'preview' để tránh ghi đè edits đang gõ)
     io.to('overlay').emit('gameStateSnapshot', { gameId: g.id, state: gameStateCache[g.id] });
     res.json({ ok: true });
@@ -717,52 +1927,74 @@ app.get('/api/version', (req, res) => {
 });
 
 // ============================================================
-// AUTO-UPDATE: check + download + install
+// AUTO-UPDATE: check + download + install (đơn giản như v1.0.6-v1.0.9)
 // ============================================================
 // Flow:
-//   1. App load → GET /api/update/check → so version với license-server
+//   1. App load → GET /api/update/check → so version với GitHub Releases
 //   2. Có update → modal hỏi user
 //   3. User OK → POST /api/update/download → server tải .exe + emit progress
-//      qua socket → verify SHA256 → spawn installer silent → app.quit
-// KHÔNG show URL, KHÔNG link GitHub trong code (repo có thể private — token không nhúng
-// vào installer để tránh leak khi attacker extract .exe).
-// Auto-update chỉ qua license-server kiểm soát bởi HP Media.
+//      qua socket → spawn installer silent (VBS launcher) → app.quit
+// Bảo mật ĐƠN GIẢN:
+//   - PRIMARY: GitHub Releases API public (https://api.github.com/repos/.../releases/latest)
+//   - FALLBACK: license-server (chỉ chạy nếu GitHub fail VÀ license-server có cấu hình)
+//   - Không có SHA256 verify cho GitHub (GitHub API không trả hash) → chấp nhận
+//     trade-off đơn giản hơn so với license-server (có SHA).
+
+// GitHub repo cho auto-update — PUBLIC để fetch unauth (không cần token).
+// Repo phải có Releases với tag vX.Y.Z và asset "HP-Action-LIVE-Setup-X.Y.Z.exe".
+// Override qua env HP_GITHUB_REPO=owner/repo nếu user dùng repo khác.
+const GITHUB_REPO = process.env.HP_GITHUB_REPO || 'hpmediaoffifical/hp-tiktok-game';
 
 app.get('/api/update/check', async (req, res) => {
     try {
         const pkg = require('./package.json');
         const localVer = pkg.version || '0.0.0';
 
-        if (!isWorkerConfigured()) {
-            return res.json({
-                ok: false,
-                localVersion: localVer,
-                error: 'Máy chủ cập nhật chưa cấu hình — liên hệ HP Media'
-            });
-        }
+        // === Primary: GitHub Releases (public repo, source of truth) ===
         try {
-            const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-            if (r.ok) {
-                const remote = await r.json();
-                if (remote.ok && remote.version) {
-                    const isNewer = cmpVersion(remote.version, localVer) > 0;
+            const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { timeout: 8000 });
+            if (ghRes.ok) {
+                const remote = await ghRes.json();
+                if (remote.tag_name) {
+                    const remoteVer = String(remote.tag_name).replace(/^v/i, '');
+                    const isNewer = cmpVersion(remoteVer, localVer) > 0;
+                    const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                                    || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
                     return res.json({
-                        ok: true, localVersion: localVer, hasUpdate: isNewer,
-                        latestVersion: remote.version, notes: remote.notes || '',
-                        size: remote.size || 0, sha256: remote.sha256 || '',
-                        source: 'license-server'
+                        ok: true,
+                        localVersion: localVer,
+                        hasUpdate: isNewer,
+                        latestVersion: remoteVer,
+                        notes: remote.body || '',
+                        size: setupAsset?.size || 0,
+                        sha256: '',   // GitHub không có SHA → skip verify
+                        source: 'github'
                     });
                 }
             }
-            // Server reachable nhưng chưa có version published → coi như đang dùng latest
-            return res.json({ ok: true, localVersion: localVer, hasUpdate: false });
-        } catch (e) {
-            return res.json({
-                ok: false,
-                localVersion: localVer,
-                error: 'Không kết nối được máy chủ cập nhật — thử lại sau'
-            });
+        } catch (e) { /* GitHub fail → fallback license-server */ }
+
+        // === Fallback: license-server (nếu cấu hình) ===
+        if (isWorkerConfigured()) {
+            try {
+                const r = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 6000 });
+                if (r.ok) {
+                    const remote = await r.json();
+                    if (remote.ok && remote.version) {
+                        const isNewer = cmpVersion(remote.version, localVer) > 0;
+                        return res.json({
+                            ok: true, localVersion: localVer, hasUpdate: isNewer,
+                            latestVersion: remote.version, notes: remote.notes || '',
+                            size: remote.size || 0, sha256: remote.sha256 || '',
+                            source: 'license-server'
+                        });
+                    }
+                }
+            } catch (e) { /* both sources failed */ }
         }
+
+        // Cả 2 nguồn fail
+        return res.json({ ok: false, localVersion: localVer, error: 'Không kết nối được nguồn cập nhật — thử lại sau' });
     } catch (e) {
         res.json({ ok: false, error: e.message });
     }
@@ -796,22 +2028,42 @@ app.post('/api/update/download', async (req, res) => {
         try {
             sendProgress({ phase: 'connecting', percent: 0, message: 'Đang kết nối tới máy chủ cập nhật...' });
 
-            // === Tải về CHỈ qua license-server (không dùng GitHub fallback để tránh
-            // lộ URL/token; private repo không thể fetch unauth) ===
+            // === Xác định nguồn tải: GitHub primary, license-server fallback ===
             let downloadUrl, expectedSize = 0, expectedSha = '', version = 'latest';
 
-            if (!isWorkerConfigured()) {
-                throw new Error('Máy chủ cập nhật chưa cấu hình');
+            // Primary: GitHub Releases
+            try {
+                const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { timeout: 8000 });
+                if (ghRes.ok) {
+                    const remote = await ghRes.json();
+                    const setupAsset = (remote.assets || []).find(a => /Setup.*\.exe$/i.test(a.name))
+                                    || (remote.assets || []).find(a => /\.exe$/i.test(a.name));
+                    if (setupAsset) {
+                        downloadUrl = setupAsset.browser_download_url;
+                        expectedSize = setupAsset.size || 0;
+                        expectedSha = '';   // GitHub không có SHA → skip verify
+                        version = String(remote.tag_name).replace(/^v/i, '');
+                    }
+                }
+            } catch (e) { /* GitHub fail → fallback license-server */ }
+
+            // Fallback: license-server
+            if (!downloadUrl && isWorkerConfigured()) {
+                try {
+                    const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 6000 });
+                    const meta = await metaRes.json();
+                    if (meta.ok && meta.version) {
+                        downloadUrl = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer';
+                        expectedSize = meta.size || 0;
+                        expectedSha = (meta.sha256 || '').toLowerCase();
+                        version = meta.version;
+                    }
+                } catch (e) { /* both sources failed */ }
             }
-            const metaRes = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/version', { timeout: 8000 });
-            const meta = await metaRes.json();
-            if (!meta.ok || !meta.version) {
-                throw new Error('Máy chủ cập nhật chưa có phiên bản nào published');
+
+            if (!downloadUrl) {
+                throw new Error('Không kết nối được nguồn cập nhật');
             }
-            downloadUrl = LICENSE_WORKER_URL.replace(/\/$/, '') + '/api/download/installer';
-            expectedSize = meta.size || 0;
-            expectedSha = (meta.sha256 || '').toLowerCase();
-            version = meta.version;
 
             // Step 2: download installer to temp folder
             const os = require('os');
@@ -1111,20 +2363,24 @@ app.post('/api/connect', async (req, res) => {
 app.post('/api/disconnect', async (req, res) => {
     try {
         if (connection) await connection.disconnect();
-        connection = null; currentUsername = null; currentRoomId = null;
+        connection = null; liveConnected = false; currentUsername = null; currentRoomId = null;
         broadcast('status', { connected: false });
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // Gửi lệnh điều khiển game (thief, fireworks, tornado...) tới mọi overlay
+// Monotonic sequence ID cho gameCmd — overlay dedup theo seq để tránh
+// duplicate spawn khi OBS cache stale code / reconnect re-attach listener.
+let _cmdSeq = 0;
 app.post('/api/games/:id/cmd', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     const { cmd, payload } = req.body || {};
     if (!cmd) return res.status(400).json({ ok: false, error: 'Thiếu cmd' });
-    io.emit('gameCmd', { gameId: g.id, cmd, payload: payload || null });
-    res.json({ ok: true });
+    const seq = ++_cmdSeq;
+    io.emit('gameCmd', { gameId: g.id, cmd, payload: payload || null, seq });
+    res.json({ ok: true, seq });
 });
 
 // Test-spawn a gift (manual drop from UI)
@@ -1137,7 +2393,7 @@ app.post('/api/games/:id/test-gift', (req, res) => {
     const repeatCount = parseInt(body.count, 10) || 1;
     emitGift({
         uniqueId: body.uniqueId || 'tester',
-        nickname: body.nickname || 'Test',
+        nickname: body.nickname || 'HP Media',
         giftId,
         giftName: sheetItem?.name || body.giftName || 'Gift',
         giftPicture: sheetItem?.image,
@@ -1157,6 +2413,15 @@ app.get('/overlay/caro', (req, res) => {
 });
 app.get('/overlay/pktiktok', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'games', 'pktiktok', 'overlay.html'));
+});
+app.get('/overlay/vipwelcome', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'vipwelcome', 'overlay.html'));
+});
+app.get('/overlay/translate', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'overlay', 'translate.html'));
+});
+app.get('/overlay/creator-caption', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'overlay', 'creator-caption.html'));
 });
 
 // ============================================================
@@ -1212,17 +2477,39 @@ app.post('/api/games/pktiktok/trigger', (req, res) => {
         if (!ev) return res.json({ ok: false, error: 'event_not_found' });
         if (ev.enabled === false) return res.json({ ok: false, error: 'event_disabled' });
         if (!ev.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+        // Top-contributor user override (chỉ áp dụng cho phase win/lose/mission khi PK kết thúc)
+        let media = { url: ev.mediaUrl, type: ev.mediaType || '', name: '' };
+        let topUser = null;
+        const isResultPhase = (key === 'win' || key === 'lose');
+        if (isResultPhase && pkLastTopContributor && Array.isArray(ev.topContributorRules) && ev.topContributorRules.length > 0) {
+            const top = pkLastTopContributor;
+            const topUidLower = String(top.uniqueId || '').toLowerCase().replace(/^@/, '');
+            const rule = ev.topContributorRules.find(r => {
+                const ruleUid = String(r.uniqueId || '').toLowerCase().replace(/^@/, '').trim();
+                return ruleUid && ruleUid === topUidLower && r.mediaUrl;
+            });
+            if (rule) {
+                media.url = rule.mediaUrl;
+                media.type = rule.mediaType || '';
+                media.name = rule.mediaName || '';
+                topUser = top;
+                console.log(`[pktiktok] TOP 1 rule MATCH for @${top.uniqueId} → override media to ${rule.mediaUrl}`);
+            } else {
+                console.log(`[pktiktok] TOP 1 @${top.uniqueId} không có rule riêng → dùng default media`);
+            }
+        }
         const payload = {
             key,
             label: ev.label,
             emoji: ev.emoji,
-            mediaUrl: ev.mediaUrl,
-            mediaType: ev.mediaType || '',
+            mediaUrl: media.url,
+            mediaType: media.type || guessMediaType(media.url),
             volume: ev.volume == null ? 100 : ev.volume,
             playbackRate: ev.playbackRate || 1.0,
             interruptCurrent: ev.interruptCurrent !== false,
             showLabel: !!(cfg.display && cfg.display.showLabel),
             source: source || 'manual',
+            topUser: topUser ? { uniqueId: topUser.uniqueId, nickname: topUser.nickname, totalDiamond: topUser.totalDiamond } : null,
             ts: Date.now(),
         };
         io.emit('pktiktok:play', payload);
@@ -1235,6 +2522,602 @@ app.post('/api/games/pktiktok/trigger', (req, res) => {
     return res.status(400).json({ ok: false, error: 'unknown_type' });
 });
 
+// ============================================================
+// VIP WELCOME — upload / asset / trigger broadcast / queue manager
+// ============================================================
+// Cấu trúc tương tự pktiktok: assets folder riêng + route serve.
+const VIPWELCOME_ASSETS_DIR = path.join(DATA_DIR, 'vipwelcome-assets');
+if (!fs.existsSync(VIPWELCOME_ASSETS_DIR)) fs.mkdirSync(VIPWELCOME_ASSETS_DIR, { recursive: true });
+const VIPWELCOME_ALLOWED_EXTS = ['mp4', 'webm', 'mp3', 'wav', 'ogg', 'm4a'];
+
+app.post('/api/games/vipwelcome/upload',
+    express.raw({ limit: '30mb', type: () => true }),
+    (req, res) => {
+        const ext = String(req.query.ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        if (!VIPWELCOME_ALLOWED_EXTS.includes(ext)) {
+            return res.status(400).json({ ok: false, error: 'invalid_ext' });
+        }
+        if (!req.body || !req.body.length) {
+            return res.status(400).json({ ok: false, error: 'empty_body' });
+        }
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const filename = `${id}.${ext}`;
+        try {
+            fs.writeFileSync(path.join(VIPWELCOME_ASSETS_DIR, filename), req.body);
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: 'write_failed: ' + e.message });
+        }
+        res.json({ ok: true, filename, url: `/api/games/vipwelcome/asset/${filename}` });
+    }
+);
+
+app.get('/api/games/vipwelcome/asset/:fn', (req, res) => {
+    const safe = String(req.params.fn).replace(/[^a-z0-9._-]/gi, '');
+    if (!safe || safe.includes('..')) return res.sendStatus(400);
+    const p = path.join(VIPWELCOME_ASSETS_DIR, safe);
+    if (!fs.existsSync(p)) return res.sendStatus(404);
+    res.sendFile(p);
+});
+
+// ===== VIP Welcome queue + per-user cooldown =====
+// Tracking khi nào (uniqueId, ruleId) được phép trigger lại — chống spam cùng 1 user.
+const vipWelcomeCooldown = new Map();   // key="uid|ruleId" → tsExpire
+let vipWelcomeQueue = [];                // [{ payload, ts }]
+let vipWelcomeLastEmitTs = 0;            // mốc emit gần nhất (rate-limit perItemMinMs)
+let vipWelcomeDrainTimer = null;
+let vipWelcomeRecentLog = [];            // 50 entry gần nhất cho panel hiển thị
+
+// === Session-scoped state ===
+let vipSessionLastLevel = new Map();    // uniqueId(lower) → last seen level
+let vipSessionSeen = new Set();         // uniqueId(lower) — đã từng có event trong session này
+// REJOIN logic: 2 mech song song
+// (1) Time-based: lastSeenAt → nếu now - lastSeen > threshold → user vắng mặt đủ lâu → rejoin
+// (2) Seq drop-out: track danh sách user trong ROOM_USER seq gần nhất. Khi user vào seq lần này
+//     nhưng KHÔNG trong seq trước = re-entered. Mạnh hơn time-based — fire ngay không cần đợi threshold.
+let vipSessionLastFireAt = new Map();   // uniqueId(lower) → ts fire cuối cùng
+let vipSessionLastSeenAt = new Map();   // uniqueId(lower) → ts signal cuối cùng (any event)
+let vipSessionInLatestSeq = new Set();  // uniqueId(lower) — currently in most recent ROOM_USER seq
+let vipSessionLeftSeqAt = new Map();    // uniqueId(lower) → ts khi drop khỏi seq (chờ rejoin)
+// === userId ↔ uniqueId cache ===
+let vipSessionUserIdToUid = new Map();  // userId(string) → uniqueId
+let vipSessionUidToUserId = new Map();  // uniqueId(lower) → userId
+// Fire counter per ruleId — chỉ count session, reset khi resetSession/reconnect
+let vipSessionRuleFireCount = new Map();   // ruleId (vd "user:r1abc") → count
+
+const DEFAULT_REJOIN_THRESHOLD_SEC = 60;
+
+function getRejoinThresholdMs() {
+    const cfg = appConfig.games.vipwelcome || {};
+    return Math.max(5, cfg.queue?.rejoinThresholdSec || DEFAULT_REJOIN_THRESHOLD_SEC) * 1000;
+}
+
+function resetVipSession() {
+    vipSessionLastLevel.clear();
+    vipSessionSeen.clear();
+    vipSessionLastFireAt.clear();
+    vipSessionLastSeenAt.clear();
+    vipSessionInLatestSeq.clear();
+    vipSessionLeftSeqAt.clear();
+    vipSessionUserIdToUid.clear();
+    vipSessionUidToUserId.clear();
+    vipSessionRuleFireCount.clear();
+}
+
+// Ghi nhớ mapping userId ↔ uniqueId từ bất kỳ event nào có cả 2 field
+function rememberUserMapping(userId, uniqueId) {
+    if (!userId || !uniqueId) return;
+    const uid = String(uniqueId);
+    const id = String(userId);
+    if (!vipSessionUserIdToUid.has(id)) {
+        vipSessionUserIdToUid.set(id, uid);
+        vipSessionUidToUserId.set(uid.toLowerCase(), id);
+        console.log(`[vipwelcome] Cache userId↔uniqueId: ${id} ↔ @${uid}`);
+    }
+}
+
+// Thử resolve uniqueId khi event chỉ có userId (vd: MEMBER event đôi khi thiếu uniqueId)
+function resolveUniqueIdFromUserId(userId) {
+    if (!userId) return null;
+    return vipSessionUserIdToUid.get(String(userId)) || null;
+}
+
+// Fire 'join' với 3 nhánh:
+// (A) Lần đầu trong phiên → fire
+// (B) Drop-out seq → trở lại (mạnh) → fire ngay bypass threshold
+// (C) Time-based: vắng mặt > rejoinThresholdSec → fire
+function maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, source, verified, userId) {
+    if (!uniqueId && userId) {
+        const resolved = resolveUniqueIdFromUserId(userId);
+        if (resolved) {
+            console.log(`[vipwelcome] Resolved uniqueId từ userId ${userId} → @${resolved} (source=${source})`);
+            uniqueId = resolved;
+        }
+    }
+    if (!uniqueId) {
+        console.log(`[vipwelcome] ⚠ JOIN skip: thiếu uniqueId (source=${source}, userId="${userId || ''}", nickname="${nickname || ''}").`);
+        return;
+    }
+    const k = String(uniqueId).toLowerCase();
+    const now = Date.now();
+    const thresholdMs = getRejoinThresholdMs();
+    const lastFire = vipSessionLastFireAt.get(k);
+    const lastSeen = vipSessionLastSeenAt.get(k);
+    const leftSeqAt = vipSessionLeftSeqAt.get(k);
+
+    const isFirstTime = !lastFire;
+    const sinceLastSeen = lastSeen ? now - lastSeen : Infinity;
+    const isRejoinByTime = lastFire && sinceLastSeen > thresholdMs;
+    const isRejoinByDropOut = lastFire && leftSeqAt;   // user từng drop khỏi seq, giờ trở lại
+
+    // Luôn update lastSeenAt
+    vipSessionLastSeenAt.set(k, now);
+
+    if (!isFirstTime && !isRejoinByTime && !isRejoinByDropOut) {
+        return;   // user vẫn đang trong phòng — không fire lại
+    }
+
+    // Clear drop-out marker khi fire
+    if (leftSeqAt) vipSessionLeftSeqAt.delete(k);
+    vipSessionLastFireAt.set(k, now);
+
+    const note = isRejoinByDropOut
+        ? `(REJOIN qua seq drop-and-return — bypass threshold)`
+        : isRejoinByTime
+        ? `(REJOIN sau ${Math.round(sinceLastSeen / 1000)}s vắng mặt — threshold ${thresholdMs / 1000}s)`
+        : '(lần đầu trong phiên)';
+    console.log(`[vipwelcome] JOIN fired (source=${source}): @${uniqueId} "${nickname || ''}" (cấp ${level || 0}, verified=${!!verified}) ${note}`);
+    try {
+        handleVipWelcomeEvent('join', {
+            uniqueId, nickname,
+            level: Number(level) || 0,
+            profilePicture: profilePicture || '',
+            verified: !!verified
+        });
+    } catch (e) { console.error('[vipwelcome] join handler error:', e); }
+}
+
+function pruneVipCooldown() {
+    const now = Date.now();
+    for (const [k, ts] of vipWelcomeCooldown) {
+        if (ts <= now) vipWelcomeCooldown.delete(k);
+    }
+}
+
+function vipWelcomeMatchesUserRule(rule, ctx) {
+    // Trả về { matched, reason } để caller có thể log lý do không match (debug)
+    if (!rule || rule.enabled === false) return { matched: false, reason: 'rule_disabled' };
+    if (!rule.mediaUrl) return { matched: false, reason: 'no_media' };
+    if (rule.trigger !== ctx.eventType) return { matched: false, reason: `trigger_mismatch (rule=${rule.trigger}, event=${ctx.eventType})` };
+    const targetId = String(rule.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+    if (!targetId) return { matched: false, reason: 'rule_uniqueId_empty' };
+    const userId = String(ctx.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+    if (userId !== targetId) return { matched: false, reason: `uniqueId_mismatch (rule="${targetId}" vs event="${userId}")` };
+    // User chỉ định: BỎ filter cấp độ + kim cương — đã chỉ định ID rồi nên không cần lọc thêm.
+    return { matched: true, reason: 'ok' };
+}
+
+function renderVipMessage(template, ctx) {
+    if (!template) return '';
+    return String(template)
+        .replace(/\{nickname\}/g, ctx.nickname || ctx.uniqueId || 'User')
+        .replace(/\{uniqueId\}/g, ctx.uniqueId || '')
+        .replace(/\{level\}/g, String(ctx.level || 0))
+        .replace(/\{gift\}/g, ctx.giftName || '')
+        .replace(/\{count\}/g, String(ctx.repeatCount || 1))
+        .replace(/\{verified\}/g, ctx.verified ? '✓' : '');
+}
+
+function pushVipWelcomeLog(entry) {
+    vipWelcomeRecentLog.unshift(entry);
+    if (vipWelcomeRecentLog.length > 50) vipWelcomeRecentLog.length = 50;
+    io.emit('vipwelcome:log', entry);
+}
+
+function scheduleVipDrain() {
+    if (vipWelcomeDrainTimer) return;
+    const cfg = appConfig.games.vipwelcome || {};
+    // KHÔNG còn floor 500ms — user có thể set 0 nếu muốn emit tức thì.
+    // Overlay đã có queue nội bộ + play serial → server không cần pace cao.
+    const minGap = Math.max(0, (cfg.queue?.perItemMinMs) ?? 200);
+    const delay = Math.max(0, vipWelcomeLastEmitTs + minGap - Date.now());
+    vipWelcomeDrainTimer = setTimeout(() => {
+        vipWelcomeDrainTimer = null;
+        drainVipQueueOne();
+    }, delay);
+}
+
+function drainVipQueueOne() {
+    if (vipWelcomeQueue.length === 0) return;
+    const item = vipWelcomeQueue.shift();
+    vipWelcomeLastEmitTs = Date.now();
+    // Verify asset file exists nếu URL là local asset — log warning nếu thiếu
+    let mediaExists = true;
+    const u = String(item.payload.mediaUrl || '');
+    const assetMatch = u.match(/^\/api\/games\/vipwelcome\/asset\/(.+)$/);
+    if (assetMatch) {
+        const filePath = path.join(VIPWELCOME_ASSETS_DIR, assetMatch[1]);
+        mediaExists = fs.existsSync(filePath);
+        if (!mediaExists) {
+            console.log(`[vipwelcome] ⚠ MEDIA FILE MISSING khi drain: ${filePath} — overlay sẽ không phát được. Tải lại file vào rule "${item.payload.ruleLabel}".`);
+        }
+    }
+    // Verbose drain log
+    console.log(`[vipwelcome] 🎬 DRAIN → overlay: rule="${item.payload.ruleLabel}" user=@${item.payload.user?.uniqueId || '?'} mediaUrl=${item.payload.mediaUrl} type=${item.payload.mediaType} (file ok: ${mediaExists})`);
+    // Count fire per rule (chỉ khi media tồn tại — coi như đã thật sự phát)
+    if (mediaExists && item.payload.ruleId) {
+        vipSessionRuleFireCount.set(item.payload.ruleId, (vipSessionRuleFireCount.get(item.payload.ruleId) || 0) + 1);
+    }
+    io.emit('vipwelcome:play', item.payload);
+    io.emit('vipwelcome:queue', { size: vipWelcomeQueue.length });
+    pushVipWelcomeLog({
+        ts: Date.now(),
+        kind: mediaExists ? 'play' : 'mediaMissing',
+        ruleLabel: item.payload.ruleLabel || item.payload.source || '',
+        eventType: item.payload.eventType,
+        uniqueId: item.payload.user?.uniqueId,
+        nickname: item.payload.user?.nickname,
+        level: item.payload.user?.level || 0,
+        mediaUrl: item.payload.mediaUrl
+    });
+    if (vipWelcomeQueue.length > 0) scheduleVipDrain();
+}
+
+function enqueueVipWelcomePayload(payload, priority) {
+    const cfg = appConfig.games.vipwelcome || {};
+    const maxLen = Math.max(1, cfg.queue?.maxLen || 20);
+    if (priority) {
+        // User-specific rule: PUSH TO FRONT để drain trước global → user VIP nhận hiệu ứng tức thì
+        vipWelcomeQueue.unshift({ payload, ts: Date.now(), priority: true });
+        // Vượt limit: drop từ ĐUÔI (giữ priority items ở đầu)
+        while (vipWelcomeQueue.length > maxLen) {
+            const dropped = vipWelcomeQueue.pop();
+            pushVipWelcomeLog({ ts: Date.now(), kind: 'drop', ruleLabel: `Queue đầy (priority) → drop ${dropped.payload.ruleLabel}`, dropped: 1 });
+        }
+    } else {
+        vipWelcomeQueue.push({ payload, ts: Date.now() });
+        // Drop từ ĐẦU nhưng SKIP priority items
+        while (vipWelcomeQueue.length > maxLen) {
+            // Tìm item non-priority đầu tiên để drop
+            const idx = vipWelcomeQueue.findIndex(it => !it.priority);
+            if (idx === -1) break;   // toàn priority — không drop
+            vipWelcomeQueue.splice(idx, 1);
+            pushVipWelcomeLog({ ts: Date.now(), kind: 'drop', ruleLabel: `Queue đầy (${maxLen})`, dropped: 1 });
+        }
+    }
+    io.emit('vipwelcome:queue', { size: vipWelcomeQueue.length });
+    scheduleVipDrain();
+}
+
+function buildVipPayload({ source, ruleId, ruleLabel, eventType, media, message, user, gift }) {
+    return {
+        source,
+        ruleId: ruleId || '',
+        ruleLabel: ruleLabel || '',
+        eventType,
+        mediaUrl: media.mediaUrl,
+        mediaType: media.mediaType || guessMediaType(media.mediaUrl),
+        volume: media.volume == null ? 100 : media.volume,
+        labelStyle: media.labelStyle || '',   // rule-level override → overlay applyLabelStyle ưu tiên
+        message: message || '',
+        user: user || null,
+        gift: gift || null,
+        ts: Date.now()
+    };
+}
+
+function guessMediaType(url) {
+    const u = String(url || '').toLowerCase();
+    if (/\.(mp4|webm|mov)(\?|$)/.test(u)) return 'video';
+    if (/\.(mp3|wav|ogg|m4a|flac)(\?|$)/.test(u)) return 'audio';
+    return '';
+}
+
+function checkAndEnqueueVip(opts) {
+    const { ruleId, source, ruleLabel, eventType, media, messageTemplate, user, gift } = opts;
+    if (!media || !media.mediaUrl) return;
+    // Cooldown CHỈ áp dụng cho gift/Lên cấp (chống spam tặng quà liên tục).
+    // Với 'join': KHÔNG dùng cooldown ở đây — vì maybeFireFirstSeenJoin đã có
+    // rejoin threshold (30s) làm gatekeeper. User vào lại sau 30s phải fire lại.
+    const cfg = appConfig.games.vipwelcome || {};
+    if (eventType !== 'join') {
+        const cooldownMs = Math.max(0, (cfg.queue?.perUserCooldownSec || 60) * 1000);
+        if (cooldownMs > 0 && user?.uniqueId) {
+            const k = (user.uniqueId || '').toLowerCase() + '|' + ruleId;
+            const exp = vipWelcomeCooldown.get(k);
+            if (exp && exp > Date.now()) {
+                pushVipWelcomeLog({
+                    ts: Date.now(), kind: 'cooldown',
+                    ruleLabel, eventType,
+                    uniqueId: user.uniqueId, nickname: user.nickname,
+                    level: user.level || 0
+                });
+                return;
+            }
+            vipWelcomeCooldown.set(k, Date.now() + cooldownMs);
+        }
+    }
+    const ctx = { ...user, giftName: gift?.giftName, diamondCount: gift?.diamondCount, repeatCount: gift?.repeatCount };
+    const message = renderVipMessage(messageTemplate, ctx);
+    // User-specific rule (chỉ định TikTok ID) = PRIORITY → drain trước global
+    const priority = source === 'userRule';
+    // Forward rule's labelStyle override (nếu có) qua media object → buildVipPayload
+    const mediaWithStyle = { ...media, labelStyle: media.labelStyle || '' };
+    enqueueVipWelcomePayload(buildVipPayload({ source, ruleId, ruleLabel, eventType, media: mediaWithStyle, message, user, gift }), priority);
+}
+
+function handleVipWelcomeEvent(eventType, evt) {
+    const cfg = appConfig.games.vipwelcome;
+    if (!cfg || cfg.enabled === false) return;
+    pruneVipCooldown();
+    const userInfo = {
+        uniqueId: evt.uniqueId, nickname: evt.nickname,
+        level: evt.level || 0, profilePicture: evt.profilePicture,
+        verified: !!evt.verified
+    };
+    const giftInfo = eventType === 'gift' ? {
+        giftName: evt.giftName, giftPicture: evt.giftPicture,
+        diamondCount: evt.diamondCount || 0, repeatCount: evt.repeatCount || 1
+    } : null;
+
+    // === LEVEL-UP DETECTION cho gift event ===
+    // Chỉ fire "Lên cấp" khi level user thật sự TĂNG so với lần thấy trước trong session này.
+    // Lần đầu thấy user trong session = treat as level-up tới level hiện tại.
+    let leveledUp = false;
+    if (eventType === 'gift' && evt.uniqueId) {
+        const k = String(evt.uniqueId).toLowerCase();
+        const prev = vipSessionLastLevel.has(k) ? vipSessionLastLevel.get(k) : -1;
+        const curr = userInfo.level || 0;
+        if (prev < 0 || curr > prev) {
+            leveledUp = true;
+            console.log(`[vipwelcome] LEVEL-UP detected: @${evt.uniqueId} ${prev < 0 ? '(lần đầu thấy)' : prev} → ${curr}`);
+        }
+        if (curr > prev) vipSessionLastLevel.set(k, curr);
+    }
+    if (evt.uniqueId) vipSessionSeen.add(String(evt.uniqueId).toLowerCase());
+
+    // Iterate qua TẤT CẢ profiles có enabled=true — nhiều người dùng chung máy có thể bật nhóm
+    // của mình song song. Mỗi profile namespace ruleId riêng để cooldown không đè chéo.
+    for (const profile of (cfg.profiles || [])) {
+        if (profile.enabled === false) continue;
+        const pfx = 'p:' + profile.id + ':';
+        const profileLabel = profile.name || 'Nhóm';
+        // 1. User-specific rules trong profile này
+        //    - Nếu trigger='join': fire khi user chỉ định vào phòng
+        //    - Nếu trigger='gift' (Lên cấp): fire khi user chỉ định lên cấp
+        for (const rule of (profile.userRules || [])) {
+            const m = vipWelcomeMatchesUserRule(rule, { eventType, ...evt });
+            if (!m.matched) {
+                // Debug log — chỉ log khi rule có uniqueId khớp một phần (cùng người target) để
+                // tránh spam log với mọi rule khác. Cụ thể: chỉ log nếu eventType khớp + rule có
+                // ID + ID rule và event đều có chữ trùng (cùng tên cơ sở).
+                const ruleUid = String(rule.uniqueId || '').toLowerCase().replace(/^@/, '');
+                const evtUid = String(evt.uniqueId || '').toLowerCase().replace(/^@/, '');
+                if (rule.trigger === eventType && ruleUid && evtUid && (ruleUid === evtUid || ruleUid.includes(evtUid) || evtUid.includes(ruleUid))) {
+                    console.log(`[vipwelcome] User rule SKIP for @${evt.uniqueId}: ${m.reason}  (rule="${profileLabel}/@${rule.uniqueId}" trigger=${rule.trigger})`);
+                }
+                continue;
+            }
+            // Với trigger 'gift', user-specific chỉ fire khi thật sự lên cấp
+            if (rule.trigger === 'gift' && !leveledUp) {
+                console.log(`[vipwelcome] User rule SKIP (gift no level-up) for @${evt.uniqueId}`);
+                continue;
+            }
+            console.log(`[vipwelcome] User rule MATCH for @${evt.uniqueId}: rule="${profileLabel}/@${rule.uniqueId}" trigger=${rule.trigger}`);
+            checkAndEnqueueVip({
+                ruleId: pfx + 'user:' + rule.id,
+                source: 'userRule',
+                ruleLabel: `[${profileLabel}] @${rule.uniqueId}`,
+                eventType,
+                media: rule,
+                messageTemplate: rule.message,
+                user: userInfo,
+                gift: giftInfo
+            });
+        }
+        // 2. Global rule (toàn bộ user) — có thể filter theo verified (tích xanh)
+        if (eventType === 'join') {
+            const g = profile.globalJoin;
+            if (g && g.enabled && g.mediaUrl
+                && (userInfo.level || 0) >= (g.minLevel || 0)
+                && (!g.requireVerified || userInfo.verified)) {
+                checkAndEnqueueVip({
+                    ruleId: pfx + 'global:join',
+                    source: 'globalJoin',
+                    ruleLabel: `[${profileLabel}] Tất cả user${g.requireVerified ? ' ✓' : ''} (Vào phòng)`,
+                    eventType: 'join',
+                    media: g,
+                    messageTemplate: g.message,
+                    user: userInfo
+                });
+            }
+        } else if (eventType === 'gift') {
+            const g = profile.globalGift;
+            // Global "Lên cấp": chỉ fire khi user thật sự lên cấp + level >= minLevel + (optional verified)
+            if (g && g.enabled && g.mediaUrl
+                && leveledUp
+                && (userInfo.level || 0) >= (g.minLevel || 0)
+                && (!g.requireVerified || userInfo.verified)) {
+                checkAndEnqueueVip({
+                    ruleId: pfx + 'global:gift',
+                    source: 'globalGift',
+                    ruleLabel: `[${profileLabel}] Tất cả user${g.requireVerified ? ' ✓' : ''} (Lên cấp)`,
+                    eventType: 'gift',
+                    media: g,
+                    messageTemplate: g.message,
+                    user: userInfo,
+                    gift: giftInfo
+                });
+            }
+        }
+    }
+}
+
+// Trigger API — panel gọi để test 1 rule (manual / test-all / stop / clear queue).
+app.post('/api/games/vipwelcome/trigger', (req, res) => {
+    const cfg = appConfig.games.vipwelcome;
+    if (!cfg) return res.status(404).json({ ok: false, error: 'vipwelcome config missing' });
+    const { type, payload } = req.body || {};
+    if (type === 'test') {
+        // payload: { profileId, ruleType:'user'|'globalJoin'|'globalGift', ruleId? }
+        // profileId default = activeProfileId nếu không truyền
+        const profileId = payload?.profileId || cfg.activeProfileId;
+        const profile = (cfg.profiles || []).find(p => p.id === profileId);
+        if (!profile) return res.json({ ok: false, error: 'profile_not_found' });
+        const profileLabel = profile.name || 'Nhóm';
+        let media = null, ruleLabel = '', eventType = 'join', messageTemplate = '';
+        if (payload?.ruleType === 'user') {
+            const rule = (profile.userRules || []).find(r => r.id === payload.ruleId);
+            if (!rule) return res.json({ ok: false, error: 'rule_not_found' });
+            if (!rule.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = rule; ruleLabel = `[${profileLabel}] @${rule.uniqueId}`;
+            eventType = rule.trigger || 'join';
+            messageTemplate = rule.message;
+        } else if (payload?.ruleType === 'globalJoin') {
+            if (!profile.globalJoin?.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = profile.globalJoin; ruleLabel = `[${profileLabel}] Test: Global Join`;
+            eventType = 'join';
+            messageTemplate = profile.globalJoin.message;
+        } else if (payload?.ruleType === 'globalGift') {
+            if (!profile.globalGift?.mediaUrl) return res.json({ ok: false, error: 'no_media' });
+            media = profile.globalGift; ruleLabel = `[${profileLabel}] Test: Global Gift`;
+            eventType = 'gift';
+            messageTemplate = profile.globalGift.message;
+        } else {
+            return res.json({ ok: false, error: 'unknown_ruleType' });
+        }
+        const fakeUser = {
+            uniqueId: payload?.uniqueId || 'tester',
+            nickname: payload?.nickname || 'Người Thử',
+            level: payload?.level || 99,
+            verified: !!payload?.verified,
+            profilePicture: ''
+        };
+        const fakeGift = eventType === 'gift' ? {
+            giftName: payload?.giftName || 'Quà thử', giftPicture: '',
+            repeatCount: 1
+        } : null;
+        const message = renderVipMessage(messageTemplate, { ...fakeUser, giftName: fakeGift?.giftName });
+        enqueueVipWelcomePayload(buildVipPayload({
+            source: 'manual', ruleId: payload?.ruleId || '', ruleLabel,
+            eventType, media, message, user: fakeUser, gift: fakeGift
+        }));
+        return res.json({ ok: true });
+    }
+    if (type === 'stop') {
+        vipWelcomeQueue = [];
+        if (vipWelcomeDrainTimer) { clearTimeout(vipWelcomeDrainTimer); vipWelcomeDrainTimer = null; }
+        io.emit('vipwelcome:stop', { ts: Date.now() });
+        io.emit('vipwelcome:queue', { size: 0 });
+        return res.json({ ok: true });
+    }
+    if (type === 'clearQueue') {
+        vipWelcomeQueue = [];
+        io.emit('vipwelcome:queue', { size: 0 });
+        return res.json({ ok: true });
+    }
+    if (type === 'resetCooldown') {
+        vipWelcomeCooldown.clear();
+        return res.json({ ok: true });
+    }
+    if (type === 'clearLog') {
+        vipWelcomeRecentLog = [];
+        io.emit('vipwelcome:logCleared', { ts: Date.now() });
+        return res.json({ ok: true });
+    }
+    if (type === 'resetSession') {
+        resetVipSession();
+        vipWelcomeCooldown.clear();
+        return res.json({ ok: true });
+    }
+    if (type === 'reloadOverlay') {
+        // Force overlay reload (giải quyết cache OBS browser source khi update)
+        io.emit('vipwelcome:reload', { ts: Date.now() });
+        return res.json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown_type' });
+});
+
+// Status per user-rule: cho UI hiển thị "đã fire / sẵn sàng / countdown"
+app.get('/api/games/vipwelcome/user-status', (req, res) => {
+    const cfg = appConfig.games.vipwelcome || {};
+    const thresholdMs = getRejoinThresholdMs();
+    const now = Date.now();
+    const out = {};
+    for (const profile of (cfg.profiles || [])) {
+        for (const rule of (profile.userRules || [])) {
+            const uid = String(rule.uniqueId || '').replace(/^@/, '').toLowerCase().trim();
+            if (!uid) continue;
+            const lastFire = vipSessionLastFireAt.get(uid);
+            const lastSeen = vipSessionLastSeenAt.get(uid);
+            const inSeq = vipSessionInLatestSeq.has(uid);
+            const leftSeqAt = vipSessionLeftSeqAt.get(uid);
+            // Tính eligibility cho rejoin
+            let status = 'idle';
+            let secondsSinceFire = null;
+            let secondsSinceSeen = null;
+            let secondsUntilRejoinEligible = null;
+            let readyForRejoin = false;
+            if (lastFire) {
+                secondsSinceFire = Math.round((now - lastFire) / 1000);
+                if (lastSeen) secondsSinceSeen = Math.round((now - lastSeen) / 1000);
+                readyForRejoin = !!leftSeqAt || (lastSeen && (now - lastSeen) > thresholdMs);
+                if (readyForRejoin) {
+                    status = 'readyForRejoin';
+                } else if (lastSeen) {
+                    secondsUntilRejoinEligible = Math.max(0, Math.round((lastSeen + thresholdMs - now) / 1000));
+                    status = 'inRoom';
+                } else {
+                    status = 'fired';
+                }
+            }
+            // Fire count cho rule này — namespace "p:<profileId>:user:<ruleId>"
+            const fireCountKey = 'p:' + profile.id + ':user:' + rule.id;
+            const fireCount = vipSessionRuleFireCount.get(fireCountKey) || 0;
+            out[rule.id] = {
+                uniqueId: rule.uniqueId,
+                profileId: profile.id,
+                profileName: profile.name,
+                status,
+                inSeq,
+                droppedOutOfSeq: !!leftSeqAt,
+                secondsSinceFire,
+                secondsSinceSeen,
+                secondsUntilRejoinEligible,
+                thresholdSec: thresholdMs / 1000,
+                fireCount
+            };
+        }
+    }
+    res.json({ now, statuses: out });
+});
+
+app.get('/api/games/vipwelcome/queue', (req, res) => {
+    res.json({
+        size: vipWelcomeQueue.length,
+        items: vipWelcomeQueue.map(it => ({
+            ruleLabel: it.payload.ruleLabel,
+            eventType: it.payload.eventType,
+            uniqueId: it.payload.user?.uniqueId,
+            nickname: it.payload.user?.nickname,
+            level: it.payload.user?.level || 0,
+            ts: it.ts
+        })),
+        recent: vipWelcomeRecentLog
+    });
+});
+
+// ====== 🔊 SoundFX module — soundboard streamer ======
+try {
+    const { createSoundfxModule } = require('./soundfx-server.js');
+    const soundfx = createSoundfxModule(DATA_DIR);
+    app.use('/api/soundfx', soundfx.router);
+    app.get('/soundfx', (req, res) =>
+        res.sendFile(path.join(__dirname, 'public', 'soundfx', 'soundfx.html')));
+    console.log('[soundfx] module mounted at /soundfx');
+} catch (e) {
+    console.warn('[soundfx] không mount được:', e.message);
+}
+
 // Default index
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -1242,7 +3125,15 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 io.on('connection', (socket) => {
     // Default emits
     socket.emit('giftSheet', giftList);
-    socket.emit('status', { connected: !!(connection && connection.isConnected), username: currentUsername, roomId: currentRoomId });
+    socket.emit('status', { connected: isTikTokLiveConnected(), username: currentUsername, roomId: currentRoomId });
+    socket.emit('liveStats', liveStats);
+    socket.emit('translate:config', sanitizeLiveTranslateConfig(appConfig.liveTranslate));
+    socket.emit('translate:rules', getCommentRulesMeta());
+    socket.emit('creatorCaption:config', sanitizeCreatorCaptionConfig(appConfig.creatorCaption));
+
+    socket.on('creatorCaption:speech', (payload) => {
+        processCreatorCaptionSpeech(payload).catch(e => console.warn('[creator-caption] translate failed:', e.message));
+    });
 
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {
@@ -1268,6 +3159,8 @@ httpServer.listen(PORT, async () => {
     console.log(`[server] HP Action LIVE chạy tại http://localhost:${PORT}`);
     try { await loadGiftSheet(); }
     catch (e) { console.warn('[server] Không tải được Google Sheet:', e.message); }
+    await refreshCommentRulesSheet();
+    setInterval(refreshCommentRulesSheet, COMMENT_RULES_REFRESH_MS).unref?.();
 });
 
 // Export cho electron-main.js gọi httpServer.close() khi quit
