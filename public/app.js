@@ -21,22 +21,19 @@
         { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
-        { key: 'fireworks',  ico: '🎆', label: 'Pháo hoa' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
-        { key: 'tornado',    ico: '🌀', label: 'Lốc xoáy' },
-        { key: 'tilt',       ico: '⚖',  label: 'Nghiêng hũ' },
         { key: 'pourOut',    ico: '🔄', label: 'Dốc ngược hũ (đổ hết)' },
         { key: 'gravflip',   ico: '🔄', label: 'Đảo trọng lực' },
         { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
-        { key: 'slow',       ico: '🐢', label: 'Slow motion' },
         { key: 'rain',       ico: '☔', label: 'Mưa quà' },
-        { key: 'geyser',     ico: '🚀', label: 'Phun trào' },
         { key: 'magnet',     ico: '🧲', label: 'Nam châm' },
+        { key: 'wind',       ico: '🪁', label: 'Thả diều Avatar Gió' },
         { key: 'crackJar',   ico: '🪟', label: 'Nứt hũ' },
         { key: 'stealJar',   ico: '🚚', label: 'Trộm cả hũ' },
         { key: 'combo',      ico: '⛓', label: 'Combo (chuỗi)' },
         { key: 'clear',      ico: '🗑', label: 'Xoá hết hũ' }
     ];
+    const REMOVED_EFFECTS = new Set(['tilt', 'fireworks', 'tornado', 'geyser', 'slow']);
     function isMultiEffect(key) {
         const ef = EFFECTS.find(e => e.key === key);
         return !!(ef && ef.multi);
@@ -77,12 +74,12 @@
     }
 
     // ===== Feature toggles map =====
-    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police'];
+    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers'];
     const FEATURE_INPUT = {
         audio:'ft-audio', welcome:'ft-welcome', crown:'ft-crown', leaderboard:'ft-leaderboard',
         sessionTotals:'ft-totals', goalBar:'ft-goalbar', combo:'ft-combo', tierBorder:'ft-tier',
         bigGiftFx:'ft-bigfx', autoShake:'ft-autoshake', randomEvents:'ft-random', thiefAuto:'ft-thiefauto',
-        police:'ft-police'
+        police:'ft-police', topHangers:'ft-tophangers'
     };
 
     // ===== DOM =====
@@ -147,6 +144,7 @@
         btnFxFirework: $('#btn-fx-firework'),
         btnFxTornado: $('#btn-fx-tornado'),
         btnFxShape: $('#btn-fx-shape'),
+        btnFxWind: $('#btn-fx-wind'),
         cfgGoal: $('#cfg-goal'),
         cfgGoalV: $('#cfg-goal-v'),
         cfgShakeAt: $('#cfg-shake-at'),
@@ -311,7 +309,7 @@
             div.innerHTML = `<span class="ico">${g.icon}</span>
                 <div class="meta">
                     <div class="gn">${g.name}</div>
-                    <div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>
+                    ${g.description ? `<div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>` : ''}
                 </div>
                 <button class="game-toggle ${isEnabled ? 'on' : 'off'}" data-game-toggle="${g.id}" title="${isEnabled ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT'} ${g.virtual ? 'tool' : 'game'} chạy ngầm">⏻</button>`;
             // Click toàn thân (trừ toggle) → mở game
@@ -363,7 +361,7 @@
             card.className = 'home-card';
             card.innerHTML = `<div class="ico">${g.icon}</div>
                 <div class="gn">${g.name}</div>
-                <div class="gd">${g.description}</div>`;
+                ${g.description ? `<div class="gd">${g.description}</div>` : ''}`;
             card.addEventListener('click', () => openGame(g.id));
             dom.homeGrid.appendChild(card);
         }
@@ -440,7 +438,7 @@
         showView('view-thuytinh');
         mountThuySidePanel?.('police');
         dom.gTitle.textContent = `${game.icon} ${game.name}`;
-        dom.gSub.textContent = game.description;
+        if (dom.gSub) dom.gSub.textContent = '';
         const overlayUrl = location.origin + game.overlayPath;
         dom.overlayUrl.value = overlayUrl;
 
@@ -478,47 +476,49 @@
             dom.canvas.style.zIndex = '3';
         }
 
-        if (gameInstance) {
-            try { gameInstance.clearAll(); } catch (e) {}
-        }
-
-        gameInstance = HpGame.thuytinh.create({
-            canvas: dom.canvas,
-            fxCanvas: dom.fxCanvas,
-            overlayLayer: dom.stageOverlays,
-            jarBottomEl: dom.stageFrame.querySelector('.jar-bottom'),
-            jarGlassEl: dom.stageFrame.querySelector('.jar-glass'),
-            countDisplay: dom.stageFrame.querySelector('.jar-count'),
-            config: game.config,
-            onCountChange: (n) => { dom.stageInfo.textContent = `Trong hũ: ${n}`; },
-            onBail: (uid) => {
-                if (!currentGame || !uid) return;
-                sendCmd('bail', { uid: String(uid) });
-            },
-            onPanelMoved: (panelKey, pos) => {
-                if (!currentGame) return;
-                const cfg = gameInstance.getConfig();
-                cfg.panelPositions = cfg.panelPositions || {};
-                cfg.panelPositions[panelKey] = pos;
-                clearTimeout(saveCfgTimer);
-                saveCfgTimer = setTimeout(() => {
-                    fetch(`/api/games/${currentGame.id}/config`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(cfg)
-                    }).catch(() => {});
-                }, 400);
-            },
-            // App là authoritative — khi runTriggerAction chạy xong → broadcast cmd cho OBS replay
-            // → OBS mirror chính xác mọi action (trộm, OSIN, fxFireworks, joinPolice, v.v.)
-            onTrigger: (action, userInfo) => {
-                if (!currentGame) return;
-                sendCmd(action, userInfo || {});
-                // forceSync ngay khi action liên quan tới state (caughtList, policeForce)
-                if (action === 'joinPolice' || action === 'thief' || action === 'clear') {
-                    forceSyncState();
+        const firstCreate = !gameInstance;
+        if (firstCreate) {
+            gameInstance = HpGame.thuytinh.create({
+                canvas: dom.canvas,
+                fxCanvas: dom.fxCanvas,
+                overlayLayer: dom.stageOverlays,
+                jarBottomEl: dom.stageFrame.querySelector('.jar-bottom'),
+                jarGlassEl: dom.stageFrame.querySelector('.jar-glass'),
+                countDisplay: dom.stageFrame.querySelector('.jar-count'),
+                config: game.config,
+                onCountChange: (n) => { dom.stageInfo.textContent = `Trong hũ: ${n}`; },
+                onBail: (uid) => {
+                    if (!currentGame || !uid) return;
+                    sendCmd('bail', { uid: String(uid) });
+                },
+                onPanelMoved: (panelKey, pos) => {
+                    if (!currentGame) return;
+                    const cfg = gameInstance.getConfig();
+                    cfg.panelPositions = cfg.panelPositions || {};
+                    cfg.panelPositions[panelKey] = pos;
+                    clearTimeout(saveCfgTimer);
+                    saveCfgTimer = setTimeout(() => {
+                        fetch(`/api/games/${currentGame.id}/config`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(cfg)
+                        }).catch(() => {});
+                    }, 400);
+                },
+                // App là authoritative — khi runTriggerAction chạy xong → broadcast cmd cho OBS replay
+                // → OBS mirror chính xác mọi action (trộm, OSIN, fxFireworks, joinPolice, v.v.)
+                onTrigger: (action, userInfo) => {
+                    if (!currentGame) return;
+                    sendCmd(action, userInfo || {});
+                    // forceSync ngay khi action liên quan tới state (caughtList, policeForce)
+                    if (action === 'joinPolice' || action === 'thief' || action === 'clear') {
+                        forceSyncState();
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            gameInstance.setConfig(game.config);
+            dom.stageInfo.textContent = `Trong hũ: ${gameInstance.getCount?.() || 0}`;
+        }
 
         applyConfigToUI(game.config);
         enableJarDragging();
@@ -526,14 +526,16 @@
 
         // RESTORE state from disk on first load (persist qua restart)
         // Server đã loadGameStateCache() từ disk vào memory rồi → fetch về và loadState
-        fetch(`/api/games/${currentGame.id}/state`)
-            .then(r => r.json())
-            .then(state => {
-                if (state && typeof state === 'object') {
-                    try { gameInstance.loadState(state); } catch (e) { console.warn('loadState fail:', e); }
-                }
-            })
-            .catch(() => {});
+        if (firstCreate) {
+            fetch(`/api/games/${currentGame.id}/state`)
+                .then(r => r.json())
+                .then(state => {
+                    if (state && typeof state === 'object') {
+                        try { gameInstance.loadState(state); } catch (e) { console.warn('loadState fail:', e); }
+                    }
+                })
+                .catch(() => {});
+        }
 
         startStateSync();
     }
@@ -543,7 +545,7 @@
     let stateSyncTimer = null;
     let lastStateHash = '';
     function pushStateNow() {
-        if (!gameInstance || !currentGame) return;
+        if (!gameInstance || currentGame?.id !== 'thuytinh') return;
         const state = gameInstance.serializeState();
         const hash = JSON.stringify([
             state.totalDiamonds, state.totalGifts,
@@ -728,7 +730,7 @@
         const f = cfg.features || {};
         for (const key of FEATURE_KEYS) {
             const el = document.getElementById(FEATURE_INPUT[key]);
-            if (el) el.checked = !!f[key];
+            if (el) el.checked = key === 'topHangers' && f[key] == null ? true : !!f[key];
         }
         currentTriggers = JSON.parse(JSON.stringify(cfg.triggers || {}));
         currentEffectsConfig = JSON.parse(JSON.stringify(cfg.effects || {}));
@@ -739,6 +741,7 @@
             const cleaned = {};
             for (const id of Object.keys(currentTriggers)) {
                 const eff = currentTriggers[id];
+                if (REMOVED_EFFECTS.has(eff)) continue;
                 if (seen.has(eff)) continue;
                 seen.add(eff);
                 cleaned[id] = eff;
@@ -2084,6 +2087,7 @@
     });
     dom.btnFxFirework?.addEventListener('click', () => { gameInstance?.fxFireworks(); sendCmd('fireworks'); });
     dom.btnFxTornado?.addEventListener('click', () => { gameInstance?.fxTornado(); sendCmd('tornado'); });
+    dom.btnFxWind?.addEventListener('click', () => { gameInstance?.fxWind(); sendCmd('wind'); });
     dom.btnFxShape?.addEventListener('click', () => {
         if (!gameInstance) return;
         // Bấm test = chọn 1 tipper gần đây để hiện tên ở giữa hình
@@ -3274,7 +3278,7 @@
                     ${meta}
                     <span class="cp-cd">${left}s</span>
                 </div>
-                <button class="cp-bail" data-uid="${escAttrInline(c.uid || '')}" title="Bảo lãnh trộm này ra sớm">BẢO LÃNH</button>
+                <button class="cp-bail" data-uid="${escAttrInline(c.uid || '')}" title="Bảo lãnh trộm này ra sớm" aria-label="Bảo lãnh">🔓</button>
             </div>`;
         }).join('');
     }
@@ -3402,8 +3406,8 @@
         await loadGames();
         if (games.length) openGame(games[0].id);
         initSidebarToggle();
-        // CHỈ check 1 lần khi mở app — KHÔNG có setInterval định kỳ
-        setTimeout(() => checkForUpdate(), 3000);
+        // Không tự kiểm tra/cài update khi đang vận hành bản chỉnh sửa tại chỗ.
+        // Người dùng vẫn có thể kiểm tra thủ công trong Cài đặt.
     }
 
     // ===== Sidebar toggle thu/mở =====

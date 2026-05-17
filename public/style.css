@@ -534,7 +534,9 @@ button.mini { padding: 2px 8px; font-size: 11px; }
     display: contents;
 }
 .side-soundfx-btn { width: auto; min-width: 44px; padding: 9px 11px; border-radius: 12px; }
-.side-footer { text-align: right; font-size: 10px; color: #5b6378; padding: 0; line-height: 1.4; min-width: 0; }
+.side-footer { text-align: center; font-size: 10px; color: #5b6378; padding: 0; line-height: 1.4; min-width: 0; }
+.side-footer a { color: inherit; text-decoration: none; }
+.side-footer a:hover { color: #ffd166; text-decoration: underline; }
 .side-footer-author { font-size: 9px; color: #6b7390; margin-top: 1px; font-style: italic; }
 .hint { font-size: 11px; color: #8b93a8; }
 
@@ -1317,8 +1319,8 @@ body:not(.game-thuytinh) .comments-popup.translate-popup { bottom: 70px; }
    Đặt ở GÓC TRÊN-PHẢI màn hình, tách hẳn cụm 💬/🚓/🚔 ở dưới-trái để KHÔNG đè
    lên popup Lực Lượng Cảnh Sát / Bị Tóm. Vị trí top-right cũng không che game canvas. */
 .comments-fab.unknown-fab {
-    bottom: 18px;                       /* default: solo position khi ở Caro/PK TikTok */
-    left: var(--fab-base-left);
+    bottom: 18px;
+    left: calc(var(--fab-base-left) + 52px);
     top: auto; right: auto;
     background: linear-gradient(135deg, #f59e0b, #ef4444);
     box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.18);
@@ -1326,10 +1328,7 @@ body:not(.game-thuytinh) .comments-popup.translate-popup { bottom: 70px; }
     transition: opacity .15s ease, transform .12s ease, left 0.22s ease, bottom 0.22s ease;
     z-index: 9500;
 }
-/* Ở tab Hũ Thủy Tinh — Unknown đứng trên cùng stack (sau Caught) */
-body.game-thuytinh .comments-fab.unknown-fab {
-    bottom: 174px;                      /* trên Caught (122 + 44 + 8) */
-}
+body.game-thuytinh .comments-fab.unknown-fab { bottom: 18px; }
 .comments-fab.unknown-fab:hover { opacity: 1; }
 /* Khi có quà unknown mới → nổi bật + pulse thu hút sự chú ý */
 .comments-fab.unknown-fab.has-new {
@@ -1337,21 +1336,19 @@ body.game-thuytinh .comments-fab.unknown-fab {
     animation: ug-pulse 2s ease-in-out infinite;
 }
 .comments-fab.unknown-fab[hidden] { display: none; }
+#police-fab,
+#caught-fab { display: none !important; }
 @keyframes ug-pulse {
     0%, 100% { box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 3px rgba(245,158,11,0.22); }
     50%      { box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 7px rgba(245,158,11,0.40); }
 }
 .comments-popup.unknown-popup {
     top: auto; right: auto;
-    bottom: 174px;
-    left: calc(var(--fab-base-left) + 52px);   /* mở bên phải Unknown FAB */
+    bottom: 18px;
+    left: calc(var(--fab-base-left) + 104px);   /* mở bên phải Unknown FAB */
     width: 420px;
     max-height: 70vh;
     z-index: 9501;
-}
-/* Ở Caro / PK TikTok: unknown-fab solo bottom 18, popup align ngang */
-body:not(.game-thuytinh) .comments-popup.unknown-popup {
-    bottom: 18px;
 }
 /* (.unknown-hint đã bỏ — không hiển thị URL Google Sheet trong popup vì lý do bảo mật) */
 .unknown-list {
@@ -1844,6 +1841,90 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     border: 1px solid rgba(255, 209, 102, 0.5);
 }
 
+/* Avatar Gió treo ở miệng hũ + thả diều */
+.tt-top-hangers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 6;
+}
+.tt-hanger-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+.tt-hanger-lines line {
+    stroke: rgba(255, 244, 210, 0.9);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 10 8;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+    transition: x2 .28s ease, y2 .28s ease;
+}
+.tt-hanger-lines:has(+ .tt-hanger-avatar.is-kite) line,
+.tt-hanger-lines line {
+    animation: ttRopeBreeze 2.8s ease-in-out infinite alternate;
+}
+.tt-hanger-avatar {
+    position: absolute;
+    width: 54px;
+    height: 54px;
+    transform: translate(-50%, -50%);
+    transition: left .28s ease, top .28s ease, transform .25s ease;
+    filter: drop-shadow(0 5px 10px rgba(0,0,0,0.5));
+    animation: ttWindSway 3.2s ease-in-out infinite alternate;
+    will-change: transform;
+}
+.tt-hanger-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 999px;
+    border: 3px solid #ffd166;
+    background: #14171f;
+    box-shadow: 0 0 0 3px rgba(255,107,61,0.25), 0 0 16px rgba(255,209,102,0.45);
+}
+.tt-hanger-avatar span {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translateX(-50%);
+    max-width: 92px;
+    margin-top: 2px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(15,18,24,0.82);
+    border: 1px solid rgba(255,209,102,0.38);
+    color: #ffd166;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tt-hanger-avatar.is-kite {
+    animation: ttKiteFloat 4.2s ease-in-out infinite;
+    will-change: transform;
+}
+@keyframes ttWindSway {
+    from { transform: translate(-50%, -50%) translateX(-3px) rotate(-2deg); }
+    to   { transform: translate(-50%, -53%) translateX(3px) rotate(2deg); }
+}
+@keyframes ttKiteFloat {
+    0%   { transform: translate(-50%, -50%) translateY(8px) rotate(-8deg); }
+    25%  { transform: translate(-50%, -50%) translateY(-18px) rotate(4deg); }
+    50%  { transform: translate(-50%, -50%) translateY(5px) rotate(9deg); }
+    75%  { transform: translate(-50%, -50%) translateY(-24px) rotate(-2deg); }
+    100% { transform: translate(-50%, -50%) translateY(8px) rotate(-8deg); }
+}
+@keyframes ttRopeBreeze {
+    from { stroke-dashoffset: 0; opacity: .78; }
+    to   { stroke-dashoffset: 18; opacity: .96; }
+}
+
 /* Leaderboard */
 .tt-leaderboard {
     --cs: 1;
@@ -1934,17 +2015,20 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 }
 .caught-row .caught-main {
     min-width: 0;
-    display: flex; flex-direction: column; gap: 0.15em;
+    display: flex; align-items: center; gap: 0.35em;
 }
 .caught-row .caught-name {
-    font-size: 1.05em; font-weight: 700; color: #fff;
+    font-size: 1.14em; font-weight: 800; color: #fff;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     line-height: 1.15;
+    flex: 0 1 auto;
 }
 .caught-row .caught-meta {
     display: flex; align-items: center; gap: 0.3em;
-    font-size: 0.78em; color: #8b93a8;
+    font-size: 0.92em; color: #aab2c5;
     overflow: hidden; line-height: 1.1;
+    white-space: nowrap;
+    flex: 1 1 auto;
 }
 .caught-row .caught-meta .cop-mini {
     width: 1.1em; height: 1.1em;
@@ -1959,12 +2043,8 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     max-width: 9em;
 }
-.caught-row .caught-actions {
-    display: flex; align-items: center; gap: 0.4em;
-    margin-top: 0.2em;
-}
 .caught-row .caught-cd {
-    font-size: 0.92em; font-weight: 800;
+    font-size: 0.98em; font-weight: 900;
     color: #ffd166;
     font-family: ui-monospace, Menlo, Consolas, monospace;
     background: rgba(239,68,68,0.18);
@@ -1972,6 +2052,8 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     border-radius: 0.4em;
     border: 1px solid rgba(239,68,68,0.4);
     line-height: 1.3;
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 .caught-row .caught-bail {
     margin-left: auto;
@@ -2326,11 +2408,11 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 /* BỊ TÓM: dùng cqw + chỉ hiện khi có data (default display:none, JS toggle) */
 .tt-caught {
     display: none;
-    width: calc(22cqw * var(--cs));
+    width: calc(28cqw * var(--cs));
     max-width: 90vw;
     padding: calc(0.55cqw * var(--cs)) calc(0.75cqw * var(--cs));
     border-radius: calc(0.92cqw * var(--cs));
-    font-size: calc(1.1cqw * var(--cs));
+    font-size: calc(1.22cqw * var(--cs));
 }
 
 /* LỰC LƯỢNG CS overlay: ẨN HOÀN TOÀN (đưa ra popup riêng) */
@@ -2833,34 +2915,46 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     font-size: 22px;
 }
 .caught-popup .cp-info { min-width: 0; }
+.caught-popup .cp-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 .caught-popup .cp-name {
-    font-size: 13px; color: #fff; font-weight: 700;
+    font-size: 14px; color: #fff; font-weight: 800;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 0 1 auto;
 }
 .caught-popup .cp-meta {
-    font-size: 11px; color: #8b93a8;
-    margin-top: 2px;
+    font-size: 12px; color: #aab2c5;
+    margin-top: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1 1 auto;
 }
 .caught-popup .cp-meta .cop-name { color: #60a5fa; font-weight: 600; }
 .caught-popup .cp-cd {
-    font-size: 11px; font-weight: 800;
+    font-size: 12px; font-weight: 900;
     color: #ffd166;
     font-family: ui-monospace, Menlo, Consolas, monospace;
     background: rgba(239,68,68,0.18);
     padding: 2px 7px; border-radius: 5px;
-    margin-top: 3px;
+    margin-top: 0;
     display: inline-block;
+    flex: 0 0 auto;
 }
 .caught-popup .cp-bail {
     background: linear-gradient(135deg, #22c55e, #16a34a);
     color: #fff;
     border: none;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px; font-weight: 800;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    padding: 0;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 800;
     cursor: pointer;
-    letter-spacing: 0.3px;
+    line-height: 1;
     box-shadow: 0 4px 10px rgba(34,197,94,0.35);
     transition: filter .15s ease, transform .1s ease;
 }
@@ -2868,7 +2962,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .caught-popup .cp-bail:active { transform: translateY(1px); }
 
 .thuy-side-panel {
-    margin-top: 14px;
+    margin-top: 8px;
     padding: 0;
     overflow: hidden;
 }
@@ -2880,7 +2974,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     background: #10141e;
 }
 .thuy-side-switch button {
-    min-height: 50px;
+    min-height: 40px;
     border: 0;
     border-right: 1px solid #232936;
     background: transparent;
@@ -2908,7 +3002,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     font-size: 11px;
 }
 .thuy-side-panel-host {
-    min-height: 190px;
+    min-height: 150px;
     background: linear-gradient(180deg, #161a23, #121722);
 }
 .thuy-side-panel-host .police-popup,
@@ -2916,7 +3010,7 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
     position: static !important;
     width: auto !important;
     max-height: 360px !important;
-    min-height: 190px;
+    min-height: 150px;
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -2926,6 +3020,12 @@ body:not(.game-thuytinh) .comments-popup.unknown-popup {
 .thuy-side-panel-host .modal-close { display: none; }
 .thuy-side-panel-host .police-popup-head,
 .thuy-side-panel-host .caught-popup-head { display: none; }
+.thuy-side-panel-host .police-list,
+.thuy-side-panel-host .caught-popup-list { padding: 5px 8px; }
+.thuy-side-panel-host .police-popup-foot,
+.thuy-side-panel-host .caught-popup-foot { padding: 5px 10px; }
+.thuy-side-panel-host .pp-row,
+.thuy-side-panel-host .cp-row { gap: 7px; padding: 5px 2px; }
 
 /* === OSIN — nhân vật người nhặt quà văng ra ngoài hũ === */
 .tt-osin {
@@ -4839,97 +4939,6 @@ body.game-caro #caught-popup {
     0%, 100% { box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0.4); opacity: 0.92; }
     50%      { box-shadow: 0 0 18px #22c55e, 0 0 0 4px rgba(34, 197, 94, 0.15); opacity: 1; }
 }
-
-/* ===== Bottom popup dock =====
-   Global: Bình luận LIVE, Quà mới, Dịch bình luận LIVE luôn hiện.
-   Game-specific: Cảnh sát/Bị tóm chỉ hiện ở Hũ Thủy Tinh. */
-body {
-    --popup-dock-left: calc(var(--fab-base-left) + 8px);
-    --popup-dock-icon-left: calc(var(--popup-dock-left) + 14px);
-    --popup-dock-right: 14px;
-    --popup-dock-bottom: 12px;
-    --popup-dock-gap: 10px;
-    --popup-dock-size: 50px;
-    --popup-dock-card-h: 72px;
-}
-body::after {
-    content: '';
-    position: fixed;
-    left: var(--popup-dock-left);
-    right: var(--popup-dock-right);
-    bottom: var(--popup-dock-bottom);
-    height: var(--popup-dock-card-h);
-    background: linear-gradient(180deg, rgba(22, 26, 35, 0.96), rgba(13, 16, 23, 0.98));
-    border: 1px solid #1f2533;
-    border-radius: 16px;
-    box-shadow: 0 18px 50px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.03);
-    pointer-events: none;
-    z-index: 9400;
-}
-.main { padding-bottom: calc(var(--popup-dock-card-h) + var(--popup-dock-bottom) + 10px); }
-.view.active { min-height: 0; }
-.game-view { padding-bottom: 0; }
-.comments-fab,
-.comments-fab.unknown-fab,
-.comments-fab.translate-fab,
-.police-fab,
-.caught-fab,
-#btn-open-soundfx {
-    width: var(--popup-dock-size);
-    height: var(--popup-dock-size);
-    bottom: calc(var(--popup-dock-bottom) + (var(--popup-dock-card-h) - var(--popup-dock-size)) / 2) !important;
-    top: auto !important;
-    border-radius: 16px;
-    opacity: 1;
-    z-index: 9600;
-}
-#comments-fab { left: var(--popup-dock-icon-left) !important; }
-#unknown-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 1) !important; }
-#btn-open-soundfx {
-    position: fixed !important;
-    left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 2) !important;
-    right: auto !important;
-    padding: 0 !important;
-    display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #241b5a, #7c3aed) !important;
-    border: 1px solid rgba(167, 139, 250, 0.4) !important;
-    box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 0 3px rgba(124,58,237,0.14);
-}
-#btn-open-soundfx .soundfx-btn-ico { font-size: 28px; line-height: 1; }
-#btn-open-soundfx .soundfx-btn-text { display: none; }
-#translate-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 3) !important; }
-#creator-caption-fab { left: calc(var(--popup-dock-icon-left) + (var(--popup-dock-size) + var(--popup-dock-gap)) * 4) !important; }
-#police-fab,
-#caught-fab { display: none !important; }
-.side-footer {
-    position: fixed;
-    right: 30px;
-    bottom: calc(var(--popup-dock-bottom) + 21px);
-    z-index: 9601;
-    pointer-events: none;
-    background: transparent;
-    border: 0;
-}
-.comments-popup,
-.comments-popup.unknown-popup,
-.comments-popup.translate-popup,
-.comments-popup.creator-caption-popup,
-.police-popup,
-.caught-popup {
-    bottom: calc(var(--popup-dock-bottom) + var(--popup-dock-size) + 10px) !important;
-    top: auto !important;
-    left: var(--popup-dock-left) !important;
-    max-height: min(72vh, 620px);
-    z-index: 9700;
-}
-.comments-popup.translate-popup { width: 420px; max-height: min(78vh, 720px); }
-.comments-popup.unknown-popup { width: 460px; }
-.police-popup { width: 340px; }
-.caught-popup { width: 380px; }
-body:not(.game-thuytinh) #police-popup,
-body:not(.game-thuytinh) #caught-popup { display: none !important; }
 
 /* DỊCH VÀ ĐỌC LIVE là một mục trong Thư viện Game, không dùng popup nổi. */
 #translate-fab,

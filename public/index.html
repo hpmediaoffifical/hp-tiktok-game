@@ -69,7 +69,7 @@
                     <span class="soundfx-btn-ico">🎵</span><span class="soundfx-btn-text">Sound Effects</span>
                 </button>
                 <div class="side-footer">
-                    © HP Media · <span id="footer-version">v1.0.3</span>
+                    © <a href="https://hpvn.media" target="_blank" rel="noopener">HP Media</a> · <span id="footer-version">v1.0.3</span>
                     <div class="side-footer-author">by Nguyen Hoang Phung</div>
                 </div>
             </section>
@@ -92,7 +92,7 @@
                 <header class="game-header">
                     <div>
                         <h2 id="g-title">🫙 Hũ Thủy Tinh</h2>
-                        <div class="game-sub" id="g-sub">Quà rơi vào hũ thủy tinh với vật lý realtime — nền trong suốt sẵn sàng cho OBS.</div>
+                        <div class="game-sub" id="g-sub" hidden></div>
                     </div>
                     <div class="overlay-bar">
                         <input id="overlay-url" type="text" readonly hidden />
@@ -161,6 +161,7 @@
                                         <label class="feat"><input type="checkbox" id="ft-audio"/> 🔊 Âm thanh</label>
                                         <label class="feat"><input type="checkbox" id="ft-welcome"/> 👋 Welcome</label>
                                         <label class="feat"><input type="checkbox" id="ft-crown"/> 👑 Vương miện</label>
+                                        <label class="feat"><input type="checkbox" id="ft-tophangers"/> Treo Avatar</label>
                                         <label class="feat"><input type="checkbox" id="ft-leaderboard"/> 🏆 Top tặng</label>
                                         <label class="feat"><input type="checkbox" id="ft-totals"/> 📊 Tổng quà</label>
                                         <label class="feat"><input type="checkbox" id="ft-goalbar"/> 🎯 Goal Bar</label>
@@ -365,8 +366,7 @@
                                 <div class="cfg-actions">
                                     <button id="btn-thief" class="ghost small">🥷 Thả trộm</button>
                                     <button id="btn-osin" class="ghost small">🧹 Gọi OSIN</button>
-                                    <button id="btn-fx-firework" class="ghost small">🎆 Pháo hoa</button>
-                                    <button id="btn-fx-tornado" class="ghost small">🌀 Lốc xoáy</button>
+                                    <button id="btn-fx-wind" class="ghost small">🪁 Thả diều</button>
                                     <button id="btn-fx-shape" class="ghost small">🎨 Tạo hình</button>
                                 </div>
                                 <div class="quick-test-section">
@@ -381,8 +381,8 @@
 
                         <div class="card thuy-side-panel">
                             <div class="thuy-side-switch">
-                                <button id="thuy-police-tab" class="active" type="button">🚓 Lực lượng cảnh sát <span id="thuy-police-count">0</span></button>
-                                <button id="thuy-caught-tab" type="button">🥷 Bị Tóm <span id="thuy-caught-count">0</span></button>
+                                <button id="thuy-police-tab" class="active" type="button">🚓 Cảnh Sát <span id="thuy-police-count">0</span></button>
+                                <button id="thuy-caught-tab" type="button">🥷 Kẻ Trộm <span id="thuy-caught-count">0</span></button>
                             </div>
                             <div id="thuy-side-panel-host" class="thuy-side-panel-host"></div>
                         </div>
@@ -844,13 +844,13 @@
 
     <!-- Floating: quà mới phát hiện (không có trong Google Sheet) — luôn hiện để user
          truy cập được kể cả khi chưa có quà nào. Badge chỉ hiện khi count > 0. -->
-    <button id="unknown-fab" class="comments-fab unknown-fab" title="Quà mới phát hiện (chưa có trong Sheet)">
+    <button id="unknown-fab" class="comments-fab unknown-fab" title="Quà mới">
         🆕<span class="badge" id="unknown-badge" hidden>0</span>
     </button>
     <!-- Popup danh sách quà mới — show từng entry với nút Copy/Tải icon/Đã thêm -->
     <div id="unknown-popup" class="comments-popup unknown-popup" hidden>
         <div class="comments-popup-head">
-            <span>🆕 Quà mới phát hiện <span id="unknown-count-inline" style="color:#ffd166">(0)</span></span>
+            <span>🆕 Quà mới</span>
             <div class="head-actions">
                 <button id="btn-unknown-scan" class="ghost mini" title="Rà soát TOÀN BỘ quà TikTok của room vs Google Sheet — tự thêm các ID còn thiếu vào danh sách (cần đang kết nối LIVE)">🔎 Quét</button>
                 <button id="btn-unknown-refresh-tt" class="ghost mini" title="Dò icon/tên cho các entry đã có (lấy từ TikTok metadata)">🔄 Dò icon</button>
@@ -1217,12 +1217,12 @@
     </div>
 
     <!-- 🚓 Police Force popup — như Bình luận, mở từ FAB -->
-    <button id="police-fab" class="police-fab" title="Lực lượng cảnh sát">
+    <button id="police-fab" class="police-fab" title="Cảnh Sát" hidden>
         🚓<span class="badge" id="police-badge" hidden>0</span>
     </button>
     <div id="police-popup" class="police-popup" hidden>
         <div class="police-popup-head">
-            <span>🚓 Lực lượng Cảnh sát</span>
+            <span>🚓 Cảnh Sát</span>
             <div class="head-actions">
                 <button id="police-close" class="modal-close" title="Đóng">✕</button>
             </div>
@@ -1234,12 +1234,12 @@
     </div>
 
     <!-- 🥷 Bị Tóm popup — quản lý danh sách trộm bị tóm + nút BẢO LÃNH -->
-    <button id="caught-fab" class="caught-fab" title="Danh sách trộm bị tóm">
+    <button id="caught-fab" class="caught-fab" title="Kẻ Trộm" hidden>
         🥷<span class="badge" id="caught-badge" hidden>0</span>
     </button>
     <div id="caught-popup" class="caught-popup" hidden>
         <div class="caught-popup-head">
-            <span>🥷 Bị Tóm</span>
+            <span>🥷 Kẻ Trộm</span>
             <div class="head-actions">
                 <button id="caught-close" class="modal-close" title="Đóng">✕</button>
             </div>

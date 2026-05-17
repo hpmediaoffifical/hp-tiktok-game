@@ -44,7 +44,8 @@
                 autoShake: false,
                 randomEvents: false,
                 thiefAuto: false,
-                police: true
+                police: true,
+                topHangers: true
             },
             goal: { target: 5000 },
             goalBarGap: 0.1,
@@ -61,20 +62,16 @@
                 '5585':  'pourOut',
                 '5658':  'throwJar',
                 '5827':  'shake',
-                '6064':  'tilt',
                 '6267':  'combo',
-                '6788':  'tornado',
+                '6788':  'wind',
                 '7412':  'joinPolice',
                 '7891':  'rain',
                 '7934':  'shape',
                 '8913':  'stealJar',
-                '9340':  'slow',
                 '10961': 'magnet',
                 '14219': 'gravflip',
                 '15232': 'megaboom',
-                '17004': 'geyser',
                 '17465': 'ufo',
-                '19441': 'fireworks',
                 '19443': 'kickJar',
                 '19447': 'osin',
                 '25340': 'crackJar',
@@ -121,6 +118,7 @@
                     count: 25,              // số quà spawn (8-50)
                     durationMs: 3000        // thời gian rải spawn
                 },
+                wind: { durationMs: 4200 },
                 // Phun trào: bodies trong hũ bắn lên cao tạo geyser
                 geyser: {
                     durationMs: 1800,       // tổng thời gian phun
@@ -454,6 +452,7 @@
         const onTrigger = opts.onTrigger || (() => {});
 
         let config = mergeConfig(defaultConfig(), opts.config || {});
+        const DISABLED_TRIGGER_ACTIONS = new Set(['tilt', 'fireworks', 'tornado', 'geyser', 'slow']);
         const engine = Engine.create();
         engine.gravity.y = config.physics.gravity;
 
@@ -593,7 +592,8 @@
         // ===== Drop =====
         function drop(g, count) {
             const n = Math.max(1, parseInt(count || g.repeatCount || 1, 10));
-            const triggerAction = config.triggers && config.triggers[String(g.giftId)];
+            let triggerAction = config.triggers && config.triggers[String(g.giftId)];
+            if (DISABLED_TRIGGER_ACTIONS.has(triggerAction)) triggerAction = null;
             if (triggerAction) {
                 // Quà kích hoạt — KHÔNG rơi vào hũ
                 // Mirror mode (OBS): KHÔNG chạy trigger ở local. Đợi App broadcast gameCmd với
@@ -638,6 +638,7 @@
                 case 'rain': fxRain(); break;
                 case 'geyser': fxGeyser(); break;
                 case 'magnet': fxMagnet(); break;
+                case 'wind': fxWind(); break;
                 case 'crackJar': fxCrackJar(); break;
                 case 'stealJar': fxStealJar(); break;
                 case 'osin': triggerOsin(userInfo); break;
@@ -823,6 +824,7 @@
             stats.totalGifts += count;
             updateCrown();
             updateLeaderboard();
+            updateTopHangers();
             updateSessionTotals();
             onStatsChange(stats);
         }
@@ -1069,43 +1071,39 @@
                 visualEls.forEach(el => { el.style.transform = `rotate(${deg}deg)`; });
             };
 
-            // Toast cảnh báo
-            showComboToast(
-                `🔄 Hũ bị <b>DỐC NGƯỢC</b> — quà đổ tung tóe!`,
-                'linear-gradient(135deg, #f59e0b, #ef4444)'
-            );
             if (config.features.audio) audio.pourOut();
 
-            // Phase 1: nghiêng nhanh tới góc max (1.2s)
-            await tween(t => {
-                const e = 1 - Math.pow(1 - t, 2.5);
-                applyTilt(maxAngle * e);
-            }, 1200);
+            try {
+                // Phase 1: nghiêng nhanh tới góc max (1.2s)
+                await tween(t => {
+                    const e = 1 - Math.pow(1 - t, 2.5);
+                    applyTilt(maxAngle * e);
+                }, 1200);
 
-            // Phase 2: giữ ở góc max → bodies sẽ tự rơi ra do gravity
-            // Đồng thời boost velocity cho từng body để chắc chắn chúng văng ra
-            for (const b of bodies) {
-                try {
-                    Body.setVelocity(b, {
-                        x: b.velocity.x + (Math.random() - 0.5) * 3,
-                        y: b.velocity.y + Math.random() * 2
-                    });
-                } catch (e) {}
+                // Phase 2: giữ ở góc max → bodies sẽ tự rơi ra do gravity
+                for (const b of bodies) {
+                    try {
+                        Body.setVelocity(b, {
+                            x: b.velocity.x + (Math.random() - 0.5) * 3,
+                            y: b.velocity.y + Math.random() * 2
+                        });
+                    } catch (e) {}
+                }
+                await wait(holdMs);
+
+                // Phase 3: dựng lại hũ (1s)
+                await tween(t => {
+                    const e = t * t;
+                    applyTilt(maxAngle * (1 - e));
+                }, 1000);
+            } finally {
+                applyTilt(0);
+                visualEls.forEach((el, i) => {
+                    el.style.transition = '';
+                    el.style.transform = origTr[i];
+                });
+                tiltAnimating = false;
             }
-            await wait(holdMs);
-
-            // Phase 3: dựng lại hũ (1s)
-            await tween(t => {
-                const e = t * t;
-                applyTilt(maxAngle * (1 - e));
-            }, 1000);
-            applyTilt(0);
-
-            visualEls.forEach((el, i) => {
-                el.style.transition = '';
-                el.style.transform = origTr[i];
-            });
-            tiltAnimating = false;
         }
         // ===== Temp lid — tạm khóa miệng hũ trong gravflip/tornado để quà không bay ra =====
         let _tempLid = null;
@@ -1836,7 +1834,7 @@
             posBig(enterX);
 
             // Lưu state gốc của hũ
-            const targets = [jarBottomEl, jarGlassEl, canvas, countDisplay].filter(Boolean);
+            const targets = [jarBottomEl, jarGlassEl, canvas, countDisplay, _accessoryEl, topHangersEl].filter(Boolean);
             targets.forEach(el => {
                 el.dataset._stealOp = el.style.opacity || '1';
                 el.dataset._stealTr = el.style.transform || '';
@@ -1947,7 +1945,11 @@
         function stopRandomEvents() { if (randomEventTimer) { clearInterval(randomEventTimer); randomEventTimer = null; } }
 
         // ===== UI overlays =====
-        let goalEl, totalsEl, crownEl, lbEl, welcomeEl, comboToastEl, thiefLayer, caughtEl, forceEl;
+        let goalEl, totalsEl, crownEl, lbEl, welcomeEl, comboToastEl, thiefLayer, caughtEl, forceEl, topHangersEl;
+        let windUntil = 0;
+        let windStartedAt = 0;
+        let windTickTimer = null;
+        let windRafId = null;
         function ensureOverlayDom() {
             if (!overlayLayer) return;
             if (overlayLayer.dataset.thuytinhInit === '1') {
@@ -1957,6 +1959,7 @@
                 lbEl = overlayLayer.querySelector('.tt-leaderboard');
                 caughtEl = overlayLayer.querySelector('.tt-caught');
                 forceEl = overlayLayer.querySelector('.tt-force');
+                topHangersEl = overlayLayer.querySelector('.tt-top-hangers');
                 welcomeEl = overlayLayer.querySelector('.tt-welcome');
                 comboToastEl = overlayLayer.querySelector('.tt-combo-toast');
                 thiefLayer = overlayLayer.querySelector('.tt-thief-layer');
@@ -1975,6 +1978,7 @@
                 <div class="tt-leaderboard tt-drag-panel" data-panel="leaderboard"></div>
                 <div class="tt-caught tt-drag-panel" data-panel="caught"></div>
                 <div class="tt-force tt-drag-panel" data-panel="force"></div>
+                <div class="tt-top-hangers"></div>
                 <div class="tt-goal"><div class="bar"><div class="fill"></div></div><div class="label"></div></div>
                 <div class="tt-totals"></div>
                 <div class="tt-thief-layer"></div>
@@ -1985,6 +1989,7 @@
             lbEl = overlayLayer.querySelector('.tt-leaderboard');
             caughtEl = overlayLayer.querySelector('.tt-caught');
             forceEl = overlayLayer.querySelector('.tt-force');
+            topHangersEl = overlayLayer.querySelector('.tt-top-hangers');
             welcomeEl = overlayLayer.querySelector('.tt-welcome');
             comboToastEl = overlayLayer.querySelector('.tt-combo-toast');
             thiefLayer = overlayLayer.querySelector('.tt-thief-layer');
@@ -2035,6 +2040,100 @@
                 applyPanelScale('leaderboard', lbEl);
             }
             if (caughtEl) applyPanelScale('caught', caughtEl);
+            updateTopHangers();
+        }
+        function fxWind() {
+            const dur = config.effects?.wind?.durationMs || 4200;
+            windStartedAt = Date.now();
+            windUntil = Date.now() + dur;
+            if (windTickTimer) clearInterval(windTickTimer);
+            if (windRafId) cancelAnimationFrame(windRafId);
+            updateTopHangers();
+            topHangersEl?.querySelectorAll('.tt-hanger-avatar.is-kite').forEach((el, i) => {
+                el.animate([
+                    { transform: 'translate(-50%, calc(-50% + 520px)) scale(.9) rotate(-8deg)' },
+                    { transform: 'translate(-50%, -50%) scale(1) rotate(0deg)' }
+                ], { duration: 900 + i * 120, easing: 'cubic-bezier(.18,1.25,.35,1)', fill: 'none' });
+            });
+            startWindLoop();
+            windTickTimer = setTimeout(() => {
+                windTickTimer = null;
+                if (windRafId) {
+                    cancelAnimationFrame(windRafId);
+                    windRafId = null;
+                }
+                updateTopHangers();
+            }, dur + 80);
+        }
+        function startWindLoop() {
+            const tick = () => {
+                if (!topHangersEl || Date.now() >= windUntil) {
+                    windRafId = null;
+                    return;
+                }
+                const t = (Date.now() - windStartedAt) / 1000;
+                topHangersEl.querySelectorAll('.tt-hanger-avatar.is-kite').forEach((el, i) => {
+                    const baseX = Number(el.dataset.baseX || 0);
+                    const baseY = Number(el.dataset.baseY || 0);
+                    const ampX = Number(el.dataset.ampX || 90);
+                    const ampY = Number(el.dataset.ampY || 26);
+                    const phase = Number(el.dataset.phase || 0);
+                    const x = baseX + Math.sin(t * 1.55 + phase) * ampX + Math.sin(t * 3.1 + phase) * 16;
+                    const y = baseY + Math.cos(t * 1.2 + phase) * ampY;
+                    el.style.left = (x / CANVAS_W * 100) + '%';
+                    el.style.top = (y / CANVAS_H * 100) + '%';
+                    const line = topHangersEl.querySelector(`.tt-hanger-lines line[data-i="${i}"]`);
+                    if (line) {
+                        line.setAttribute('x2', x.toFixed(1));
+                        line.setAttribute('y2', y.toFixed(1));
+                    }
+                });
+                windRafId = requestAnimationFrame(tick);
+            };
+            windRafId = requestAnimationFrame(tick);
+        }
+        function updateTopHangers() {
+            if (!topHangersEl) return;
+            if (!config.features.topHangers) {
+                topHangersEl.style.display = 'none';
+                topHangersEl.innerHTML = '';
+                return;
+            }
+            topHangersEl.style.display = 'block';
+            const r = jarRect();
+            const users = topTippers(5);
+            const windy = Date.now() < windUntil;
+            const baseList = users.length ? users : [{ uid: 'hp-media', nickname: 'HP Media', avatar: '/hp-logo.png', diamonds: 0 }];
+            const list = baseList;
+            const anchorY = r.y + r.h * SHAPE.neckTopY + 8;
+            const neckL = r.x + r.w * SHAPE.neckLeftX;
+            const neckR = r.x + r.w * SHAPE.neckRightX;
+            const svg = [`<svg class="tt-hanger-lines" viewBox="0 0 ${CANVAS_W} ${CANVAS_H}" preserveAspectRatio="none">`];
+            const avatars = [];
+            list.forEach((u, i) => {
+                const edgeSlots = [0.03, 0.97, 0.16, 0.84, 0.5];
+                const anchorX = neckL + (neckR - neckL) * (edgeSlots[i] ?? (0.5 + (i - 1) * 0.28));
+                const normalY = anchorY + 126 + i * 14;
+                const breeze = Math.sin(Date.now() / 850 + i * 1.7) * 10;
+                const spread = Math.min(280, 82 * Math.max(list.length - 1, 1));
+                const kiteBaseX = CANVAS_W * 0.5 - spread / 2 + (spread / Math.max(list.length - 1, 1)) * i;
+                const kiteBaseY = Math.max(70, anchorY - 690 - (i % 2) * 90);
+                const kiteX = kiteBaseX;
+                const kiteY = kiteBaseY;
+                const avatarX = windy ? kiteX : anchorX + breeze;
+                const avatarY = windy ? kiteY : normalY;
+                const name = escHtml(u.nickname || u.uniqueId || 'HP Media');
+                const avatar = escAttr(u.avatar || '/hp-logo.png');
+                svg.push(`<line data-i="${i}" x1="${anchorX.toFixed(1)}" y1="${anchorY.toFixed(1)}" x2="${avatarX.toFixed(1)}" y2="${avatarY.toFixed(1)}"></line>`);
+                avatars.push(`<div class="tt-hanger-avatar${windy ? ' is-kite' : ''}" data-base-x="${kiteBaseX.toFixed(1)}" data-base-y="${kiteBaseY.toFixed(1)}" data-amp-x="${Math.max(54, 112 - i * 10)}" data-amp-y="${Math.max(16, 30 - i * 3)}" data-phase="${(i * 1.2).toFixed(2)}" style="left:${(avatarX / CANVAS_W * 100).toFixed(3)}%;top:${(avatarY / CANVAS_H * 100).toFixed(3)}%"><img src="${avatar}" onerror="this.src='/hp-logo.png'" alt=""><span>${name}</span></div>`);
+            });
+            svg.push('</svg>');
+            topHangersEl.innerHTML = svg.join('') + avatars.join('');
+        }
+        function moveTopHangersWithJar(newJarX, newJarY, angleDeg, baseRect) {
+            if (!topHangersEl) return;
+            topHangersEl.style.transformOrigin = `${baseRect.cx}px ${baseRect.cy}px`;
+            topHangersEl.style.transform = `translate(${newJarX - baseRect.x}px, ${newJarY - baseRect.y}px) rotate(${angleDeg}deg)`;
         }
         function updateCrown() {
             if (!config.features.crown || !crownEl) return;
@@ -2101,9 +2200,7 @@
                     <div class="caught-main">
                         <div class="caught-name" title="${escAttr(c.name || 'Trộm')}">${escHtml(c.name || 'Trộm')}</div>
                         ${metaLine}
-                        <div class="caught-actions">
-                            <span class="caught-cd">${left}s</span>
-                        </div>
+                        <span class="caught-cd">${left}s</span>
                     </div>
                 </div>`;
             }).join('');
@@ -2261,6 +2358,7 @@
             // 1. Badges từ triggers (effects đã gán)
             for (const giftId of Object.keys(triggers)) {
                 const action = triggers[giftId];
+                if (DISABLED_TRIGGER_ACTIONS.has(action)) continue;
                 const itemCfg = items[giftId] || {};
                 if (itemCfg.enabled === false) continue;
                 const giftMeta = localMap[String(giftId)];
@@ -2467,6 +2565,7 @@
         // Helper chung: show toast, auto-hide sau 3s (tránh sticky toast)
         let _comboToastTimer = null;
         function showComboToast(html, bg) {
+            if (mirrorMode) return;
             if (!comboToastEl) return;
             comboToastEl.style.background = bg || '';
             comboToastEl.innerHTML = html;
@@ -3426,9 +3525,11 @@
             const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
             const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
             const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+            const hangerStyle = topHangersEl ? topHangersEl.style.cssText : '';
             if (jarBottomEl) jarBottomEl.style.transition = 'none';
             if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
             if (_accessoryEl) _accessoryEl.style.transition = 'none';
+            if (topHangersEl) topHangersEl.style.transition = 'none';
 
             // Pause physics — bodies + walls không bị gravity affect trong flight,
             // chỉ di chuyển bởi setPosition theo tween.
@@ -3480,6 +3581,7 @@
                     _accessoryEl.style.top  = (accY / CANVAS_H * 100) + '%';
                     _accessoryEl.style.transform = `rotate(${angle}deg)`;
                 }
+                moveTopHangersWithJar(newX, newY, angle, r);
 
                 // Crack overlay khi t ~ 0.55 (giữa đường, lần đầu chạm)
                 if (t > 0.55 && !wrap.__crackedOnce) {
@@ -3537,8 +3639,14 @@
                     _accessoryEl.style.cssText = accStyle;
                     _accessoryEl.style.transform = '';
                 }
+                if (topHangersEl) {
+                    topHangersEl.style.transform = '';
+                    topHangersEl.style.cssText = hangerStyle;
+                    topHangersEl.style.transform = '';
+                }
                 positionJar();
                 positionAccessory();
+                updateTopHangers();
             }, 3200);
 
             // OSIN remove after walks off
@@ -3606,9 +3714,11 @@
             if (jarBottomEl) jarBottomEl.style.transition = 'none';
             if (jarGlassEl)  jarGlassEl.style.transition  = 'none';
             if (_accessoryEl) _accessoryEl.style.transition = 'none';
+            if (topHangersEl) topHangersEl.style.transition = 'none';
             const jbStyle = jarBottomEl ? jarBottomEl.style.cssText : '';
             const jgStyle = jarGlassEl ? jarGlassEl.style.cssText : '';
             const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+            const hangerStyle = topHangersEl ? topHangersEl.style.cssText : '';
 
             // OSIN walks left to middle (dragging)
             const osinDragX = middleCx + r.w * 0.55;   // OSIN stand slightly right of jar
@@ -3644,6 +3754,7 @@
                     _accessoryEl.style.left = ((newCx - accW/2) / CANVAS_W * 100) + '%';
                     _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
                 }
+                moveTopHangersWithJar(newX, newY, 0, r);
                 lastCx = newCx;
                 lastCy = newCy;
             }, dragDur);
@@ -3699,6 +3810,7 @@
                     _accessoryEl.style.top  = ((newY + r.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
                     _accessoryEl.style.transform = `rotate(${angle}deg)`;
                 }
+                moveTopHangersWithJar(newX, newY, angle, r);
 
                 // Crack overlay khi t ~ 0.6 (gần tới target)
                 if (t > 0.6 && !wrap.__crackedOnceThrow) {
@@ -3751,8 +3863,14 @@
                     _accessoryEl.style.cssText = accStyle;
                     _accessoryEl.style.transform = '';
                 }
+                if (topHangersEl) {
+                    topHangersEl.style.transform = '';
+                    topHangersEl.style.cssText = hangerStyle;
+                    topHangersEl.style.transform = '';
+                }
                 positionJar();
                 positionAccessory();
+                updateTopHangers();
             }, 3200);
             setTimeout(() => wrap.remove(), 1400);
             throwJarBusy = false;
@@ -4161,7 +4279,7 @@
             engine.gravity.y = config.physics.gravity;
             positionJar();
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
-            updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
+            updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown(); updateTopHangers();
             updateCaughtList(); updatePoliceForcePanel();
             applyActorScales();
             applyJarTheme();
@@ -4189,7 +4307,7 @@
             // Clear cả bodies trong hũ — phiên mới = bắt đầu lại 100%
             // (Tránh tình trạng app preview clear nhưng OBS giữ bodies cũ)
             clearAll();
-            updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown();
+            updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown(); updateTopHangers();
             updateCaughtList(); updatePoliceForcePanel();
         }
         function serializeState() {
@@ -4326,7 +4444,7 @@
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
-            fxRain, fxGeyser, fxMagnet,
+            fxRain, fxGeyser, fxMagnet, fxWind,
             fxCrackJar, fxStealJar, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)

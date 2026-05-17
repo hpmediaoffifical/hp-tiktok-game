@@ -50,7 +50,7 @@ const GAMES = {
     thuytinh: {
         id: 'thuytinh',
         name: 'Hũ Thủy Tinh',
-        description: 'Quà tặng rơi vào hũ thủy tinh theo vật lý realtime — dùng làm overlay OBS.',
+        description: '',
         icon: '🫙',
         overlayPath: '/overlay/thuytinh',
         defaultConfig: {
@@ -1661,6 +1661,15 @@ function makeTikTokConnectOptions(extra = {}) {
     };
 }
 
+function hasTikTokMobileAuth() {
+    return !!(
+        process.env.TIKTOK_X_OAUTH_TOKEN ||
+        process.env.TIKTOK_OAUTH_TOKEN ||
+        process.env.TIKTOK_X_COOKIE_HEADER ||
+        process.env.TIKTOK_COOKIE_HEADER
+    );
+}
+
 function isRetryableTikTokConnectError(err) {
     const msg = String(err?.message || err || '').toLowerCase();
     if (!msg) return false;
@@ -1681,10 +1690,14 @@ function normalizeTikTokConnectError(err, attempts = []) {
 
 async function createTikTokConnectionWithFallback(username) {
     const attempts = [
-        { label: 'web', options: makeTikTokConnectOptions() },
-        { label: 'web-mobile-sign', options: makeTikTokConnectOptions({ useMobile: true }) },
-        { label: 'uniqueid-mobile-sign', options: makeTikTokConnectOptions({ connectWithUniqueId: true, useMobile: true }) }
+        { label: 'web', options: makeTikTokConnectOptions() }
     ];
+    if (hasTikTokMobileAuth()) {
+        attempts.push(
+            { label: 'web-mobile-sign', options: makeTikTokConnectOptions({ useMobile: true }) },
+            { label: 'uniqueid-mobile-sign', options: makeTikTokConnectOptions({ connectWithUniqueId: true, useMobile: true }) }
+        );
+    }
     const errors = [];
     for (let i = 0; i < attempts.length; i++) {
         const attempt = attempts[i];
