@@ -267,6 +267,9 @@
                 const oldestKey = recentCmdHashes.keys().next().value;
                 recentCmdHashes.delete(oldestKey);
             }
+            if (payload && payload._state) {
+                try { game.loadState(payload._state); } catch (e) {}
+            }
             if (cmd === 'thief') {
                 // payload có thể là 1 object userInfo, hoặc {thieves:[...]}.
                 const thieves = (payload && payload.thieves && payload.thieves.length)

@@ -571,6 +571,18 @@
         lastStateHash = '';
         pushStateNow();
     }
+    async function syncStateForCmd() {
+        if (!gameInstance || currentGame?.id !== 'thuytinh') return null;
+        try {
+            const state = gameInstance.serializeState();
+            lastStateHash = '';
+            await fetch(`/api/games/${currentGame.id}/state`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(state)
+            });
+            return state;
+        } catch (e) { return null; }
+    }
     async function flushStateBeforeUpdate() {
         if (!gameInstance || currentGame?.id !== 'thuytinh') return true;
         try {
@@ -2110,11 +2122,20 @@
         el?.addEventListener('change', pushConfigUpdate);
     }
     // Action buttons — gọi local + đồng bộ overlay OBS
-    function sendCmd(cmd, payload) {
+    const STATE_SYNC_BEFORE_CMD = new Set([
+        'pourOut', 'kickJar', 'throwJar', 'spinJar', 'stealJar',
+        'crackJar', 'tornado', 'geyser', 'magnet', 'gravflip', 'shake'
+    ]);
+    async function sendCmd(cmd, payload) {
         if (!currentGame) return;
-        fetch(`/api/games/${currentGame.id}/cmd`, {
+        let finalPayload = payload || null;
+        if (currentGame.id === 'thuytinh' && STATE_SYNC_BEFORE_CMD.has(cmd)) {
+            const state = await syncStateForCmd();
+            if (state) finalPayload = { ...(payload || {}), _state: state };
+        }
+        return fetch(`/api/games/${currentGame.id}/cmd`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cmd, payload: payload || null })
+            body: JSON.stringify({ cmd, payload: finalPayload })
         }).catch(() => {});
     }
     function resetSessionAll() {

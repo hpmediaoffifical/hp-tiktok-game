@@ -578,6 +578,24 @@
             if (jarWalls.length) Composite.remove(engine.world, jarWalls);
             jarWalls = [];
         }
+        function clearJarLandingZone(rect = jarRect()) {
+            const top = rect.y + rect.h * SHAPE.neckTopY - 25;
+            const bottom = rect.y + rect.h * SHAPE.bodyBottomY + 55;
+            const left = rect.x + rect.w * SHAPE.bodyLeftX - 35;
+            const right = rect.x + rect.w * SHAPE.bodyRightX + 35;
+            const cx = rect.cx;
+            for (const b of bodies) {
+                const p = b.position;
+                if (p.x < left || p.x > right || p.y < top || p.y > bottom) continue;
+                const side = p.x < cx ? -1 : 1;
+                const targetX = side < 0 ? left - (b.gm?.sz || 40) * 0.9 : right + (b.gm?.sz || 40) * 0.9;
+                try {
+                    Body.setPosition(b, { x: targetX, y: p.y - 8 });
+                    Body.setVelocity(b, { x: side * (5 + Math.random() * 4), y: -1.5 - Math.random() * 2 });
+                    Body.setAngularVelocity(b, side * (0.18 + Math.random() * 0.2));
+                } catch (e) {}
+            }
+        }
         function buildWalls() {
             buildWorldWalls();
             buildJarWalls();
@@ -914,6 +932,7 @@
             if (config.features.audio) audio.big();
             // Rebuild jar walls sau khi bodies đã bay ra ngoài
             setTimeout(() => {
+                clearJarLandingZone();
                 buildJarWalls();
                 spillInProgress = false;
             }, durationMs);
@@ -1314,7 +1333,7 @@
             });
             let jarOffsetX = 0;
             let jarOffsetY = 0;
-            const moveJarToOffset = (ox, oy) => {
+            const moveJarToOffset = (ox, oy, carryBodies = true) => {
                 const dx = ox - jarOffsetX;
                 const dy = oy - jarOffsetY;
                 jarOffsetX = ox;
@@ -1324,11 +1343,13 @@
                 for (const w of jarWalls) {
                     try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
                 }
-                for (const b of insideBodies) {
-                    try {
-                        Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
-                        Body.setVelocity(b, { x: 0, y: 0 });
-                    } catch (e) {}
+                if (carryBodies) {
+                    for (const b of insideBodies) {
+                        try {
+                            Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                            Body.setVelocity(b, { x: 0, y: 0 });
+                        } catch (e) {}
+                    }
                 }
                 const nx = baseRect.x + jarOffsetX;
                 const ny = baseRect.y + jarOffsetY;
@@ -1388,9 +1409,10 @@
                 if (flyToCenter) {
                     const startOx = jarOffsetX;
                     const startOy = jarOffsetY;
+                    removeJarWalls();
                     await tween(t => {
                         const e = t * t;
-                        moveJarToOffset(startOx * (1 - e), startOy * (1 - e));
+                        moveJarToOffset(startOx * (1 - e), startOy * (1 - e), false);
                     }, flyMs);
                 }
             } finally {
@@ -1401,6 +1423,8 @@
                     el.style.transform = origTr[i];
                 });
                 if (topHangersEl) { topHangersEl.style.transform = ''; updateTopHangers(); }
+                clearJarLandingZone(baseRect);
+                buildJarWalls();
                 positionJar();
                 positionAccessory();
                 tiltAnimating = false;
@@ -1454,6 +1478,7 @@
                 if (t++ > TOTAL) {
                     clearInterval(iv);
                     // Rebuild walls — bodies sẽ rơi xuống do gravity, một số rơi vào hũ
+                    clearJarLandingZone();
                     buildJarWalls();
                     return;
                 }
@@ -1576,7 +1601,7 @@
                 if (t++ > TOTAL) {
                     clearInterval(iv);
                     // Restore walls để quà rơi lại không bị mất ra ngoài
-                    setTimeout(() => { try { buildJarWalls(); } catch(e){} }, 200);
+                    setTimeout(() => { try { clearJarLandingZone(); buildJarWalls(); } catch(e){} }, 200);
                     return;
                 }
                 // Envelope ramp up then hold — release nhanh hơn để quà bị "thả" rơi xuống
@@ -2096,6 +2121,7 @@
             // Sau 3s: phục hồi hũ. Bodies cũ stack tại đáy overlay; bodies bên trong jar area lại bị
             // jar walls cage lại lần nữa — đó là mong muốn của user (overlay đầy quà phủ luôn Creator).
             setTimeout(() => {
+                clearJarLandingZone();
                 buildJarWalls();
                 if (jarBottomEl) { jarBottomEl.style.opacity = '1'; }
                 if (jarGlassEl) { jarGlassEl.style.opacity = '1'; }
@@ -2213,6 +2239,7 @@
                 el.style.transform = el.dataset._stealTr || '';
                 el.style.opacity = el.dataset._stealOp || '1';
             });
+            clearJarLandingZone(r);
             engine.timing.timeScale = savedTimeScale || 1;
             jarStolen = false;
             flashStealJarToast(0, false);
@@ -4230,6 +4257,8 @@
             let currentAngle = 0;
             let jarX = r.x;
             let jarY = r.y;
+            let pinSpinBodies = true;
+            let releasedSpinBodies = false;
 
             const setJarPose = (cx, cy, angleRad) => {
                 const dx = cx - lastCx;
@@ -4244,14 +4273,16 @@
                 }
                 const cos = Math.cos(angleRad);
                 const sin = Math.sin(angleRad);
-                for (const item of localBodies) {
-                    try {
-                        const x = cx + item.x * cos - item.y * sin;
-                        const y = cy + item.x * sin + item.y * cos;
-                        Body.setPosition(item.body, { x, y });
-                        Body.setVelocity(item.body, { x: 0, y: 0 });
-                        Body.setAngularVelocity(item.body, dir * spinSpeed * 0.08);
-                    } catch (e) {}
+                if (pinSpinBodies) {
+                    for (const item of localBodies) {
+                        try {
+                            const x = cx + item.x * cos - item.y * sin;
+                            const y = cy + item.x * sin + item.y * cos;
+                            Body.setPosition(item.body, { x, y });
+                            Body.setVelocity(item.body, { x: 0, y: 0 });
+                            Body.setAngularVelocity(item.body, dir * spinSpeed * 0.08);
+                        } catch (e) {}
+                    }
                 }
                 jarX = cx - baseRect.w / 2;
                 jarY = cy - baseRect.h / 2;
@@ -4270,6 +4301,26 @@
                 lastCx = cx;
                 lastCy = cy;
                 currentAngle = angleRad;
+            };
+            const releaseSpinBodies = (cx, cy, angleRad, boost = 1) => {
+                if (releasedSpinBodies) return;
+                releasedSpinBodies = true;
+                pinSpinBodies = false;
+                removeJarWalls();
+                engine.timing.timeScale = savedTimeScale || 1;
+                const mouthX = Math.sin(angleRad);
+                const mouthY = -Math.cos(angleRad);
+                for (const item of localBodies) {
+                    try {
+                        const mouthBoost = item.y < -baseRect.h * 0.18 ? 1.15 : 1;
+                        const sidePush = (item.x / Math.max(1, baseRect.w)) * 2.2;
+                        Body.setVelocity(item.body, {
+                            x: (mouthX * (7 + Math.random() * 5) * mouthBoost + sidePush) * scatterForce * boost,
+                            y: (mouthY * (7 + Math.random() * 5) * mouthBoost + 3) * scatterForce * boost
+                        });
+                        Body.setAngularVelocity(item.body, dir * (0.12 + Math.random() * 0.22) * scatterForce);
+                    } catch (e) {}
+                }
             };
 
             try {
@@ -4310,26 +4361,8 @@
                     setJarPose(targetCx, targetCy, pourStart + (pourEnd - pourStart) * e);
                 }, 520);
 
-                removeJarWalls();
-                engine.timing.timeScale = savedTimeScale;
-                const cos = Math.cos(currentAngle);
-                const sin = Math.sin(currentAngle);
-                for (const item of localBodies) {
-                    try {
-                        const px = item.body.position.x - targetCx;
-                        const py = item.body.position.y - targetCy;
-                        const tangentX = -py * dir;
-                        const tangentY = px * dir;
-                        const len = Math.max(1, Math.hypot(tangentX, tangentY));
-                        const mouthBoost = item.y < -baseRect.h * 0.18 ? 1.35 : 1;
-                        Body.setVelocity(item.body, {
-                            x: (tangentX / len) * (9 + Math.random() * 7) * scatterForce * mouthBoost + cos * 5 * scatterForce,
-                            y: (tangentY / len) * (7 + Math.random() * 5) * scatterForce + sin * 5 * scatterForce - 2
-                        });
-                        Body.setAngularVelocity(item.body, dir * (0.25 + Math.random() * 0.35) * scatterForce);
-                    } catch (e) {}
-                }
-                fxAnimations.push({ type: 'megaboom', x: targetCx, y: targetCy, age: 0, life: 34 });
+                // Chỉ tới pha dốc ngược mới tháo physics cage để quà đổ ra; không vỡ/nổ hũ.
+                releaseSpinBodies(targetCx, targetCy, currentAngle, 1.05);
                 await wait(1350);
 
                 const restoreCx0 = lastCx;
@@ -4348,6 +4381,7 @@
                 });
                 if (_accessoryEl) { _accessoryEl.style.transform = ''; _accessoryEl.style.cssText = accStyle; }
                 if (topHangersEl) { topHangersEl.style.transform = ''; topHangersEl.style.cssText = hangerStyle; }
+                clearJarLandingZone(baseRect);
                 buildJarWalls();
                 positionJar();
                 positionAccessory();
@@ -4385,6 +4419,7 @@
 
             // Rebuild jar walls + restore visual sau 3s — KHÔNG toast
             setTimeout(() => {
+                clearJarLandingZone();
                 buildJarWalls();
                 if (jarBottomEl) { jarBottomEl.style.opacity = '1'; }
                 if (jarGlassEl) { jarGlassEl.style.opacity = '1'; }
@@ -4885,6 +4920,9 @@
                 giftHistory: JSON.parse(JSON.stringify(giftHistory))
             };
         }
+        function isTransientAnimationActive() {
+            return !!(spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || spillInProgress || jarStolen);
+        }
         function loadState(state) {
             if (!state || typeof state !== 'object') return;
             stats.totalDiamonds = state.totalDiamonds || 0;
@@ -4905,9 +4943,11 @@
             if (Array.isArray(state.giftHistory)) giftHistory.push(...state.giftHistory.slice(0, HISTORY_MAX));
             pruneGiftHistory();
 
-            // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart)
-            // App/OBS replace theo snapshot authoritative để restore/clear đồng bộ chính xác.
-            if (Array.isArray(state.bodies)) {
+            // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart).
+            // OBS nhận snapshot định kỳ từ App. Nếu rebuild bodies giữa animation OSIN/đổ/vỡ,
+            // icon sẽ bị snap về vị trí cũ hoặc nhảy lên miệng hũ trong khi visual jar vẫn đang tween.
+            const skipBodyRestore = mirrorMode && Array.isArray(state.bodies) && isTransientAnimationActive();
+            if (Array.isArray(state.bodies) && !skipBodyRestore) {
                 clearBodiesOnly();
                 for (const b of state.bodies) {
                     const body = makeBodyFromSaved(b);
