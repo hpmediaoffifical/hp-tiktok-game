@@ -771,7 +771,8 @@
                 tier: tierOf(g.coinValue || 1),
                 sz,
                 img: loadImage(g),
-                tipperUid: g.userId || g.uniqueId
+                tipperUid: g.userId || g.uniqueId,
+                _spawnT: Date.now()
             };
             Body.setVelocity(body, velocity || { x: 0, y: 2 });
             Composite.add(engine.world, body);
@@ -1147,6 +1148,76 @@
         function clearBodiesOnly() {
             if (bodies.length) Composite.remove(engine.world, bodies);
             bodies.length = 0;
+        }
+        // RECONCILE (mirror/OBS) — thay vì clear+recreate toàn bộ mỗi snapshot 1.5s
+        // (gây teleport + solver bắn quà khỏi hũ rồi rơi lại liên tục), khớp từng quà
+        // snapshot với quà OBS cùng loại GẦN NHẤT rồi sửa MƯỢT:
+        //   ≤ TOL px lệch  → KHÔNG đụng, để physics OBS tự giữ (quà nằm yên = đứng yên)
+        //   ≤ HARD px lệch → ease 25% về vị trí App (không giật)
+        //   > HARD px lệch → quà đã văng khỏi hũ/lạc → kéo về dứt khoát
+        function reconcileBodiesFromState(savedBodies) {
+            const saved = Array.isArray(savedBodies) ? savedBodies : [];
+            const original = bodies.slice();
+            const liveByType = new Map();
+            for (const b of original) {
+                if (b.gm?.previewOnly) continue;
+                const key = String(b.gm?.id ?? '');
+                let arr = liveByType.get(key);
+                if (!arr) { arr = []; liveByType.set(key, arr); }
+                arr.push(b);
+            }
+            const matched = new Set();
+            const result = [];
+            const TOL = 80;
+            const HARD = 340;
+            for (const s of saved) {
+                if (!s?.gm) continue;
+                const key = String(s.gm.id ?? '');
+                const pool = liveByType.get(key) || [];
+                let best = null, bestD = Infinity;
+                for (const b of pool) {
+                    if (matched.has(b)) continue;
+                    const d = Math.hypot(b.position.x - s.x, b.position.y - s.y);
+                    if (d < bestD) { bestD = d; best = b; }
+                }
+                if (best) {
+                    matched.add(best);
+                    try {
+                        if (bestD > HARD) {
+                            Body.setPosition(best, { x: s.x, y: s.y });
+                            Body.setVelocity(best, { x: 0, y: 0 });
+                            Body.setAngularVelocity(best, 0);
+                        } else if (bestD > TOL) {
+                            Body.setPosition(best, {
+                                x: best.position.x + (s.x - best.position.x) * 0.25,
+                                y: best.position.y + (s.y - best.position.y) * 0.25
+                            });
+                            Body.setVelocity(best, { x: best.velocity.x * 0.5, y: best.velocity.y * 0.5 });
+                        }
+                        // bestD ≤ TOL: để nguyên — quà đang nằm yên KHÔNG bị giật
+                    } catch (e) {}
+                    result.push(best);
+                } else {
+                    const body = makeBodyFromSaved(s);
+                    if (body) {
+                        if (body.gm) body.gm._spawnT = Date.now();
+                        Composite.add(engine.world, body);
+                        result.push(body);
+                    }
+                }
+            }
+            // Xoá quà App không còn — nhưng GIỮ quà vừa spawn local (đang rơi, chưa kịp
+            // lên snapshot 1.5s) để không nhấp nháy biến mất rồi hiện lại.
+            const now = Date.now();
+            for (const b of original) {
+                if (matched.has(b) || b.gm?.previewOnly) continue;
+                if (now - (b.gm?._spawnT || 0) < 2600) { result.push(b); continue; }
+                try { Composite.remove(engine.world, b); } catch (e) {}
+            }
+            bodies.length = 0;
+            bodies.push(...result);
+            updateCountDisplay();
+            onCountChange(bodies.length);
         }
         function clearAll() {
             captureGiftHistory('Trước khi xoá hũ', true);
@@ -4948,15 +5019,22 @@
             // icon sẽ bị snap về vị trí cũ hoặc nhảy lên miệng hũ trong khi visual jar vẫn đang tween.
             const skipBodyRestore = mirrorMode && Array.isArray(state.bodies) && isTransientAnimationActive();
             if (Array.isArray(state.bodies) && !skipBodyRestore) {
-                clearBodiesOnly();
-                for (const b of state.bodies) {
-                    const body = makeBodyFromSaved(b);
-                    if (!body) continue;
-                    Composite.add(engine.world, body);
-                    bodies.push(body);
+                if (mirrorMode) {
+                    // OBS chạy physics riêng + nhận snapshot mỗi ~1.5s. clear+recreate toàn bộ
+                    // → quà nằm yên bị teleport, quà tạo lại chồng nhau bị solver bắn khỏi hũ
+                    // rồi rơi lại liên tục (giật "ma thuật"). Reconcile mượt thay thế.
+                    reconcileBodiesFromState(state.bodies);
+                } else {
+                    clearBodiesOnly();
+                    for (const b of state.bodies) {
+                        const body = makeBodyFromSaved(b);
+                        if (!body) continue;
+                        Composite.add(engine.world, body);
+                        bodies.push(body);
+                    }
+                    updateCountDisplay();
+                    onCountChange(bodies.length);
                 }
-                updateCountDisplay();
-                onCountChange(bodies.length);
                 console.log(`[loadState] Restored ${state.bodies.length} bodies từ state`);
             }
 
