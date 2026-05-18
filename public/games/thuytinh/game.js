@@ -476,6 +476,11 @@
         const imgCache = new Map();
         let spawnQueue = [];
         let spawnTicker = null;
+        // ===== Transform stream (App authoritative → OBS pure render) =====
+        // OBS KHÔNG chạy physics (Runner off khi mirror). App đẩy transform tần số cao,
+        // OBS chỉ vẽ → đồng bộ 100% bất kể máy mạnh/yếu (hết giật khác máy).
+        let _bodyUid = 0;
+        const xfMap = new Map();   // mirror: uid → render body
 
         // ===== State =====
         const stats = {
@@ -640,8 +645,12 @@
                 runTriggerAction(triggerAction, userInfo);
                 return;
             }
-            for (let i = 0; i < n; i++) spawnQueue.push(g);
-            if (!spawnTicker) spawnTicker = setInterval(processQueue, 45);
+            // MIRROR (OBS): KHÔNG spawn body local. Quà rơi do App mô phỏng rồi đẩy
+            // transform stream → OBS chỉ vẽ. Vẫn cập nhật tipper/combo/welcome/goal cho panel.
+            if (!mirrorMode) {
+                for (let i = 0; i < n; i++) spawnQueue.push(g);
+                if (!spawnTicker) spawnTicker = setInterval(processQueue, 45);
+            }
             recordTipper(g, n);
             handleCombo(g, n);
             handleWelcome(g);
@@ -4766,16 +4775,19 @@
             // Khi hũ bị trộm, không vẽ bodies (tạo cảm giác hũ + quà cùng biến mất)
             if (jarStolen) { requestAnimationFrame(render); return; }
             // Cull bodies đã rơi quá xa khỏi vùng nhìn (giải phóng bộ nhớ).
-            let culled = 0;
-            for (let i = bodies.length - 1; i >= 0; i--) {
-                const b = bodies[i];
-                if (b.position.y > CULL_BELOW_Y) {
-                    Composite.remove(engine.world, b);
-                    bodies.splice(i, 1);
-                    culled++;
+            // MIRROR: vòng đời body do stream quản (applyTransforms) — KHÔNG cull ở đây.
+            if (!mirrorMode) {
+                let culled = 0;
+                for (let i = bodies.length - 1; i >= 0; i--) {
+                    const b = bodies[i];
+                    if (b.position.y > CULL_BELOW_Y) {
+                        Composite.remove(engine.world, b);
+                        bodies.splice(i, 1);
+                        culled++;
+                    }
                 }
+                if (culled) { updateCountDisplay(); onCountChange(bodies.length); }
             }
-            if (culled) { updateCountDisplay(); onCountChange(bodies.length); }
             for (const b of bodies) {
                 const m = b.gm; if (!m) continue;
                 ctx.save();
@@ -4994,6 +5006,70 @@
         function isTransientAnimationActive() {
             return !!(spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || spillInProgress || jarStolen);
         }
+        // App (authoritative) → danh sách transform gọn nhẹ của MỌI body, đẩy ~30Hz.
+        // Mỗi body được cấp _uid ổn định (lazy) để OBS khớp qua các frame.
+        function serializeTransforms() {
+            const out = [];
+            for (const b of bodies) {
+                const m = b.gm; if (!m || m.previewOnly) continue;
+                if (m._uid == null) m._uid = ++_bodyUid;
+                out.push([
+                    m._uid,
+                    Math.round(b.position.x),
+                    Math.round(b.position.y),
+                    Math.round((b.angle || 0) * 1000) / 1000,
+                    m.sz || 40,
+                    m.id || '',
+                    (m.img && m.img.src) || m.imgSrc || '',
+                    m.tier || ''
+                ]);
+            }
+            return out;
+        }
+        function imageForXf(gid, src) {
+            const key = src || ('gid:' + gid);
+            if (imgCache.has(key)) return imgCache.get(key);
+            const im = new Image();
+            if (src) im.src = src;
+            imgCache.set(key, im);
+            return im;
+        }
+        // OBS (mirror): vẽ thuần theo stream. KHÔNG physics → đồng bộ tuyệt đối mọi máy.
+        // Body chỉ được tạo/xoá/di chuyển bởi hàm này; mọi body lạ (do effect replay
+        // lỡ spawn) không nằm trong stream sẽ bị dọn ngay frame sau → tự lành.
+        function applyTransforms(list) {
+            if (!mirrorMode || !Array.isArray(list)) return;
+            const seen = new Set();
+            for (const t of list) {
+                if (!Array.isArray(t)) continue;
+                const uid = t[0], x = t[1], y = t[2], a = t[3], sz = t[4], gid = t[5], src = t[6], tier = t[7];
+                if (uid == null) continue;
+                seen.add(uid);
+                let b = xfMap.get(uid);
+                if (!b) {
+                    b = Bodies.circle(x, y, Math.max(8, (sz || 40) / 2), { isStatic: true, isSensor: true });
+                    b.gm = { id: gid, name: '', coins: 1, tier: tier || '', sz: sz || 40, img: imageForXf(gid, src), _uid: uid };
+                    Composite.add(engine.world, b);
+                    bodies.push(b);
+                    xfMap.set(uid, b);
+                }
+                try {
+                    Body.setPosition(b, { x, y });
+                    Body.setAngle(b, a || 0);
+                } catch (e) {}
+                if (sz && b.gm.sz !== sz) b.gm.sz = sz;
+            }
+            for (let i = bodies.length - 1; i >= 0; i--) {
+                const u = bodies[i].gm && bodies[i].gm._uid;
+                if (!seen.has(u)) {
+                    try { Composite.remove(engine.world, bodies[i]); } catch (e) {}
+                    if (u != null) xfMap.delete(u);
+                    bodies.splice(i, 1);
+                }
+            }
+            updateCountDisplay();
+            onCountChange(bodies.length);
+        }
         function loadState(state) {
             if (!state || typeof state !== 'object') return;
             stats.totalDiamonds = state.totalDiamonds || 0;
@@ -5017,24 +5093,19 @@
             // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart).
             // OBS nhận snapshot định kỳ từ App. Nếu rebuild bodies giữa animation OSIN/đổ/vỡ,
             // icon sẽ bị snap về vị trí cũ hoặc nhảy lên miệng hũ trong khi visual jar vẫn đang tween.
-            const skipBodyRestore = mirrorMode && Array.isArray(state.bodies) && isTransientAnimationActive();
-            if (Array.isArray(state.bodies) && !skipBodyRestore) {
-                if (mirrorMode) {
-                    // OBS chạy physics riêng + nhận snapshot mỗi ~1.5s. clear+recreate toàn bộ
-                    // → quà nằm yên bị teleport, quà tạo lại chồng nhau bị solver bắn khỏi hũ
-                    // rồi rơi lại liên tục (giật "ma thuật"). Reconcile mượt thay thế.
-                    reconcileBodiesFromState(state.bodies);
-                } else {
-                    clearBodiesOnly();
-                    for (const b of state.bodies) {
-                        const body = makeBodyFromSaved(b);
-                        if (!body) continue;
-                        Composite.add(engine.world, body);
-                        bodies.push(body);
-                    }
-                    updateCountDisplay();
-                    onCountChange(bodies.length);
+            // MIRROR (OBS): bodies do transform stream tần số cao điều khiển (applyTransforms),
+            // KHÔNG khôi phục từ snapshot 1.5s nữa → không teleport/giật, đồng bộ mọi máy.
+            // App (authoritative): vẫn recreate physics bodies từ snapshot khi restart.
+            if (!mirrorMode && Array.isArray(state.bodies)) {
+                clearBodiesOnly();
+                for (const b of state.bodies) {
+                    const body = makeBodyFromSaved(b);
+                    if (!body) continue;
+                    Composite.add(engine.world, body);
+                    bodies.push(body);
                 }
+                updateCountDisplay();
+                onCountChange(bodies.length);
                 console.log(`[loadState] Restored ${state.bodies.length} bodies từ state`);
             }
 
@@ -5061,7 +5132,10 @@
         // → bodies di chuyển GẤP ĐÔI mỗi tick → dễ tunneling qua tường (đáy hũ, sàn world).
         // isFixed: true → mỗi tick luôn dt = 1000/60ms, bodies di chuyển ổn định.
         // Trade-off: nếu OBS chậm → vật lý chạy slow-motion thay vì bị mất quà.
-        Runner.run(Runner.create({ isFixed: true, delta: 1000 / 60 }), engine);
+        // MIRROR (OBS): KHÔNG chạy Runner. OBS tuyệt đối không tự tính physics —
+        // chỉ vẽ theo transform stream từ App → giống App 100% bất kể máy mạnh/yếu.
+        // (Trước đây OBS chạy physics riêng → máy yếu lệch pha → giật/quà văng khỏi hũ.)
+        if (!mirrorMode) Runner.run(Runner.create({ isFixed: true, delta: 1000 / 60 }), engine);
 
         // Safety net: cap max velocity sau mỗi tick để bodies không bao giờ đạt tốc độ tunneling.
         // Đáy hũ FLOOR_T=80, max safe velocity = 80 / 2 = 40 px/tick → cap ở 35.
@@ -5136,6 +5210,7 @@
             triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, fxSpinJar, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
+            serializeTransforms, applyTransforms,
             captureGiftHistory,
             getGiftHistory: () => JSON.parse(JSON.stringify(giftHistory)),
             restoreGiftSnapshot,

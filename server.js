@@ -3626,6 +3626,14 @@ io.on('connection', (socket) => {
         processCreatorCaptionSpeech(payload).catch(e => console.warn('[creator-caption] translate failed:', e.message));
     });
 
+    // Transform stream 30Hz: App (preview) đẩy vị trí mọi body → relay cho OBS (overlay)
+    // vẽ thuần. KHÔNG đụng gameStateCache (đây là dữ liệu render tạm, không persist).
+    socket.on('giftXf', (msg) => {
+        if (msg && typeof msg === 'object' && Array.isArray(msg.list)) {
+            io.to('overlay').emit('giftXf', { gameId: msg.gameId, list: msg.list });
+        }
+    });
+
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {
             socket.join(roomName);
