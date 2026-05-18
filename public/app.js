@@ -549,7 +549,7 @@
     let stateSyncTimer = null;
     let lastStateHash = '';
     function pushStateNow() {
-        if (!gameInstance || currentGame?.id !== 'thuytinh') return;
+        if (!gameInstance || currentGame?.id !== 'thuytinh') return Promise.resolve(false);
         const state = gameInstance.serializeState();
         const hash = JSON.stringify([
             state.totalDiamonds, state.totalGifts,
@@ -559,17 +559,17 @@
             (state.bodies || []).length,   // include bodies count → state push khi quà thêm/bớt
             (state.giftHistory || [])[0]?.id || ''
         ]);
-        if (hash === lastStateHash) return;
+        if (hash === lastStateHash) return Promise.resolve(false);
         lastStateHash = hash;
-        fetch(`/api/games/${currentGame.id}/state`, {
+        return fetch(`/api/games/${currentGame.id}/state`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(state)
-        }).catch(() => {});
+        }).then(() => true).catch(() => false);
     }
     // Force sync (bỏ qua dedupe hash) — dùng khi clear/reset, OBS phải biết NGAY
     function forceSyncState() {
         lastStateHash = '';
-        pushStateNow();
+        return pushStateNow();
     }
     async function syncStateForCmd() {
         if (!gameInstance || currentGame?.id !== 'thuytinh') return null;
@@ -2138,13 +2138,13 @@
             body: JSON.stringify({ cmd, payload: finalPayload })
         }).catch(() => {});
     }
-    function resetSessionAll() {
+    async function resetSessionAll() {
         // Phiên mới: reset stats + clear bodies trong hũ + đồng bộ OBS qua 2 cmd
         gameInstance?.resetSession();
         gameInstance?.clearAll();
-        sendCmd('resetSession');
-        sendCmd('clear');
-        forceSyncState();
+        await sendCmd('resetSession');
+        await sendCmd('clear');
+        await forceSyncState();
     }
     dom.btnResetSessionTop?.addEventListener('click', resetSessionAll);
     dom.btnThief?.addEventListener('click', () => {

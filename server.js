@@ -2832,13 +2832,42 @@ app.post('/api/disconnect', async (req, res) => {
 // Monotonic sequence ID cho gameCmd — overlay dedup theo seq để tránh
 // duplicate spawn khi OBS cache stale code / reconnect re-attach listener.
 let _cmdSeq = 0;
+function applyAuthoritativeGameCmdState(gameId, cmd, payload) {
+    if (gameId !== 'thuytinh') return null;
+    const incomingState = payload && typeof payload === 'object' && payload._state && typeof payload._state === 'object'
+        ? payload._state
+        : null;
+    if (incomingState) {
+        gameStateCache[gameId] = incomingState;
+        saveGameStateNow();
+        return gameStateCache[gameId];
+    }
+    if (cmd !== 'clear' && cmd !== 'resetSession') return null;
+    const prev = gameStateCache[gameId] && typeof gameStateCache[gameId] === 'object' ? gameStateCache[gameId] : {};
+    const next = { ...prev, bodies: [], giftHistory: Array.isArray(prev.giftHistory) ? prev.giftHistory : [] };
+    if (cmd === 'resetSession') {
+        next.totalDiamonds = 0;
+        next.totalGifts = 0;
+        next.tippers = [];
+        next.seenGiftTypes = [];
+        next.caughtList = [];
+        next.bannedUntilByUid = [];
+        next.policeForce = [];
+        next.goalReached = false;
+    }
+    gameStateCache[gameId] = next;
+    saveGameStateNow();
+    return next;
+}
 app.post('/api/games/:id/cmd', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     const { cmd, payload } = req.body || {};
     if (!cmd) return res.status(400).json({ ok: false, error: 'Thiếu cmd' });
+    const authoritativeState = applyAuthoritativeGameCmdState(g.id, cmd, payload);
     const seq = ++_cmdSeq;
     io.emit('gameCmd', { gameId: g.id, cmd, payload: payload || null, seq });
+    if (authoritativeState) io.to('overlay').emit('gameStateSnapshot', { gameId: g.id, state: authoritativeState });
     res.json({ ok: true, seq });
 });
 
