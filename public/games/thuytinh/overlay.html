@@ -203,13 +203,6 @@
             if (state && game) game.loadState(state);
         });
 
-        // Transform stream 30Hz từ App — OBS chỉ vẽ theo đây, KHÔNG tự tính physics.
-        // → OBS giống hệt App preview dù máy yếu (không còn lệch pha gây giật).
-        socket.on('giftXf', ({ gameId, list }) => {
-            if (gameId !== 'thuytinh' || !game) return;
-            game.applyTransforms(list);
-        });
-
         function handleGift(g) {
             ensureGame();
             game.drop({

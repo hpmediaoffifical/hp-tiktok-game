@@ -606,32 +606,13 @@
             return false;
         }
     }
-    // ===== Transform stream 30Hz (App authoritative → OBS render thuần) =====
-    // App mô phỏng physics duy nhất; đẩy transform mọi body ~33ms. OBS KHÔNG chạy
-    // physics, chỉ vẽ theo stream → giống App 100% bất kể máy yếu (hết giật khác máy).
-    // Payload localhost rất nhẹ (≈ vài chục body × mảng số) nên 30Hz vô tư.
-    let xfStreamTimer = null;
-    function startXfStream() {
-        stopXfStream();
-        xfStreamTimer = setInterval(() => {
-            if (!gameInstance || currentGame?.id !== 'thuytinh' || !gameInstance.serializeTransforms) return;
-            try {
-                socket.emit('giftXf', { gameId: currentGame.id, list: gameInstance.serializeTransforms() });
-            } catch (e) { /* socket chưa sẵn sàng — bỏ qua tick này */ }
-        }, 33);
-    }
-    function stopXfStream() {
-        if (xfStreamTimer) { clearInterval(xfStreamTimer); xfStreamTimer = null; }
-    }
     function startStateSync() {
         stopStateSync();
         pushStateNow();   // push ngay khi vào game
         stateSyncTimer = setInterval(pushStateNow, 1500);
-        startXfStream();
     }
     function stopStateSync() {
         if (stateSyncTimer) { clearInterval(stateSyncTimer); stateSyncTimer = null; }
-        stopXfStream();
     }
 
     // ===== Kéo hũ bằng chuột trong vùng 1080x1920 =====
