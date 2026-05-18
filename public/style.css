@@ -306,35 +306,52 @@ input, button { font-family: inherit; }
 }
 .cfg-select:focus { border-color: #ff6b3d; }
 
-/* Badge config section trong tab Quà */
+/* Badge config section trong tab Cài đặt */
 .badges-cfg-section {
-    padding: 10px 12px;
+    padding: 8px 10px;
     background: linear-gradient(135deg, rgba(255,107,61,0.05), rgba(236,72,153,0.03));
-    border-bottom: 1px solid #1f2533;
+    border: 1px solid #1f2533;
+    border-radius: 12px;
+    margin-top: 10px;
 }
 .badges-cfg-title {
+    cursor: pointer;
+    list-style: none;
     font-size: 12px;
     font-weight: 700;
     color: #ff6b3d;
-    margin-bottom: 8px;
+    margin-bottom: 0;
     letter-spacing: 0.3px;
 }
+.badges-cfg-title::-webkit-details-marker { display: none; }
+.badges-cfg-title::after {
+    content: 'Mở';
+    float: right;
+    color: #8b93a8;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+.badges-cfg-section[open] .badges-cfg-title { margin-bottom: 8px; }
+.badges-cfg-section[open] .badges-cfg-title::after { content: 'Thu'; }
+.badges-cfg-body { display: flex; flex-direction: column; gap: 7px; }
 .badges-cfg-row { margin-bottom: 8px; }
+.badges-cfg-body .badges-cfg-row { margin-bottom: 0; }
+.badges-cfg-checks,
+.badges-cfg-scroll-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: end;
+}
+.badges-cfg-scroll-row .badges-cfg-col { min-width: 0; }
+.badges-cfg-autoscroll { align-self: center; }
 .feat.compact { font-size: 12px; font-weight: 600; }
 .badges-cfg-grid {
     display: grid;
-    /* 2 hàng × 4 cột: hàng 1 = Layout (1) + Vị trí (3 cột rộng);
-       hàng 2 = Cỡ card / Cỡ icon / Khoảng cách / Cỡ chữ */
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     align-items: end;
 }
-.badges-cfg-grid > .badges-cfg-col:nth-child(1) { grid-column: 1 / span 1; }   /* Layout */
-.badges-cfg-grid > .badges-cfg-col:nth-child(2) { grid-column: 2 / span 3; }   /* Vị trí — span 3 cols */
-.badges-cfg-grid > .badges-cfg-col:nth-child(3) { grid-column: 1 / span 1; }   /* Cỡ card */
-.badges-cfg-grid > .badges-cfg-col:nth-child(4) { grid-column: 2 / span 1; }   /* Cỡ icon */
-.badges-cfg-grid > .badges-cfg-col:nth-child(5) { grid-column: 3 / span 1; }   /* Khoảng cách */
-.badges-cfg-grid > .badges-cfg-col:nth-child(6) { grid-column: 4 / span 1; }   /* Cỡ chữ */
 .badges-cfg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .badges-cfg-col > label {
     font-size: 10px;
@@ -358,14 +375,19 @@ input, button { font-family: inherit; }
     width: 100%;
     padding: 6px 28px 6px 10px;
     font-size: 12px;
-    height: 32px;
+    height: 30px;
     background-color: #0f1218;
 }
 .badges-cfg-col-scale input[type="range"] {
     width: 100%;
-    height: 32px;
+    height: 24px;
     accent-color: #ff6b3d;
     margin: 0;
+}
+.badges-cfg-hint {
+    font-size: 10px;
+    color: #6b7390;
+    padding: 0;
 }
 
 /* Extra badge modal — filter row + diamond chips */
@@ -421,13 +443,13 @@ input, button { font-family: inherit; }
     padding: 4px 2px 0;
 }
 
-/* Badges extras row trong tab Quà */
+/* Badges extras row trong tab Cài đặt */
 .badges-extras-row {
-    margin-top: 12px;
+    margin-top: 2px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-top: 8px;
+    padding-top: 7px;
     border-top: 1px dashed #1f2533;
 }
 .badges-extras-title {
