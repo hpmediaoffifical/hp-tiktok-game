@@ -21,6 +21,7 @@
         { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
         { key: 'spinJar',    ico: '🌀', label: 'OSIN xoay hũ' },
+        { key: 'zigzagLuck', ico: '🎰', label: 'Zikzak may mắn' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'pourOut',    ico: '🫗', label: 'Dốc ngược hũ (đổ hết)' },
@@ -136,6 +137,8 @@
         cfgGminV: $('#cfg-gmin-v'),
         cfgGmax: $('#cfg-gmax'),
         cfgGmaxV: $('#cfg-gmax-v'),
+        cfgGdrop: $('#cfg-gdrop'),
+        cfgGdropV: $('#cfg-gdrop-v'),
         cfgShowCount: $('#cfg-show-count'),
         cfgJarVisible: $('#cfg-jar-visible'),
         cfgJarLocked: $('#cfg-jar-locked'),
@@ -687,6 +690,7 @@
         bindRange(dom.cfgJarH, cfg.jar.height, dom.cfgJarHV);
         bindRange(dom.cfgGmin, cfg.gift.minSize, dom.cfgGminV);
         bindRange(dom.cfgGmax, cfg.gift.maxSize, dom.cfgGmaxV);
+        bindRange(dom.cfgGdrop, cfg.gift.dropHeight ?? 220, dom.cfgGdropV);
         // cfg-goal đã chuyển từ slider sang number input — set value trực tiếp
         if (dom.cfgGoal) dom.cfgGoal.value = cfg.goal?.target ?? 5000;
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
@@ -813,6 +817,7 @@
             gift: {
                 minSize: parseInt(dom.cfgGmin.value, 10),
                 maxSize: parseInt(dom.cfgGmax.value, 10),
+                dropHeight: Math.max(80, Math.min(700, parseInt(dom.cfgGdrop?.value, 10) || 220)),
                 showName: false,
                 showCount: dom.cfgShowCount.checked
             },
@@ -882,6 +887,7 @@
         dom.cfgJarHV.textContent = cfg.jar.height;
         dom.cfgGminV.textContent = cfg.gift.minSize;
         dom.cfgGmaxV.textContent = cfg.gift.maxSize;
+        if (dom.cfgGdropV) dom.cfgGdropV.textContent = cfg.gift.dropHeight ?? 220;
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal.target;
         if (dom.cfgShakeAtV) dom.cfgShakeAtV.textContent = cfg.autoShakeAt;
         if (dom.cfgThiefMissV) dom.cfgThiefMissV.textContent = Math.round((cfg.thiefMissRate || 0) * 100);
@@ -1354,6 +1360,15 @@
                     { key: 'holdMs', label: 'Giữ trên cao', min: 500, max: 6000, step: 100, default: 1800, suffix: 'ms' },
                     { key: 'flyHeight', label: 'Độ cao bay', min: 15, max: 55, step: 1, default: 34, suffix: '%' },
                     { key: 'scatterForce', label: 'Lực văng quà', min: 0.4, max: 3, step: 0.1, default: 1.2 }
+                ];
+            case 'zigzagLuck':
+                return [
+                    { key: 'durationSec', label: 'Thời gian', min: 10, max: 180, step: 5, default: 60, suffix: 's' },
+                    { key: 'rows', label: 'Số hàng lỗ', min: 5, max: 13, step: 1, default: 6 },
+                    { key: 'cols', label: 'Số cột lỗ', min: 4, max: 11, step: 1, default: 9 },
+                    { key: 'boardWidthPct', label: 'Rộng bàn', min: 55, max: 98, step: 1, default: 92, suffix: '%' },
+                    { key: 'iconSize', label: 'Cỡ icon an toàn', min: 24, max: 64, step: 2, default: 42, suffix: 'px' },
+                    { key: 'dropHeight', label: 'Độ cao thả', min: 40, max: 700, step: 20, default: 180, suffix: 'px' }
                 ];
             case 'combo':
                 return [
@@ -1861,7 +1876,7 @@
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGdrop', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);

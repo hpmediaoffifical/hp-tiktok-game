@@ -24,7 +24,7 @@
         return {
             // Vị trí hũ — góc dưới-phải, đã tinh chỉnh để cân streamer + chat layout TikTok
             jar: { xPercent: 64.57, yPercent: 76.38, height: 400 },
-            gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
+            gift: { minSize: 40, maxSize: 220, dropHeight: 220, showName: false, showCount: true },
             // Physics: gravity vừa phải, friction thấp → quà rơi mượt, không cứng
             physics: { gravity: 1.4, bounce: 0.4, friction: 0.05 },
             jarVisible: true,
@@ -90,6 +90,7 @@
                 crackJar: { durationSec: 5, count: 6, shatterAt: 3 },
                 stealJar: { durationSec: 10, restoreDelaySec: 10 },
                 spinJar: { spinSpeed: 1.4, holdMs: 1800, flyHeight: 34, scatterForce: 1.2 },
+                zigzagLuck: { durationSec: 60, rows: 6, cols: 9, boardWidthPct: 92, iconSize: 42, dropHeight: 180 },
                 combo:    { sequence: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5' },
                 // Hiệu ứng tạo hình: hút quà bên dưới → ghép thành hình/chữ giữa màn hình →
                 // giữ X giây + hiện tên user → rơi tự do. Cho phép NHIỀU quà cùng kích hoạt
@@ -654,6 +655,7 @@
                 case 'kickJar': fxKickJar(userInfo); break;
                 case 'throwJar': fxThrowJar(userInfo); break;
                 case 'spinJar': fxSpinJar(userInfo); break;
+                case 'zigzagLuck': fxZigzagLuck(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
                 case 'shape': fxShape(userInfo); break;
             }
@@ -738,8 +740,42 @@
             return im;
         }
 
+        function makeGiftBody(g, x, y, sz, velocity) {
+            const body = Bodies.circle(x, y, sz / 2, {
+                restitution: config.physics.bounce,
+                friction: config.physics.friction,
+                density: 0.002
+            });
+            body.gm = {
+                id: g.giftId,
+                name: g.giftName || g.name,
+                coins: g.coinValue || 1,
+                tier: tierOf(g.coinValue || 1),
+                sz,
+                img: loadImage(g),
+                tipperUid: g.userId || g.uniqueId
+            };
+            Body.setVelocity(body, velocity || { x: 0, y: 2 });
+            Composite.add(engine.world, body);
+            bodies.push(body);
+            return body;
+        }
+        function scaleGiftBody(body, targetSize) {
+            if (!body?.gm) return;
+            const cur = Math.max(1, body.gm.sz || targetSize);
+            const next = Math.max(12, targetSize || cur);
+            const factor = next / cur;
+            if (!Number.isFinite(factor) || Math.abs(factor - 1) < 0.02) return;
+            Body.scale(body, factor, factor);
+            body.gm.sz = next;
+        }
+
         function dropOne(g) {
             if (isJarFull()) return;
+            if (zigzagLuck.active) {
+                dropOneZigzag(g);
+                return;
+            }
             const sz = giftSize(g.coinValue);
             const r = jarRect();
             const nl = r.x + r.w * SHAPE.neckLeftX + 8;
@@ -756,24 +792,9 @@
             const innerR = nr - margin;
             const t = (Math.random() + Math.random()) / 2;   // triangular peak = 0.5
             const dx = innerL + t * (innerR - innerL);
-            const dy = r.y + r.h * SHAPE.neckTopY - sz - 200 - Math.random() * 80;
-            const body = Bodies.circle(dx, dy, sz / 2, {
-                restitution: config.physics.bounce,
-                friction: config.physics.friction,
-                density: 0.002
-            });
-            body.gm = {
-                id: g.giftId,
-                name: g.giftName || g.name,
-                coins: g.coinValue || 1,
-                tier: tierOf(g.coinValue || 1),
-                sz,
-                img: loadImage(g),
-                tipperUid: g.userId || g.uniqueId
-            };
-            Body.setVelocity(body, { x: (Math.random() - 0.5) * 3, y: Math.random() * 2 + 1 });
-            Composite.add(engine.world, body);
-            bodies.push(body);
+            const dropHeight = Math.max(80, Math.min(700, Number(config.gift?.dropHeight ?? 220)));
+            const dy = r.y + r.h * SHAPE.neckTopY - sz - dropHeight - Math.random() * 80;
+            makeGiftBody(g, dx, dy, sz, { x: (Math.random() - 0.5) * 3, y: Math.random() * 2 + 1 });
             if (config.features.audio) audio.plop();
             updateCountDisplay();
             onCountChange(bodies.length);
@@ -785,6 +806,91 @@
 
         // ===== SPILL: tháo jar walls + đẩy bodies bay ra ngoài → rơi xuống stack ở floor =====
         let spillInProgress = false;
+        const zigzagLuck = { active: false, pegs: [], walls: [], rect: null, until: 0, timer: null, cfg: null };
+        function cleanupZigzagLuck() {
+            if (zigzagLuck.timer) clearTimeout(zigzagLuck.timer);
+            zigzagLuck.timer = null;
+            if (zigzagLuck.pegs.length) Composite.remove(engine.world, zigzagLuck.pegs);
+            if (zigzagLuck.walls.length) Composite.remove(engine.world, zigzagLuck.walls);
+            zigzagLuck.pegs = [];
+            zigzagLuck.walls = [];
+            zigzagLuck.active = false;
+            zigzagLuck.rect = null;
+            zigzagLuck.cfg = null;
+            zigzagLuck.until = 0;
+        }
+        function buildZigzagGeometry(cfg) {
+            const jar = jarRect();
+            const cols = Math.max(4, Math.min(11, parseInt(cfg.cols ?? 9, 10)));
+            const rows = Math.max(5, Math.min(13, parseInt(cfg.rows ?? 6, 10)));
+            const width = CANVAS_W * Math.max(0.55, Math.min(0.98, Number(cfg.boardWidthPct ?? 92) / 100));
+            const left = (CANVAS_W - width) / 2;
+            const bottom = Math.max(CANVAS_H * 0.34, Math.min(jar.y - 120, CANVAS_H * 0.68));
+            const desiredHeight = Math.max(390, Math.min(720, rows * 64 + 150));
+            const top = Math.max(CANVAS_H * 0.08, bottom - desiredHeight);
+            const height = bottom - top;
+            const gapX = width / (cols + 0.8);
+            const gapY = height / (rows + 1);
+            const radius = Math.max(16, Math.min(28, Math.min(gapX, gapY) * 0.2));
+            const rect = { left, top, width, height, right: left + width, bottom, cols, rows, gapX, gapY, radius, dropHeight: Math.max(40, Math.min(700, Number(cfg.dropHeight ?? 180))) };
+            const pegs = [];
+            for (let row = 0; row < rows; row++) {
+                const count = row % 2 ? cols - 1 : cols;
+                const offset = row % 2 ? gapX * 0.5 : 0;
+                for (let col = 0; col < count; col++) {
+                    const x = left + gapX * 0.9 + offset + col * gapX;
+                    const y = top + gapY * 0.95 + row * gapY;
+                    pegs.push(Bodies.circle(x, y, radius, {
+                        isStatic: true,
+                        friction: 0.04,
+                        restitution: 1.05,
+                        label: 'zigzag-peg'
+                    }));
+                }
+            }
+            const T = 22;
+            const walls = [
+                Bodies.rectangle(left - T / 2, top + height / 2, T, height, { isStatic: true, friction: 0.02, restitution: 0.95, label: 'zigzag-wall' }),
+                Bodies.rectangle(left + width + T / 2, top + height / 2, T, height, { isStatic: true, friction: 0.02, restitution: 0.95, label: 'zigzag-wall' })
+            ];
+            return { rect, pegs, walls };
+        }
+        function fxZigzagLuck(opts = {}) {
+            const cfg = { ...(config.effects?.zigzagLuck || {}), ...(opts || {}) };
+            cleanupZigzagLuck();
+            const geo = buildZigzagGeometry(cfg);
+            zigzagLuck.active = true;
+            zigzagLuck.rect = geo.rect;
+            zigzagLuck.pegs = geo.pegs;
+            zigzagLuck.walls = geo.walls;
+            zigzagLuck.cfg = cfg;
+            zigzagLuck.until = Date.now() + Math.max(10, Math.min(180, Number(cfg.durationSec ?? 60))) * 1000;
+            Composite.add(engine.world, zigzagLuck.pegs.concat(zigzagLuck.walls));
+            zigzagLuck.timer = setTimeout(cleanupZigzagLuck, Math.max(10, Math.min(180, Number(cfg.durationSec ?? 60))) * 1000);
+            if (config.features.audio) audio.ting();
+            if (!mirrorMode) showComboToast('🎰 <b>Zikzak may mắn</b> đã mở! Quà tiếp theo sẽ rơi qua bàn may mắn.', 'linear-gradient(135deg, #16a34a, #22c55e)');
+        }
+        function dropOneZigzag(g) {
+            if (!zigzagLuck.rect) return;
+            const r = zigzagLuck.rect;
+            const cfg = zigzagLuck.cfg || {};
+            const safeSize = Math.max(24, Math.min(64, Number(cfg.iconSize ?? 42)));
+            const margin = r.gapX * 0.65;
+            const x = r.left + margin + Math.random() * Math.max(20, r.width - margin * 2);
+            const y = r.top - safeSize - r.dropHeight - Math.random() * 70;
+            const body = makeGiftBody(g, x, y, safeSize, { x: (Math.random() - 0.5) * 3.2, y: 2.8 + Math.random() * 1.8 });
+            body.gm.zigzag = true;
+            body.gm.zigzagTargetSize = giftSize(g.coinValue);
+            body.gm.zigzagSpawnTs = Date.now();
+            body.gm.zigzagLastRow = -1;
+            body.gm.zigzagDir = Math.random() < 0.5 ? -1 : 1;
+            body.gm.zigzagBumps = 0;
+            body.gm.zigzagExpanded = false;
+            body.frictionAir = 0.004;
+            if (config.features.audio) audio.plop();
+            updateCountDisplay();
+            onCountChange(bodies.length);
+        }
         function spillJar(durationMs = 1400) {
             if (spillInProgress || jarStolen) return;
             spillInProgress = true;
@@ -4593,6 +4699,82 @@
         function renderFx() {
             if (!fxCtx) { requestAnimationFrame(renderFx); return; }
             fxCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+            if (zigzagLuck.active && zigzagLuck.rect) {
+                const r = zigzagLuck.rect;
+                const leftSec = Math.max(0, Math.ceil((zigzagLuck.until - Date.now()) / 1000));
+                const now = performance.now();
+                const arrowBob = Math.sin(now / 260) * 12;
+                const arrowAlpha = 0.62 + 0.38 * Math.abs(Math.sin(now / 360));
+                fxCtx.save();
+                fxCtx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+                fxCtx.shadowBlur = 18;
+                fxCtx.fillStyle = 'rgba(10, 14, 22, 0.42)';
+                fxCtx.beginPath();
+                if (fxCtx.roundRect) fxCtx.roundRect(r.left, r.top, r.width, r.height, 18);
+                else fxCtx.rect(r.left, r.top, r.width, r.height);
+                fxCtx.fill();
+                fxCtx.shadowBlur = 0;
+                fxCtx.lineWidth = 5;
+                fxCtx.strokeStyle = 'rgba(255, 198, 104, 0.95)';
+                fxCtx.stroke();
+                fxCtx.lineWidth = 2;
+                fxCtx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+                fxCtx.stroke();
+                const grad = fxCtx.createLinearGradient(r.left, r.top - 50, r.left + 420, r.top - 50);
+                grad.addColorStop(0, '#ffe9b8');
+                grad.addColorStop(0.55, '#ffffff');
+                grad.addColorStop(1, '#ffb74a');
+                fxCtx.font = '900 26px Inter, Arial';
+                fxCtx.fillStyle = grad;
+                fxCtx.textAlign = 'left';
+                fxCtx.shadowColor = 'rgba(255, 138, 0, 0.5)';
+                fxCtx.shadowBlur = 10;
+                fxCtx.fillText(`🎰 ZIKZAK MAY MẮN · ${leftSec}s`, r.left + 18, r.top - 16);
+                fxCtx.shadowBlur = 0;
+                for (const peg of zigzagLuck.pegs) {
+                    const px = peg.position.x;
+                    const py = peg.position.y;
+                    const pegGrad = fxCtx.createRadialGradient(px - r.radius * 0.35, py - r.radius * 0.35, 2, px, py, r.radius * 1.25);
+                    pegGrad.addColorStop(0, '#f8d08a');
+                    pegGrad.addColorStop(0.45, '#b36a2d');
+                    pegGrad.addColorStop(1, '#5b2f16');
+                    fxCtx.fillStyle = pegGrad;
+                    fxCtx.beginPath();
+                    fxCtx.arc(px, py, r.radius * 1.1, 0, Math.PI * 2);
+                    fxCtx.fill();
+                    fxCtx.lineWidth = 4;
+                    fxCtx.strokeStyle = '#ff3d4f';
+                    fxCtx.stroke();
+                    fxCtx.beginPath();
+                    fxCtx.fillStyle = 'rgba(255,255,255,0.22)';
+                    fxCtx.arc(px - r.radius * 0.28, py - r.radius * 0.28, r.radius * 0.22, 0, Math.PI * 2);
+                    fxCtx.fill();
+                }
+                const arrows = 5;
+                for (let i = 0; i < arrows; i++) {
+                    const x = r.left + r.width * (0.14 + i * 0.18);
+                    const y = r.top - 78 + arrowBob + Math.sin(now / 180 + i) * 4;
+                    fxCtx.globalAlpha = arrowAlpha;
+                    fxCtx.strokeStyle = '#7df9ff';
+                    fxCtx.fillStyle = '#7df9ff';
+                    fxCtx.shadowColor = '#00e5ff';
+                    fxCtx.shadowBlur = 18;
+                    fxCtx.lineWidth = 6;
+                    fxCtx.beginPath();
+                    fxCtx.moveTo(x, y - 52);
+                    fxCtx.lineTo(x, y + 8);
+                    fxCtx.stroke();
+                    fxCtx.beginPath();
+                    fxCtx.moveTo(x - 22, y + 8);
+                    fxCtx.lineTo(x + 22, y + 8);
+                    fxCtx.lineTo(x, y + 48);
+                    fxCtx.closePath();
+                    fxCtx.fill();
+                    fxCtx.globalAlpha = 1;
+                    fxCtx.shadowBlur = 0;
+                }
+                fxCtx.restore();
+            }
             for (let i = fxAnimations.length - 1; i >= 0; i--) {
                 const fx = fxAnimations[i];
                 fx.age++;
@@ -4766,9 +4948,56 @@
         // Safety net: cap max velocity sau mỗi tick để bodies không bao giờ đạt tốc độ tunneling.
         // Đáy hũ FLOOR_T=80, max safe velocity = 80 / 2 = 40 px/tick → cap ở 35.
         const MAX_BODY_V = 35;
+        Events.on(engine, 'collisionStart', (event) => {
+            if (!zigzagLuck.active || !zigzagLuck.rect) return;
+            for (const pair of event.pairs || []) {
+                const a = pair.bodyA;
+                const b = pair.bodyB;
+                const gift = a?.gm?.zigzag ? a : (b?.gm?.zigzag ? b : null);
+                const peg = a === gift ? b : a;
+                if (!gift || peg?.label !== 'zigzag-peg') continue;
+                const side = gift.position.x < peg.position.x ? -1 : 1;
+                const flip = Math.random() < 0.42 ? -1 : 1;
+                const dir = side * flip;
+                gift.gm.zigzagDir = dir;
+                gift.gm.zigzagBumps = (gift.gm.zigzagBumps || 0) + 1;
+                const speedX = 3.2 + Math.random() * 3.4;
+                Body.setVelocity(gift, {
+                    x: dir * speedX,
+                    y: Math.max(2.2, gift.velocity.y * 0.72 + 1.4)
+                });
+                Body.setAngularVelocity(gift, dir * (0.12 + Math.random() * 0.18));
+            }
+        });
         Events.on(engine, 'afterUpdate', () => {
             for (const b of bodies) {
                 const v = b.velocity;
+                if (zigzagLuck.active && b.gm?.zigzag && zigzagLuck.rect) {
+                    const r = zigzagLuck.rect;
+                    const insideBoard = b.position.x > r.left && b.position.x < r.right && b.position.y > r.top && b.position.y < r.bottom;
+                    if (!b.gm.zigzagExpanded && b.position.y > r.bottom + Math.max(12, b.gm.sz * 0.35)) {
+                        b.gm.zigzagExpanded = true;
+                        scaleGiftBody(b, b.gm.zigzagTargetSize);
+                    }
+                    if (insideBoard) {
+                        const row = Math.max(0, Math.min(r.rows - 1, Math.floor((b.position.y - r.top) / Math.max(1, r.gapY))));
+                        if (row !== b.gm.zigzagLastRow) {
+                            b.gm.zigzagLastRow = row;
+                            const edgeDir = b.position.x < r.left + r.width * 0.2 ? 1 : (b.position.x > r.left + r.width * 0.8 ? -1 : 0);
+                            const nextDir = edgeDir || (Math.random() < 0.55 ? -(b.gm.zigzagDir || 1) : (b.gm.zigzagDir || 1));
+                            b.gm.zigzagDir = nextDir;
+                            Body.setVelocity(b, {
+                                x: nextDir * (2.5 + Math.random() * 3.5),
+                                y: Math.max(1.8, Math.min(7, v.y))
+                            });
+                        }
+                        const edgeDir = b.position.x < r.left + r.width * 0.12 ? 1 : (b.position.x > r.left + r.width * 0.88 ? -1 : 0);
+                        if (edgeDir) Body.setVelocity(b, { x: edgeDir * Math.max(2.4, Math.abs(v.x) * 0.7), y: Math.max(v.y, 1.8) });
+                        if (Math.hypot(v.x, v.y) < 0.45) {
+                            Body.setVelocity(b, { x: (b.gm.zigzagDir || 1) * (2.8 + Math.random() * 2.8), y: 3.1 });
+                        }
+                    }
+                }
                 if (Math.abs(v.x) > MAX_BODY_V || Math.abs(v.y) > MAX_BODY_V) {
                     Body.setVelocity(b, {
                         x: Math.max(-MAX_BODY_V, Math.min(MAX_BODY_V, v.x)),
@@ -4794,7 +5023,7 @@
             restoreGiftSnapshot,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
             fxRain, fxGeyser, fxMagnet, fxWind,
-            fxCrackJar, fxStealJar, fxCombo, fxShape,
+            fxCrackJar, fxStealJar, fxZigzagLuck, fxCombo, fxShape,
             togglePoliceMembership,
             // Trả về snapshot lực lượng CS (cho Police popup ngoài app)
             getPoliceForce: () => Array.from(policeForce.values()),
