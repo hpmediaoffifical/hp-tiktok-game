@@ -30,6 +30,7 @@
             jarVisible: true,
             jarLocked: true,                // khóa hũ — không bị kéo nhầm khi clean stream
             maxCapacity: 0,
+            history: { intervalSec: 10, retentionHours: 6 },
             // Feature bật mặc định: Âm thanh + Welcome + Crown + Top tặng + Tổng phiên + Goal Bar + CS
             features: {
                 audio: true,
@@ -87,7 +88,8 @@
                 gravflip: { durationMs: 2200 },
                 slow:     { timeScale: 0.25, durationMs: 3000 },
                 crackJar: { durationSec: 5, count: 6, shatterAt: 3 },
-                stealJar: { durationSec: 8 },
+                stealJar: { durationSec: 10, restoreDelaySec: 10 },
+                spinJar: { spinSpeed: 1.4, holdMs: 1800, flyHeight: 34, scatterForce: 1.2 },
                 combo:    { sequence: 'crackJar:0,crackJar:1.5,crackJar:3,stealJar:5' },
                 // Hiệu ứng tạo hình: hút quà bên dưới → ghép thành hình/chữ giữa màn hình →
                 // giữ X giây + hiện tên user → rơi tự do. Cho phép NHIỀU quà cùng kích hoạt
@@ -111,7 +113,9 @@
                 // Dốc ngược hũ: tilt jar gần 180° để đổ hết quà ra → UFO/OSIN cứu lại
                 pourOut: {
                     angleDeg: 165,          // góc nghiêng max (gần dốc ngược)
-                    holdMs: 1400            // giữ ở góc max bao lâu (để quà rơi hết)
+                    holdMs: 1400,           // giữ ở góc max bao lâu (để quà rơi hết)
+                    flyToCenter: true,
+                    flyMs: 900
                 },
                 // Mưa quà: spawn random gifts từ đỉnh canvas rơi xuống hũ
                 rain: {
@@ -457,6 +461,10 @@
         engine.gravity.y = config.physics.gravity;
 
         const bodies = [];
+        const giftHistory = [];
+        const HISTORY_MAX = 60;
+        let historyTimer = null;
+        let lastHistoryHash = '';
         let jarWalls = [];      // walls riêng của hũ — có thể tháo tạm khi spill/shatter
         let worldWalls = [];    // floor + 2 side walls — LUÔN giữ, để quà stack ở đáy overlay
         // Compat: nhiều chỗ cũ tham chiếu tới `walls` cho mọi walls — alias
@@ -645,6 +653,7 @@
                 case 'ufo': triggerUFO(userInfo); break;
                 case 'kickJar': fxKickJar(userInfo); break;
                 case 'throwJar': fxThrowJar(userInfo); break;
+                case 'spinJar': fxSpinJar(userInfo); break;
                 case 'combo': fxCombo(userInfo); break;
                 case 'shape': fxShape(userInfo); break;
             }
@@ -907,11 +916,139 @@
                 y: -(Math.random() * 8 + 3) * k
             }));
         }
-        function clearAll() {
+        function cloneBodiesForState() {
+            return bodies.filter(b => !b.gm?.previewOnly).map(b => ({
+                x: b.position.x,
+                y: b.position.y,
+                sz: b.gm?.sz || 40,
+                gm: b.gm ? {
+                    id: b.gm.id,
+                    name: b.gm.name,
+                    coins: b.gm.coins,
+                    tier: b.gm.tier,
+                    sz: b.gm.sz,
+                    imgSrc: b.gm.img?.src || '',
+                    tipperUid: b.gm.tipperUid
+                } : null
+            }));
+        }
+        function historyHashFromBodies(list) {
+            return JSON.stringify((list || []).map(b => [b.gm?.id, Math.round(b.x), Math.round(b.y), b.sz]));
+        }
+        function summarizeSnapshotBodies(list) {
+            const map = new Map();
+            for (const b of list || []) {
+                if (!b.gm) continue;
+                const key = String(b.gm.id || b.gm.name || 'gift');
+                const cur = map.get(key) || { id: b.gm.id, name: b.gm.name || 'Quà', imgSrc: b.gm.imgSrc || '', count: 0 };
+                cur.count++;
+                map.set(key, cur);
+            }
+            return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 12);
+        }
+        function historyRetentionMs() {
+            const hours = Math.max(1, Math.min(24, Number(config.history?.retentionHours ?? 6)));
+            return hours * 60 * 60 * 1000;
+        }
+        function historyIntervalMs() {
+            const sec = Math.max(5, Math.min(300, Number(config.history?.intervalSec ?? 10)));
+            return sec * 1000;
+        }
+        function pruneGiftHistory() {
+            const cutoff = Date.now() - historyRetentionMs();
+            for (let i = giftHistory.length - 1; i >= 0; i--) {
+                if (!giftHistory[i]?.ts || giftHistory[i].ts < cutoff) giftHistory.splice(i, 1);
+            }
+            giftHistory.splice(HISTORY_MAX);
+        }
+        function restartGiftHistoryTimer() {
+            if (historyTimer) clearInterval(historyTimer);
+            historyTimer = setInterval(() => {
+                pruneGiftHistory();
+                captureGiftHistory(`Tự lưu ${Math.round(historyIntervalMs() / 1000)}s`);
+            }, historyIntervalMs());
+        }
+        function captureGiftHistory(label = 'Tự lưu', force = false) {
+            pruneGiftHistory();
+            const snapshotBodies = cloneBodiesForState();
+            if (!snapshotBodies.length && !force) return null;
+            const hash = historyHashFromBodies(snapshotBodies);
+            if (!force && hash === lastHistoryHash) return null;
+            lastHistoryHash = hash;
+            const item = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                ts: Date.now(),
+                label,
+                count: snapshotBodies.length,
+                totalDiamonds: stats.totalDiamonds,
+                totalGifts: stats.totalGifts,
+                bodies: snapshotBodies,
+                summary: summarizeSnapshotBodies(snapshotBodies)
+            };
+            giftHistory.unshift(item);
+            pruneGiftHistory();
+            giftHistory.splice(HISTORY_MAX);
+            return item;
+        }
+        function makeBodyFromSaved(saved, x, y, velocity) {
+            if (!saved?.gm) return null;
+            const sz = Math.max(20, saved.sz || saved.gm.sz || 40);
+            let img = null;
+            if (saved.gm.imgSrc) {
+                if (imgCache.has(saved.gm.imgSrc)) img = imgCache.get(saved.gm.imgSrc);
+                else {
+                    img = new Image();
+                    img.src = saved.gm.imgSrc;
+                    imgCache.set(saved.gm.imgSrc, img);
+                }
+            }
+            const body = Bodies.circle(x ?? saved.x, y ?? saved.y, sz / 2, {
+                restitution: config.physics.bounce,
+                friction: config.physics.friction,
+                density: 0.002
+            });
+            body.gm = {
+                id: saved.gm.id,
+                name: saved.gm.name,
+                coins: saved.gm.coins || 1,
+                tier: saved.gm.tier,
+                sz,
+                img,
+                tipperUid: saved.gm.tipperUid
+            };
+            if (velocity) Body.setVelocity(body, velocity);
+            return body;
+        }
+        function clearBodiesOnly() {
             if (bodies.length) Composite.remove(engine.world, bodies);
             bodies.length = 0;
+        }
+        function clearAll() {
+            captureGiftHistory('Trước khi xoá hũ', true);
+            clearBodiesOnly();
             updateCountDisplay();
             onCountChange(0);
+        }
+        function restoreGiftSnapshot(id, animate = true) {
+            const snap = giftHistory.find(x => String(x.id) === String(id));
+            if (!snap || !Array.isArray(snap.bodies)) return false;
+            clearBodiesOnly();
+            stats.totalDiamonds = snap.totalDiamonds || stats.totalDiamonds;
+            stats.totalGifts = snap.totalGifts || stats.totalGifts;
+            const r = jarRect();
+            snap.bodies.forEach((saved, i) => {
+                const x = animate ? r.x + r.w * (0.18 + Math.random() * 0.64) : saved.x;
+                const y = animate ? Math.max(40, r.y - 260 - (i % 18) * 22) : saved.y;
+                const body = makeBodyFromSaved(saved, x, y, animate ? { x: (Math.random() - 0.5) * 3, y: 4 + Math.random() * 2 } : null);
+                if (!body) return;
+                Composite.add(engine.world, body);
+                bodies.push(body);
+            });
+            updateCountDisplay();
+            onCountChange(bodies.length);
+            updateCrown(); updateLeaderboard(); updateSessionTotals(); updateGoalBar(); updateTopHangers();
+            showComboToast(`♻️ Đã khôi phục <b>${snap.bodies.length}</b> quà từ lịch sử`, 'linear-gradient(135deg, #22c55e, #0ea5e9)');
+            return true;
         }
         function fxFireworks() {
             const k = (config.effects?.fireworks?.intensity ?? 1);
@@ -1045,21 +1182,56 @@
         // chĩa xuống → mọi quà rơi ra do gravity. UFO / OSIN sẽ cứu lại sau.
         async function fxPourOut() {
             if (tiltAnimating || jarStolen || spillInProgress) return;
+            captureGiftHistory('Trước Dốc ngược hũ', true);
             const cfg = config.effects?.pourOut || {};
             const angleDeg = Math.max(120, Math.min(180, cfg.angleDeg ?? 165));
             const holdMs = Math.max(500, Math.min(4000, cfg.holdMs ?? 1400));
+            const flyToCenter = cfg.flyToCenter !== false;
+            const flyMs = Math.max(300, Math.min(2200, cfg.flyMs ?? 900));
             const dir = Math.random() < 0.5 ? -1 : 1;
             const maxAngle = (angleDeg * Math.PI / 180) * dir;
 
             tiltAnimating = true;
             const r = jarRect();
+            const baseRect = { ...r };
             const pivot = { x: r.cx, y: r.cy };
-            const visualEls = [jarBottomEl, jarGlassEl].filter(Boolean);
+            const visualEls = [jarBottomEl, jarGlassEl, countDisplay].filter(Boolean);
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                return p.x >= r.x - 30 && p.x <= r.x + r.w + 30 && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= r.y + r.h + 80;
+            });
             const origTr = visualEls.map(el => el.style.transform || '');
+            const origStyle = visualEls.map(el => el.style.cssText || '');
             visualEls.forEach((el) => {
                 el.style.transition = 'none';
                 el.style.transformOrigin = '50% 50%';
             });
+            let jarOffsetX = 0;
+            let jarOffsetY = 0;
+            const moveJarToOffset = (ox, oy) => {
+                const dx = ox - jarOffsetX;
+                const dy = oy - jarOffsetY;
+                jarOffsetX = ox;
+                jarOffsetY = oy;
+                pivot.x = baseRect.cx + jarOffsetX;
+                pivot.y = baseRect.cy + jarOffsetY;
+                for (const w of jarWalls) {
+                    try { Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy }); } catch (e) {}
+                }
+                for (const b of insideBodies) {
+                    try {
+                        Body.setPosition(b, { x: b.position.x + dx, y: b.position.y + dy });
+                        Body.setVelocity(b, { x: 0, y: 0 });
+                    } catch (e) {}
+                }
+                const nx = baseRect.x + jarOffsetX;
+                const ny = baseRect.y + jarOffsetY;
+                if (jarBottomEl) { jarBottomEl.style.left = (nx / CANVAS_W * 100) + '%'; jarBottomEl.style.top = (ny / CANVAS_H * 100) + '%'; }
+                if (jarGlassEl) { jarGlassEl.style.left = (nx / CANVAS_W * 100) + '%'; jarGlassEl.style.top = (ny / CANVAS_H * 100) + '%'; }
+                if (countDisplay) { countDisplay.style.left = ((baseRect.cx + jarOffsetX) / CANVAS_W * 100) + '%'; countDisplay.style.top = ((baseRect.y + baseRect.h * 0.88 + jarOffsetY) / CANVAS_H * 100) + '%'; }
+                if (_accessoryEl) positionAccessory();
+                moveTopHangersWithJar(nx, ny, 0, baseRect);
+            };
             const applyTilt = (theta) => {
                 const delta = theta - currentTiltAngle;
                 if (delta === 0) return;
@@ -1069,11 +1241,22 @@
                 currentTiltAngle = theta;
                 const deg = (theta * 180 / Math.PI).toFixed(2);
                 visualEls.forEach(el => { el.style.transform = `rotate(${deg}deg)`; });
+                if (topHangersEl) topHangersEl.style.transform = `translate(${jarOffsetX}px, ${jarOffsetY}px) rotate(${deg}deg)`;
             };
 
             if (config.features.audio) audio.pourOut();
 
             try {
+                if (flyToCenter) {
+                    const targetCx = CANVAS_W * 0.5;
+                    const targetCy = CANVAS_H * 0.34;
+                    const targetOx = targetCx - baseRect.cx;
+                    const targetOy = targetCy - baseRect.cy;
+                    await tween(t => {
+                        const e = 1 - Math.pow(1 - t, 3);
+                        moveJarToOffset(targetOx * e, targetOy * e);
+                    }, flyMs);
+                }
                 // Phase 1: nghiêng nhanh tới góc max (1.2s)
                 await tween(t => {
                     const e = 1 - Math.pow(1 - t, 2.5);
@@ -1096,12 +1279,24 @@
                     const e = t * t;
                     applyTilt(maxAngle * (1 - e));
                 }, 1000);
+                if (flyToCenter) {
+                    const startOx = jarOffsetX;
+                    const startOy = jarOffsetY;
+                    await tween(t => {
+                        const e = t * t;
+                        moveJarToOffset(startOx * (1 - e), startOy * (1 - e));
+                    }, flyMs);
+                }
             } finally {
                 applyTilt(0);
                 visualEls.forEach((el, i) => {
                     el.style.transition = '';
+                    el.style.cssText = origStyle[i];
                     el.style.transform = origTr[i];
                 });
+                if (topHangersEl) { topHangersEl.style.transform = ''; updateTopHangers(); }
+                positionJar();
+                positionAccessory();
                 tiltAnimating = false;
             }
         }
@@ -1810,7 +2005,9 @@
         let stealCountdownEl = null;
         async function fxStealJar() {
             if (jarStolen || !overlayLayer) return;
-            const durSec = Math.max(3, config.effects?.stealJar?.durationSec ?? 8);
+            captureGiftHistory('Trước Trộm cả hũ', true);
+            const durSec = Math.max(3, config.effects?.stealJar?.durationSec ?? 10);
+            const restoreDelaySec = durSec;
             const durMs = durSec * 1000;
             jarStolen = true;
             const savedTimeScale = engine.timing.timeScale;
@@ -1863,7 +2060,7 @@
             if (config.features.audio) audio.fanfare();
 
             // Phase 3: hiển thị countdown ở giữa
-            const stayMs = Math.max(800, durMs - (700 + flyMs + flyMs + 500));
+            const stayMs = Math.max(800, restoreDelaySec * 1000);
             const stayStartSec = Math.ceil(stayMs / 1000);
             ensureStealCountdownEl();
             stealCountdownEl.style.left = (r.cx / CANVAS_W * 100) + '%';
@@ -2198,9 +2395,11 @@
                 return `<div class="caught-row">
                     ${thiefAv}
                     <div class="caught-main">
-                        <div class="caught-name" title="${escAttr(c.name || 'Trộm')}">${escHtml(c.name || 'Trộm')}</div>
+                        <div class="caught-top">
+                            <div class="caught-name" title="${escAttr(c.name || 'Trộm')}">${escHtml(c.name || 'Trộm')}</div>
+                            <span class="caught-cd">${left}s</span>
+                        </div>
                         ${metaLine}
-                        <span class="caught-cd">${left}s</span>
                     </div>
                 </div>`;
             }).join('');
@@ -3876,6 +4075,182 @@
             throwJarBusy = false;
         }
 
+        // ===== OSIN xoay hũ — hất hũ lên cao, xoay liên tục, dốc ngược để văng quà =====
+        let spinJarBusy = false;
+        async function fxSpinJar(opts = {}) {
+            if (spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || jarStolen) return;
+            if (!thiefLayer) return;
+            captureGiftHistory('Trước OSIN xoay hũ', true);
+
+            const cfg = config.effects?.spinJar || {};
+            const spinSpeed = Math.max(0.5, Math.min(4, cfg.spinSpeed ?? 1.4));
+            const holdMs = Math.max(500, Math.min(6000, cfg.holdMs ?? 1800));
+            const flyHeight = Math.max(15, Math.min(55, cfg.flyHeight ?? 34));
+            const scatterForce = Math.max(0.4, Math.min(3, cfg.scatterForce ?? 1.2));
+            const dir = opts.dir || (Math.random() < 0.5 ? -1 : 1);
+            opts.dir = dir;
+
+            spinJarBusy = true;
+            const r = jarRect();
+            const baseRect = { ...r };
+            const insideBodies = bodies.filter(b => {
+                const p = b.position;
+                return p.x >= r.x - 30 && p.x <= r.x + r.w + 30 && p.y >= r.y + r.h * SHAPE.neckTopY && p.y <= r.y + r.h + 80;
+            });
+            const localBodies = insideBodies.map(b => ({ body: b, x: b.position.x - r.cx, y: b.position.y - r.cy }));
+
+            const wrap = buildOsinNode({ name: opts.name ? '🌀 ' + opts.name : '🌀 OSIN xoay hũ' });
+            thiefLayer.appendChild(wrap);
+            const personW = 13, personH = 17;
+            const groundY = Math.max(CANVAS_H * 0.78, r.y + r.h * 0.92);
+            const startX = -CANVAS_W * 0.13;
+            const pushX = r.x - CANVAS_W * 0.035;
+            wrap.style.position = 'absolute';
+            wrap.style.width = personW + '%';
+            wrap.style.height = personH + '%';
+            wrap.style.left = (startX / CANVAS_W * 100) + '%';
+            wrap.style.top = (groundY / CANVAS_H * 100) + '%';
+            wrap.style.transform = 'translate(-50%, -100%)';
+            wrap.style.transition = 'left 1.05s linear, transform 0.25s ease';
+            wrap.classList.add('osin-walking');
+
+            const visualEls = [jarBottomEl, jarGlassEl, countDisplay].filter(Boolean);
+            const origStyle = visualEls.map(el => el.style.cssText || '');
+            const accStyle = _accessoryEl ? _accessoryEl.style.cssText : '';
+            const hangerStyle = topHangersEl ? topHangersEl.style.cssText : '';
+            const savedTimeScale = engine.timing.timeScale;
+            let lastCx = r.cx;
+            let lastCy = r.cy;
+            let currentAngle = 0;
+            let jarX = r.x;
+            let jarY = r.y;
+
+            const setJarPose = (cx, cy, angleRad) => {
+                const dx = cx - lastCx;
+                const dy = cy - lastCy;
+                const deltaAngle = angleRad - currentAngle;
+                const pivot = { x: cx, y: cy };
+                for (const w of jarWalls) {
+                    try {
+                        Body.setPosition(w, { x: w.position.x + dx, y: w.position.y + dy });
+                        Body.rotate(w, deltaAngle, pivot);
+                    } catch (e) {}
+                }
+                const cos = Math.cos(angleRad);
+                const sin = Math.sin(angleRad);
+                for (const item of localBodies) {
+                    try {
+                        const x = cx + item.x * cos - item.y * sin;
+                        const y = cy + item.x * sin + item.y * cos;
+                        Body.setPosition(item.body, { x, y });
+                        Body.setVelocity(item.body, { x: 0, y: 0 });
+                        Body.setAngularVelocity(item.body, dir * spinSpeed * 0.08);
+                    } catch (e) {}
+                }
+                jarX = cx - baseRect.w / 2;
+                jarY = cy - baseRect.h / 2;
+                const deg = angleRad * 180 / Math.PI;
+                if (jarBottomEl) { jarBottomEl.style.left = (jarX / CANVAS_W * 100) + '%'; jarBottomEl.style.top = (jarY / CANVAS_H * 100) + '%'; jarBottomEl.style.transform = `rotate(${deg}deg)`; }
+                if (jarGlassEl) { jarGlassEl.style.left = (jarX / CANVAS_W * 100) + '%'; jarGlassEl.style.top = (jarY / CANVAS_H * 100) + '%'; jarGlassEl.style.transform = `rotate(${deg}deg)`; }
+                if (countDisplay) { countDisplay.style.left = (cx / CANVAS_W * 100) + '%'; countDisplay.style.top = ((jarY + baseRect.h * 0.88) / CANVAS_H * 100) + '%'; countDisplay.style.transform = `rotate(${deg}deg)`; }
+                if (_accessoryEl) {
+                    const accW = baseRect.w * 0.8;
+                    const accH = accW * 0.5;
+                    _accessoryEl.style.left = ((cx - accW / 2) / CANVAS_W * 100) + '%';
+                    _accessoryEl.style.top = ((jarY + baseRect.h * SHAPE.neckTopY - accH * 0.8) / CANVAS_H * 100) + '%';
+                    _accessoryEl.style.transform = `rotate(${deg}deg)`;
+                }
+                moveTopHangersWithJar(jarX, jarY, deg, baseRect);
+                lastCx = cx;
+                lastCy = cy;
+                currentAngle = angleRad;
+            };
+
+            try {
+                await wait(80);
+                wrap.style.left = (pushX / CANVAS_W * 100) + '%';
+                await wait(1080);
+                wrap.classList.remove('osin-walking');
+                wrap.classList.add('osin-jumping', 'osin-spin');
+                wrap.style.transform = 'translate(-50%, -100%) rotate(-12deg)';
+                if (config.features.audio) audio.steal();
+                await wait(260);
+
+                visualEls.forEach(el => { el.style.transition = 'none'; el.style.transformOrigin = '50% 50%'; });
+                if (_accessoryEl) { _accessoryEl.style.transition = 'none'; _accessoryEl.style.transformOrigin = '50% 50%'; }
+                if (topHangersEl) topHangersEl.style.transition = 'none';
+                engine.timing.timeScale = 0;
+
+                const targetCx = CANVAS_W * 0.5;
+                const targetCy = CANVAS_H * (flyHeight / 100);
+                const flyMs = 900;
+                const flyRot = dir * Math.PI * 2.25 * spinSpeed;
+                await tween(t => {
+                    const e = 1 - Math.pow(1 - t, 3);
+                    const cx = r.cx + (targetCx - r.cx) * e;
+                    const cy = r.cy + (targetCy - r.cy) * e - Math.sin(t * Math.PI) * CANVAS_H * 0.05;
+                    setJarPose(cx, cy, flyRot * e);
+                }, flyMs);
+
+                const holdRotStart = currentAngle;
+                await tween(t => {
+                    setJarPose(targetCx, targetCy, holdRotStart + dir * Math.PI * 2 * spinSpeed * (holdMs / 1000) * t);
+                }, holdMs);
+
+                const pourStart = currentAngle;
+                const pourEnd = pourStart + dir * Math.PI;
+                await tween(t => {
+                    const e = 1 - Math.pow(1 - t, 2);
+                    setJarPose(targetCx, targetCy, pourStart + (pourEnd - pourStart) * e);
+                }, 520);
+
+                removeJarWalls();
+                engine.timing.timeScale = savedTimeScale;
+                const cos = Math.cos(currentAngle);
+                const sin = Math.sin(currentAngle);
+                for (const item of localBodies) {
+                    try {
+                        const px = item.body.position.x - targetCx;
+                        const py = item.body.position.y - targetCy;
+                        const tangentX = -py * dir;
+                        const tangentY = px * dir;
+                        const len = Math.max(1, Math.hypot(tangentX, tangentY));
+                        const mouthBoost = item.y < -baseRect.h * 0.18 ? 1.35 : 1;
+                        Body.setVelocity(item.body, {
+                            x: (tangentX / len) * (9 + Math.random() * 7) * scatterForce * mouthBoost + cos * 5 * scatterForce,
+                            y: (tangentY / len) * (7 + Math.random() * 5) * scatterForce + sin * 5 * scatterForce - 2
+                        });
+                        Body.setAngularVelocity(item.body, dir * (0.25 + Math.random() * 0.35) * scatterForce);
+                    } catch (e) {}
+                }
+                fxAnimations.push({ type: 'megaboom', x: targetCx, y: targetCy, age: 0, life: 34 });
+                await wait(1350);
+
+                const restoreCx0 = lastCx;
+                const restoreCy0 = lastCy;
+                const restoreAngle0 = currentAngle;
+                await tween(t => {
+                    const e = t * t;
+                    setJarPose(restoreCx0 + (baseRect.cx - restoreCx0) * e, restoreCy0 + (baseRect.cy - restoreCy0) * e, restoreAngle0 * (1 - e));
+                }, 850);
+            } finally {
+                engine.timing.timeScale = savedTimeScale;
+                currentTiltAngle = 0;
+                visualEls.forEach((el, i) => {
+                    el.style.transition = '';
+                    el.style.cssText = origStyle[i];
+                });
+                if (_accessoryEl) { _accessoryEl.style.transform = ''; _accessoryEl.style.cssText = accStyle; }
+                if (topHangersEl) { topHangersEl.style.transform = ''; topHangersEl.style.cssText = hangerStyle; }
+                buildJarWalls();
+                positionJar();
+                positionAccessory();
+                updateTopHangers();
+                setTimeout(() => { try { wrap.remove(); } catch (e) {} }, 350);
+                spinJarBusy = false;
+            }
+        }
+
         // Variant của shatterJar nhận vị trí explosion center custom
         // targetBodies (optional): chỉ scatter mảng bodies này (default: all bodies)
         function shatterJarAt(cx, cy, targetBodies) {
@@ -4287,6 +4662,7 @@
             renderBadges();
             if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
             if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
+            restartGiftHistoryTimer();
         }
         function getConfig() { return JSON.parse(JSON.stringify(config)); }
         function getStats() {
@@ -4311,6 +4687,7 @@
             updateCaughtList(); updatePoliceForcePanel();
         }
         function serializeState() {
+            const stateBodies = cloneBodiesForState();
             return {
                 totalDiamonds: stats.totalDiamonds,
                 totalGifts: stats.totalGifts,
@@ -4322,20 +4699,8 @@
                 goalReached: !!stats.goalReached,
                 // PERSIST bodies — quà đang trong hũ (giữ qua restart)
                 // gm có circular refs (img is HTMLImageElement) → chỉ save fields cần thiết
-                bodies: bodies.map(b => ({
-                    x: b.position.x,
-                    y: b.position.y,
-                    sz: b.gm?.sz || 40,
-                    gm: b.gm ? {
-                        id: b.gm.id,
-                        name: b.gm.name,
-                        coins: b.gm.coins,
-                        tier: b.gm.tier,
-                        sz: b.gm.sz,
-                        imgSrc: b.gm.img?.src || '',
-                        tipperUid: b.gm.tipperUid
-                    } : null
-                }))
+                bodies: stateBodies,
+                giftHistory: JSON.parse(JSON.stringify(giftHistory))
             };
         }
         function loadState(state) {
@@ -4354,44 +4719,23 @@
                 for (const [k, v] of state.policeForce) policeForce.set(String(k), v);
             }
             stats.goalReached = !!state.goalReached;
+            giftHistory.length = 0;
+            if (Array.isArray(state.giftHistory)) giftHistory.push(...state.giftHistory.slice(0, HISTORY_MAX));
+            pruneGiftHistory();
 
             // RESTORE bodies — recreate physics bodies từ saved positions (persist qua restart)
-            // Chỉ restore nếu state.bodies có và bodies hiện tại đang trống (tránh duplicate)
-            if (Array.isArray(state.bodies) && state.bodies.length && bodies.length === 0) {
+            // App/OBS replace theo snapshot authoritative để restore/clear đồng bộ chính xác.
+            if (Array.isArray(state.bodies)) {
+                clearBodiesOnly();
                 for (const b of state.bodies) {
-                    if (!b.gm) continue;
-                    const sz = Math.max(20, b.sz || b.gm.sz || 40);
-                    // Re-create image từ saved src
-                    let img = null;
-                    if (b.gm.imgSrc) {
-                        if (imgCache.has(b.gm.imgSrc)) {
-                            img = imgCache.get(b.gm.imgSrc);
-                        } else {
-                            img = new Image();
-                            img.src = b.gm.imgSrc;
-                            imgCache.set(b.gm.imgSrc, img);
-                        }
-                    }
-                    const body = Bodies.circle(b.x, b.y, sz / 2, {
-                        restitution: config.physics.bounce,
-                        friction: config.physics.friction,
-                        density: 0.002
-                    });
-                    body.gm = {
-                        id: b.gm.id,
-                        name: b.gm.name,
-                        coins: b.gm.coins || 1,
-                        tier: b.gm.tier,
-                        sz: sz,
-                        img: img,
-                        tipperUid: b.gm.tipperUid
-                    };
+                    const body = makeBodyFromSaved(b);
+                    if (!body) continue;
                     Composite.add(engine.world, body);
                     bodies.push(body);
                 }
                 updateCountDisplay();
                 onCountChange(bodies.length);
-                console.log(`[loadState] Restored ${state.bodies.length} bodies từ disk`);
+                console.log(`[loadState] Restored ${state.bodies.length} bodies từ state`);
             }
 
             updateCrown(); updateLeaderboard(); updateSessionTotals(); updateGoalBar();
@@ -4436,13 +4780,18 @@
 
         requestAnimationFrame(render);
         requestAnimationFrame(renderFx);
+        pruneGiftHistory();
+        restartGiftHistoryTimer();
 
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
             getJarRect, setJarPosition,
-            triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, setThiefAppearance, setPoliceAppearance,
+            triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, fxSpinJar, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,
             serializeState, loadState,
+            captureGiftHistory,
+            getGiftHistory: () => JSON.parse(JSON.stringify(giftHistory)),
+            restoreGiftSnapshot,
             fxFireworks, fxMegaboom, fxTilt, fxGravFlip, fxTornado, fxSlow, fxPourOut,
             fxRain, fxGeyser, fxMagnet, fxWind,
             fxCrackJar, fxStealJar, fxCombo, fxShape,

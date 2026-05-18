@@ -255,6 +255,7 @@ const appConfig = loadAppConfig();
 const DEFAULT_LIVE_TRANSLATE_CONFIG = {
     enabled: false,
     sourceLang: 'auto',
+    excludedSourceLang: '',
     targetLang: 'vi',
     ttsEnabled: true,
     ttsVoice: 'auto',
@@ -280,7 +281,9 @@ const DEFAULT_CREATOR_CAPTION_CONFIG = {
     showOriginal: true,
     maxItems: 3,
     holdSeconds: 12,
-    silenceSeconds: 2
+    silenceSeconds: 2,
+    autoTargetsEnabled: true,
+    autoTargetTimeoutSeconds: 60
 };
 const LIVE_TRANSLATE_LANG_LABELS = {
     auto: 'Tự nhận diện',
@@ -354,6 +357,7 @@ const liveTranslateStats = {
     skippedEmpty: 0,
     skippedBlocked: 0,
     skippedToxic: 0,
+    skippedExcludedLanguage: 0,
     emitted: 0,
     translateErrors: 0,
     lastChatAt: 0,
@@ -472,6 +476,8 @@ function sanitizeLiveTranslateConfig(input) {
     cfg.aiFilterEnabled = cfg.aiFilterEnabled !== false;
     cfg.readUsername = cfg.readUsername !== false;
     cfg.sourceLang = String(cfg.sourceLang || 'auto').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'auto';
+    cfg.excludedSourceLang = String(cfg.excludedSourceLang || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12);
+    if (cfg.excludedSourceLang === 'auto') cfg.excludedSourceLang = '';
     cfg.targetLang = String(cfg.targetLang || 'vi').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'vi';
     cfg.ttsVoice = ['auto', 'male', 'female', 'random', 'randomGender', 'variant1', 'variant2', 'variant3', 'variant4', 'variant5'].includes(cfg.ttsVoice) ? cfg.ttsVoice : 'auto';
     cfg.ttsPreset = Object.prototype.hasOwnProperty.call(LIVE_TRANSLATE_TTS_PRESETS, cfg.ttsPreset) ? cfg.ttsPreset : 'auto';
@@ -502,6 +508,8 @@ function sanitizeCreatorCaptionConfig(input) {
     if (!cfg.targetLangs.length) cfg.targetLangs = [cfg.targetLang || DEFAULT_CREATOR_CAPTION_CONFIG.targetLang];
     cfg.targetLang = cfg.targetLangs[0];
     cfg.showOriginal = cfg.showOriginal !== false;
+    cfg.autoTargetsEnabled = cfg.autoTargetsEnabled !== false;
+    cfg.autoTargetTimeoutSeconds = Math.max(5, Math.min(3600, parseInt(cfg.autoTargetTimeoutSeconds, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.autoTargetTimeoutSeconds));
     cfg.maxItems = Math.max(1, Math.min(6, parseInt(cfg.maxItems, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.maxItems));
     cfg.holdSeconds = Math.max(3, Math.min(30, parseInt(cfg.holdSeconds, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.holdSeconds));
     const silence = parseFloat(cfg.silenceSeconds);
@@ -512,6 +520,12 @@ function sanitizeCreatorCaptionConfig(input) {
 function sourceLangForTranslate(lang) {
     const short = String(lang || '').toLowerCase().split('-')[0];
     return short || 'auto';
+}
+
+function isLiveTranslateExcludedSource(detectedLang, cfg) {
+    const excluded = sourceLangForTranslate(cfg.excludedSourceLang);
+    if (!excluded || excluded === 'auto') return false;
+    return sourceLangForTranslate(detectedLang) === excluded;
 }
 
 async function processCreatorCaptionSpeech(payload) {
@@ -742,6 +756,11 @@ function processLiveTranslateChat(chat) {
     translateTextToTarget(normalizedComment, cfg.sourceLang, cfg.targetLang)
         .then(result => {
             const sourceLang = result.detectedLang || cfg.sourceLang || 'auto';
+            if (isLiveTranslateExcludedSource(sourceLang, cfg)) {
+                liveTranslateStats.skippedExcludedLanguage += 1;
+                liveTranslateStats.lastSkipReason = 'excluded_language';
+                return;
+            }
             liveTranslateStats.emitted += 1;
             liveTranslateStats.lastEmitAt = Date.now();
             liveTranslateStats.lastSkipReason = '';
@@ -1040,7 +1059,7 @@ function attachConnectionEvents(conn) {
         setLiveDashboardStatus(false, { username: currentUsername });
         console.log('[tiktok] Disconnected');
     });
-    conn.on(ControlEvent.STREAM_END, () => {
+    conn.on(WebcastEvent.STREAM_END, () => {
         liveConnected = false;
         broadcast('status', { connected: false, username: currentUsername, reason: 'streamEnd' });
         setLiveDashboardStatus(false, { username: currentUsername });
@@ -1077,6 +1096,7 @@ function attachConnectionEvents(conn) {
     conn.on(WebcastEvent.GIFT, (data) => {
         const giftType = data?.giftDetails?.giftType ?? data?.gift?.gift_type ?? data?.giftType;
         const isStreak = giftType === 1;
+        maybeTriggerPkItemFromGift(data);
         if (isStreak && !data?.repeatEnd) return;
         rememberUserMapping(data?.user?.userId, data?.user?.uniqueId);
         emitGift({
@@ -1232,11 +1252,11 @@ function attachConnectionEvents(conn) {
     // Phase mapping:
     //   start    ← LINK_MIC_BATTLE action=4
     //   mission  ← LINK_MIC_BATTLE_TASK type=0
-    //   x2 / x3  ← LINK_MIC_BATTLE_TASK with task config (multiplier in description)
+    //   x2 / x3  ← LINK_MIC_BATTLE_TASK settle/reward payload có multiplier
     //   warn10s  ← fallback timer hoặc khi server gửi countdown
     //   lead/behind ← periodic check ARMIES (mỗi 30s)
     //   win/lose ← FINISH + so sánh scores với hostTeamIndex
-    //   glove/mist/hammer/time ← chưa map (TikTok không expose enum riêng)
+    //   glove/mist/hammer/time ← GIFT item PK theo giftName/describe/label/monitorExtra
 
     // Server-side QUEUE — drain serial để effect không overlap
     let pkAutoQueue = [];
@@ -1274,6 +1294,11 @@ function attachConnectionEvents(conn) {
     let pkLastScoreSnap = null;
     let pkLastLeadState = '';
     let pkLastPeriodicScore = 0;
+    let pkMissionTriggered = false;
+    let pkBonusTriggered = new Set();
+    let pkItemGiftSeen = new Map();
+    let pkPendingRewardMultiple = 0;
+    let pkWarn10sScheduled = false;
     const PK_PERIODIC_LEAD_CHECK_MS = 30_000;
     // Track gifts gửi vào HOST trong khoảng PK active — để detect TOP 1 khi PK end
     let pkGiftDuringMatch = new Map();
@@ -1298,6 +1323,11 @@ function attachConnectionEvents(conn) {
         pkLastScoreSnap = null;
         pkLastLeadState = '';
         pkLastPeriodicScore = 0;
+        pkMissionTriggered = false;
+        pkBonusTriggered = new Set();
+        pkItemGiftSeen.clear();
+        pkPendingRewardMultiple = 0;
+        pkWarn10sScheduled = false;
         pkGiftDuringMatch.clear();
         clearPkTimers();
     }
@@ -1309,16 +1339,193 @@ function attachConnectionEvents(conn) {
         pkTimers = [];
     }
 
+    function prunePkItemSeen(now = Date.now()) {
+        for (const [k, ts] of pkItemGiftSeen) {
+            if (now - ts > 60_000) pkItemGiftSeen.delete(k);
+        }
+    }
+
+    function collectTextFields(value, out = []) {
+        if (value == null) return out;
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            out.push(String(value));
+            return out;
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) collectTextFields(item, out);
+            return out;
+        }
+        if (typeof value === 'object') {
+            for (const item of Object.values(value)) collectTextFields(item, out);
+        }
+        return out;
+    }
+
+    function detectPkItemFromGift(data) {
+        const matchInfo = data?.matchInfo || {};
+        if (matchInfo.effectCardInUse || String(matchInfo.critical || '') === '1' || Number(matchInfo.multiplierValue || 0) >= 5) {
+            return 'glove';
+        }
+        return detectPkItemFromAny(data);
+    }
+
+    function detectPkItemFromAny(data) {
+        const text = collectTextFields({
+            giftId: data?.giftId ?? data?.gift?.gift_id ?? data?.giftDetails?.giftId,
+            giftName: data?.giftDetails?.giftName || data?.gift?.name || data?.giftName,
+            describe: data?.describe,
+            label: data?.label,
+            displayType: data?.displayType,
+            monitorExtra: data?.monitorExtra,
+            extendedGiftInfo: data?.extendedGiftInfo,
+            prompts: data?.prompts,
+            tips: data?.tips,
+            subType: data?.subType,
+            messageType: data?.messageType,
+            data
+        }).join(' ').toLowerCase();
+        if (!text) return '';
+        if (/critical\s*strike|boost(?:ing)?\s*glove|boxing\s*glove|\bglove\b|g[aă]ng\s*tay/.test(text)) return 'glove';
+        if (/magic\s*mist|\bmist\b|\bfog\b|s[uư]ơng\s*m[uù]/.test(text)) return 'mist';
+        if (/stun\s*hammer|\bhammer\b|b[uú]a\s*(cho[aá]ng|ho[aá]ng)/.test(text)) return 'hammer';
+        if (/time[-\s]*maker|add\s*time|extra\s*time|th[eê]m\s*gi[oờ]|\btime\b/.test(text)) return 'time';
+        return '';
+    }
+
+    function maybeTriggerPkItemFromGift(data) {
+        const key = detectPkItemFromGift(data);
+        if (!key) return;
+        const now = Date.now();
+        prunePkItemSeen(now);
+        const giftId = String(data?.giftId ?? data?.gift?.gift_id ?? data?.giftDetails?.giftId ?? '');
+        const uniqueId = data?.user?.uniqueId || data?.uniqueId || '';
+        const msgId = data?.msgId || data?.messageId || data?.common?.msgId || '';
+        const groupId = data?.groupId || data?.gift?.group_id || data?.monitorExtra?.log_id || '';
+        const dedupeKey = [key, giftId, uniqueId, groupId || msgId || Date.now()].join(':');
+        if (pkItemGiftSeen.has(dedupeKey)) return;
+        pkItemGiftSeen.set(dedupeKey, now);
+        pkAutoEnqueue(key, `gift_item (${key}, giftId=${giftId || 'unknown'}, user=@${uniqueId || 'unknown'})`);
+    }
+
+    function maybeTriggerPkItemFromLinkEvent(data, source) {
+        const key = detectPkItemFromAny(data);
+        if (!key) return;
+        const now = Date.now();
+        prunePkItemSeen(now);
+        const battleId = data?.battleId || data?.channelId || data?.common?.roomId || '';
+        const dedupeKey = [source, key, battleId, data?.messageType || '', data?.subType || ''].join(':');
+        if (pkItemGiftSeen.has(dedupeKey) && now - pkItemGiftSeen.get(dedupeKey) < 10_000) return;
+        pkItemGiftSeen.set(dedupeKey, now);
+        pkAutoEnqueue(key, `${source}_item (${key})`);
+    }
+
+    function detectPkBonusMultiplier(data) {
+        const text = collectTextFields(data).join(' ').toLowerCase();
+        if (/x\s*3|3\s*x|nh[aâ]n\s*3|multiplier[^0-9]{0,12}3|score[^0-9]{0,12}3|speed[^0-9]{0,12}3/.test(text)) return 3;
+        if (/x\s*2|2\s*x|nh[aâ]n\s*2|multiplier[^0-9]{0,12}2|score[^0-9]{0,12}2|speed[^0-9]{0,12}2/.test(text)) return 2;
+        return 0;
+    }
+
+    function maybeTriggerPkBonus(data, reason) {
+        const multiplier = detectPkBonusMultiplier(data);
+        if (multiplier !== 2 && multiplier !== 3) return;
+        triggerPkBonus(multiplier, reason);
+    }
+
+    function triggerPkBonus(multiplier, reason) {
+        const key = multiplier === 3 ? 'x3' : 'x2';
+        if (pkBonusTriggered.has(key)) return;
+        pkBonusTriggered.add(key);
+        pkAutoEnqueue(key, `${reason}_x${multiplier}`);
+    }
+
+    function readRewardMultiple(data) {
+        const direct = Number(
+            data?.taskStart?.battleBonusConfig?.rewardPeriodConfig?.rewardMultiple ||
+            data?.battleBonusConfig?.rewardPeriodConfig?.rewardMultiple ||
+            data?.rewardPeriodConfig?.rewardMultiple ||
+            0
+        );
+        if (direct === 2 || direct === 3) return direct;
+        return detectPkBonusMultiplier(data);
+    }
+
+    function isTaskSettleSucceeded(data) {
+        const result = data?.taskSettle?.taskResult;
+        const rewardStatus = data?.rewardSettle?.status;
+        if (result === 0 || result === 2) return true;
+        if (rewardStatus === 0) return true;
+        return false;
+    }
+
+    function getBattleDurationSec(data) {
+        return Number(
+            data?.battleSetting?.duration ||
+            data?.battleSettings?.duration ||
+            data?.battleConfig?.battleSetting?.duration ||
+            data?.battleConfig?.duration ||
+            data?.duration ||
+            0
+        );
+    }
+
+    function getBattleEndDelayMs(data) {
+        const endTime = Number(
+            data?.battleSetting?.endTimeMs ||
+            data?.battleSettings?.endTimeMs ||
+            data?.battleConfig?.battleSetting?.endTimeMs ||
+            0
+        );
+        if (endTime > 0) return endTime - Date.now();
+        const startTime = Number(
+            data?.battleSetting?.startTimeMs ||
+            data?.battleSettings?.startTimeMs ||
+            data?.battleConfig?.battleSetting?.startTimeMs ||
+            0
+        );
+        const durationSec = getBattleDurationSec(data);
+        if (startTime > 0 && durationSec > 0) return (startTime + durationSec * 1000) - Date.now();
+        if (durationSec > 20 && pkStartTs > 0) return (pkStartTs + durationSec * 1000) - Date.now();
+        return 0;
+    }
+
+    function scheduleWarn10s(data, reason) {
+        if (!pkActive || pkWarn10sScheduled) return;
+        const endDelayMs = getBattleEndDelayMs(data);
+        const durationSec = getBattleDurationSec(data);
+        let warnDelay = endDelayMs > 0 ? endDelayMs - 10_000 : 0;
+        if (warnDelay <= 0 && durationSec > 20) warnDelay = (durationSec - 10) * 1000;
+        if (warnDelay > 0) {
+            pkWarn10sScheduled = true;
+            console.log(`[pktiktok] PK warn10s scheduled in ${(warnDelay / 1000).toFixed(1)}s (reason=${reason}, duration=${durationSec || 'n/a'})`);
+            pkTimers.push(setTimeout(() => {
+                if (pkActive) pkAutoEnqueue('warn10s', `warn10s_${reason}`);
+            }, warnDelay));
+        }
+    }
+
     // Helper: extract teams + scores từ raw armies/battle data — log tất cả để debug
     function parseTeamsArmies(data) {
         const teams = [];
-        const raw = data?.battleItems || data?.teams || data?.armies || [];
-        if (Array.isArray(raw)) {
-            for (let i = 0; i < raw.length; i++) {
-                const t = raw[i];
-                const score = Number(t?.totalScore ?? t?.score ?? t?.totalUserCount ?? 0);
-                const anchorIds = (t?.hostsList || t?.hosts || t?.userList || []).map(u => String(u?.userId || u?.uniqueId || u || ''));
+        const raw = data?.teamArmies || data?.battleArmies || data?.battleItems || data?.teams || data?.armies || [];
+        const list = Array.isArray(raw) ? raw : Object.values(raw || {});
+        if (Array.isArray(list)) {
+            for (let i = 0; i < list.length; i++) {
+                const t = list[i];
+                const score = Number(t?.teamTotalScore ?? t?.userArmies?.hostScore ?? t?.hostScore ?? t?.points ?? t?.totalScore ?? t?.score ?? t?.totalDiamondCount ?? t?.totalUserCount ?? 0);
+                const linkedUsers = [t?.hostsList, t?.hosts, t?.userList]
+                    .flatMap(v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []));
+                const anchorIds = [
+                    t?.hostUserId, t?.anchorIdStr, t?.userArmies?.anchorIdStr, t?.hostUser?.userId, t?.hostUser?.id,
+                    ...(t?.teamUsers || []), ...linkedUsers
+                ].map(u => String(u?.userId || u?.id || u?.uniqueId || u || '')).filter(Boolean);
                 teams.push({ index: i, score, anchorIds, raw: t });
+            }
+        }
+        if (teams.length === 0 && Array.isArray(data?.battleUsers)) {
+            for (let i = 0; i < data.battleUsers.length; i++) {
+                const u = data.battleUsers[i];
+                teams.push({ index: i, score: 0, anchorIds: [String(u?.userId || u?.id || u?.uniqueId || '')].filter(Boolean), raw: u });
             }
         }
         return teams;
@@ -1329,7 +1536,7 @@ function attachConnectionEvents(conn) {
         const battleStatus = data?.battleStatus;
         const currentRound = data?.currentRound;
         console.log(`[pktiktok] LINK_MIC_BATTLE action=${action} status=${battleStatus} round=${currentRound} keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
-        if (action === 4 /* OPEN */) {
+        if (action === 4 /* OPEN */ || (action == null && !pkActive && (Array.isArray(data?.battleUsers) || data?.anchorInfo || data?.battleId))) {
             resetPkState();
             pkActive = true;
             pkStartTs = Date.now();
@@ -1344,24 +1551,15 @@ function attachConnectionEvents(conn) {
                         if (t.anchorIds.includes(ownerId)) { pkHostTeamIndex = t.index; break; }
                     }
                 }
+                if (pkHostTeamIndex < 0 && teams.length > 0 && Array.isArray(data?.battleUsers)) {
+                    const hostIdx = data.battleUsers.findIndex(u => String(u?.userId || u?.id || '') === ownerId);
+                    if (hostIdx >= 0) pkHostTeamIndex = hostIdx;
+                }
                 if (pkHostTeamIndex < 0 && teams.length > 0) pkHostTeamIndex = 0;
                 console.log(`[pktiktok] PK OPEN: hostTeamIndex=${pkHostTeamIndex}, teams=${teams.length}, ownerId=${ownerId}`);
             } catch (e) {}
-            // warn10s — TỪ duration của trận PK nếu battleConfig có. Bỏ rigid 110s timer cũ.
-            const durationSec = Number(
-                data?.battleConfig?.battleSetting?.duration ||
-                data?.battleConfig?.duration ||
-                data?.duration || 0
-            );
-            if (durationSec > 20) {
-                const warnDelay = (durationSec - 10) * 1000;
-                console.log(`[pktiktok] PK duration=${durationSec}s → warn10s scheduled at +${warnDelay/1000}s`);
-                pkTimers.push(setTimeout(() => {
-                    if (pkActive) pkAutoEnqueue('warn10s', `duration_based (${durationSec}s match)`);
-                }, warnDelay));
-            } else {
-                console.log(`[pktiktok] PK duration không phát hiện được — skip warn10s auto (user trigger thủ công khi cần)`);
-            }
+            scheduleWarn10s(data, 'battle_open');
+            if (!pkWarn10sScheduled) console.log(`[pktiktok] PK duration/endTime chưa có trong LINK_MIC_BATTLE — sẽ thử lại ở ARMIES`);
             // Periodic lead/behind check (mỗi 30s)
             const periodicCheck = setInterval(() => {
                 if (!pkActive) { clearInterval(periodicCheck); return; }
@@ -1413,17 +1611,27 @@ function attachConnectionEvents(conn) {
     });
     conn.on(WebcastEvent.LINK_MIC_BATTLE_TASK, (data) => {
         const type = data?.battleTaskMessageType;
-        // Try parse multiplier text từ task description
         const descText = data?.taskDescription || data?.description || data?.text || '';
-        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type} desc="${String(descText).slice(0, 100)}" keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
+        const rewardMultiple = readRewardMultiple(data);
+        console.log(`[pktiktok] LINK_MIC_BATTLE_TASK type=${type} rewardMultiple=${rewardMultiple || '-'} pending=${pkPendingRewardMultiple || '-'} success=${isTaskSettleSucceeded(data)} keys=${Object.keys(data || {}).join(',').slice(0,200)}`);
         if (type === 0 /* START */) {
-            pkAutoEnqueue('mission', 'task_start');
-            // Heuristic: nếu desc text có x2/x3, queue thêm
-            const txt = String(descText).toLowerCase();
-            if (/x\s*2|nhân\s*2|speed\s*x?2/.test(txt)) pkAutoEnqueue('x2', 'task_desc_x2');
-            else if (/x\s*3|nhân\s*3|speed\s*x?3/.test(txt)) pkAutoEnqueue('x3', 'task_desc_x3');
+            if (!pkMissionTriggered) {
+                pkMissionTriggered = true;
+                pkAutoEnqueue('mission', 'task_start');
+            }
+            if (rewardMultiple === 2 || rewardMultiple === 3) {
+                pkPendingRewardMultiple = rewardMultiple;
+                console.log(`[pktiktok] PK task rewardMultiple cached: x${pkPendingRewardMultiple}`);
+            }
         } else if (type === 2 /* SETTLE */ || type === 3 /* REWARD_SETTLE */) {
-            // Task settled — heuristic guess: nếu reward = multiplier x2/x3 (chưa decode được)
+            const settledMultiple = rewardMultiple || pkPendingRewardMultiple;
+            if ((settledMultiple === 2 || settledMultiple === 3) && isTaskSettleSucceeded(data)) {
+                triggerPkBonus(settledMultiple, type === 2 ? 'task_settle_success' : 'task_reward_settle_success');
+            } else if (settledMultiple === 2 || settledMultiple === 3) {
+                console.log(`[pktiktok] PK task settle không success → không phát x${settledMultiple}`);
+            }
+        } else {
+            if (rewardMultiple === 2 || rewardMultiple === 3) pkPendingRewardMultiple = rewardMultiple;
         }
     });
     conn.on(WebcastEvent.LINK_MIC_BATTLE_PUNISH_FINISH, (data) => {
@@ -1438,7 +1646,23 @@ function attachConnectionEvents(conn) {
                 pkLastScoreSnap = teams.map(t => t.score);
                 console.log(`[pktiktok] LINK_MIC_ARMIES scores=[${pkLastScoreSnap.join(', ')}] hostIdx=${pkHostTeamIndex}`);
             }
+            scheduleWarn10s(data, 'armies');
+            if (data?.triggerCriticalStrike) {
+                pkAutoEnqueue('glove', `armies_critical_strike (giftId=${data?.giftId || 'unknown'})`);
+            }
         } catch (e) { console.error('[pktiktok] armies parse error:', e); }
+    });
+    conn.on(WebcastEvent.LINK_MIC_METHOD, (data) => {
+        try {
+            maybeTriggerPkItemFromLinkEvent(data, 'linkmic_method');
+            if (!pkWarn10sScheduled) scheduleWarn10s(data, 'linkmic_method');
+            console.log(`[pktiktok] LINK_MIC_METHOD messageType=${data?.messageType} subType=${data?.subType || ''} duration=${data?.duration || ''}`);
+        } catch (e) { console.error('[pktiktok] linkMicMethod parse error:', e); }
+    });
+    conn.on(WebcastEvent.LINK_MESSAGE, (data) => {
+        try {
+            maybeTriggerPkItemFromLinkEvent(data, 'link_message');
+        } catch (e) { console.error('[pktiktok] linkMessage parse error:', e); }
     });
 }
 
@@ -1762,7 +1986,15 @@ async function connectToUser(username) {
         const hostLevel = Number(state?.roomInfo?.owner?.userHonor?.level) || 0;
         const hostPic = state?.roomInfo?.owner?.profilePicture?.url || '';
         const hostVerified = !!state?.roomInfo?.owner?.verified;
-        currentHostUserId = String(state?.roomInfo?.owner?.userId || '');
+        currentHostUserId = String(
+            state?.roomInfo?.owner?.userId ||
+            state?.roomInfo?.owner?.idStr ||
+            state?.roomInfo?.owner?.id_str ||
+            state?.roomInfo?.owner?.id ||
+            state?.roomInfo?.owner_user_id_str ||
+            state?.roomInfo?.owner_user_id ||
+            ''
+        );
         // Lấy followerCount của HOST từ roomInfo
         const followerCount = Number(state?.roomInfo?.owner?.followInfo?.followerCount) || 0;
         if (followerCount > 0) {
@@ -2113,14 +2345,19 @@ function loadGameStateCache() {
     }
 }
 let _gameStateSaveTimer = null;
+function saveGameStateNow() {
+    try {
+        fs.writeFileSync(GAME_STATE_FILE, JSON.stringify(gameStateCache), 'utf8');
+        return true;
+    } catch (e) {
+        console.warn('[game-state] Save fail:', e.message);
+        return false;
+    }
+}
 function scheduleSaveGameState() {
     clearTimeout(_gameStateSaveTimer);
     _gameStateSaveTimer = setTimeout(() => {
-        try {
-            fs.writeFileSync(GAME_STATE_FILE, JSON.stringify(gameStateCache), 'utf8');
-        } catch (e) {
-            console.warn('[game-state] Save fail:', e.message);
-        }
+        saveGameStateNow();
     }, 1500);
 }
 loadGameStateCache();
@@ -2129,7 +2366,8 @@ app.post('/api/games/:id/state', (req, res) => {
     const g = GAMES[req.params.id];
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     gameStateCache[g.id] = req.body || {};
-    scheduleSaveGameState();   // persist to disk debounced
+    if (req.query.flush === '1' || req.body?._flush === true) saveGameStateNow();
+    else scheduleSaveGameState();   // persist to disk debounced
     // Live broadcast tới room 'overlay' (KHÔNG echo về 'preview' để tránh ghi đè edits đang gõ)
     io.to('overlay').emit('gameStateSnapshot', { gameId: g.id, state: gameStateCache[g.id] });
     res.json({ ok: true });

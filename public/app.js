@@ -20,10 +20,11 @@
         { key: 'ufo',        ico: '🛸', label: 'UFO hút 5-10 quà' },
         { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
+        { key: 'spinJar',    ico: '🌀', label: 'OSIN xoay hũ' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
-        { key: 'pourOut',    ico: '🔄', label: 'Dốc ngược hũ (đổ hết)' },
-        { key: 'gravflip',   ico: '🔄', label: 'Đảo trọng lực' },
+        { key: 'pourOut',    ico: '🫗', label: 'Dốc ngược hũ (đổ hết)' },
+        { key: 'gravflip',   ico: '🔃', label: 'Đảo trọng lực' },
         { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
         { key: 'rain',       ico: '☔', label: 'Mưa quà' },
         { key: 'magnet',     ico: '🧲', label: 'Nam châm' },
@@ -552,7 +553,8 @@
             (state.caughtList || []).length,
             (state.policeForce || []).length,
             (state.tippers || []).length,
-            (state.bodies || []).length   // include bodies count → state push khi quà thêm/bớt
+            (state.bodies || []).length,   // include bodies count → state push khi quà thêm/bớt
+            (state.giftHistory || [])[0]?.id || ''
         ]);
         if (hash === lastStateHash) return;
         lastStateHash = hash;
@@ -565,6 +567,29 @@
     function forceSyncState() {
         lastStateHash = '';
         pushStateNow();
+    }
+    async function flushStateBeforeUpdate() {
+        if (!gameInstance || currentGame?.id !== 'thuytinh') return true;
+        try {
+            gameInstance.captureGiftHistory?.('Trước cập nhật', true);
+            const state = gameInstance.serializeState();
+            const res = await fetch(`/api/games/${currentGame.id}/state?flush=1`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(state)
+            });
+            lastStateHash = JSON.stringify([
+                state.totalDiamonds, state.totalGifts,
+                (state.caughtList || []).length,
+                (state.policeForce || []).length,
+                (state.tippers || []).length,
+                (state.bodies || []).length,
+                (state.giftHistory || [])[0]?.id || ''
+            ]);
+            return res.ok;
+        } catch (e) {
+            console.warn('flushStateBeforeUpdate failed:', e);
+            return false;
+        }
     }
     function startStateSync() {
         stopStateSync();
@@ -727,6 +752,11 @@
         if (dom.cfgShowCount) dom.cfgShowCount.checked = !!cfg.gift.showCount;
         if (dom.cfgJarVisible) dom.cfgJarVisible.checked = !!cfg.jarVisible;
         if (dom.cfgJarLocked) dom.cfgJarLocked.checked = !!cfg.jarLocked;
+        const hist = cfg.history || {};
+        const histInterval = document.getElementById('jar-history-interval');
+        const histRetention = document.getElementById('jar-history-retention');
+        if (histInterval) histInterval.value = String(hist.intervalSec ?? 10);
+        if (histRetention) histRetention.value = String(hist.retentionHours ?? 6);
         const f = cfg.features || {};
         for (const key of FEATURE_KEYS) {
             const el = document.getElementById(FEATURE_INPUT[key]);
@@ -793,6 +823,10 @@
             },
             jarVisible: dom.cfgJarVisible.checked,
             jarLocked: !!(dom.cfgJarLocked && dom.cfgJarLocked.checked),
+            history: {
+                intervalSec: Math.max(5, Math.min(300, parseInt(document.getElementById('jar-history-interval')?.value, 10) || 10)),
+                retentionHours: Math.max(1, Math.min(24, parseInt(document.getElementById('jar-history-retention')?.value, 10) || 6))
+            },
             features,
             goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
@@ -1312,7 +1346,14 @@
                 ];
             case 'stealJar':
                 return [
-                    { key: 'durationSec', label: 'Thời gian', min: 3, max: 60, step: 1, default: 8, suffix: 's' }
+                    { key: 'durationSec', label: 'Thời gian', min: 3, max: 60, step: 1, default: 10, suffix: 's' }
+                ];
+            case 'spinJar':
+                return [
+                    { key: 'spinSpeed', label: 'Tốc độ xoay', min: 0.5, max: 4, step: 0.1, default: 1.4 },
+                    { key: 'holdMs', label: 'Giữ trên cao', min: 500, max: 6000, step: 100, default: 1800, suffix: 'ms' },
+                    { key: 'flyHeight', label: 'Độ cao bay', min: 15, max: 55, step: 1, default: 34, suffix: '%' },
+                    { key: 'scatterForce', label: 'Lực văng quà', min: 0.4, max: 3, step: 0.1, default: 1.2 }
                 ];
             case 'combo':
                 return [
@@ -2117,6 +2158,72 @@
         sendCmd('osin', osin);
     });
 
+    const jarHistoryModal = document.getElementById('jar-history-modal');
+    const jarHistoryList = document.getElementById('jar-history-list');
+    function formatHistoryTime(ts) {
+        const d = new Date(ts || Date.now());
+        return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    function renderJarHistory() {
+        if (!jarHistoryList) return;
+        const list = gameInstance?.getGiftHistory?.() || [];
+        if (!list.length) {
+            jarHistoryList.innerHTML = '<div class="jar-history-empty">Chưa có mốc lịch sử. Bấm “Lưu mốc ngay” hoặc chờ app tự lưu khi hũ có quà.</div>';
+            return;
+        }
+        jarHistoryList.innerHTML = list.map(s => {
+            const chips = (s.summary || []).slice(0, 5).map(g => `<span class="jar-history-chip" title="${escAttrInline(g.name || 'Quà')}">${escHtml(g.name || 'Quà')} ×${g.count}</span>`).join('');
+            return `<div class="jar-history-row" data-id="${escAttrInline(s.id)}">
+                <div class="jar-history-main">
+                    <div class="jar-history-title">${escHtml(s.label || 'Mốc lưu')} · ${formatHistoryTime(s.ts)}</div>
+                    <div class="jar-history-meta">${s.count || 0} quà · ${s.totalDiamonds || 0} KC · ${s.totalGifts || 0} lượt quà</div>
+                    <div class="jar-history-summary">${chips || '<span class="jar-history-chip">Không có quà</span>'}</div>
+                </div>
+                <div class="jar-history-actions">
+                    <button class="ghost mini" data-action="restore">♻️ Khôi phục</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+    function openJarHistoryModal() {
+        if (!jarHistoryModal) return;
+        renderJarHistory();
+        jarHistoryModal.hidden = false;
+    }
+    function closeJarHistoryModal() { if (jarHistoryModal) jarHistoryModal.hidden = true; }
+    document.getElementById('btn-jar-history')?.addEventListener('click', openJarHistoryModal);
+    document.getElementById('jar-history-close')?.addEventListener('click', closeJarHistoryModal);
+    document.getElementById('jar-history-cancel')?.addEventListener('click', closeJarHistoryModal);
+    document.getElementById('jar-history-save-now')?.addEventListener('click', () => {
+        if (!gameInstance?.captureGiftHistory) return;
+        gameInstance.captureGiftHistory('Lưu thủ công', true);
+        forceSyncState();
+        renderJarHistory();
+    });
+    document.getElementById('jar-history-interval')?.addEventListener('change', () => pushConfigUpdate(true));
+    document.getElementById('jar-history-retention')?.addEventListener('change', () => {
+        pushConfigUpdate(true);
+        forceSyncState();
+        renderJarHistory();
+    });
+    jarHistoryList?.addEventListener('click', async (ev) => {
+        const btn = ev.target.closest('button[data-action="restore"]');
+        if (!btn || !gameInstance?.restoreGiftSnapshot) return;
+        const row = btn.closest('.jar-history-row');
+        const id = row?.dataset?.id;
+        if (!id) return;
+        const ok = await hpConfirm({
+            icon: '♻️',
+            title: 'Khôi phục lịch sử hũ?',
+            body: 'Hũ hiện tại sẽ được thay bằng mốc đã chọn, quà sẽ rơi lại vào hũ với hiệu ứng khôi phục.',
+            okLabel: 'Khôi phục', cancelLabel: 'Hủy'
+        });
+        if (!ok) return;
+        gameInstance.restoreGiftSnapshot(id, true);
+        forceSyncState();
+        renderJarHistory();
+    });
+
     // ===== Socket =====
     socket.on('connect', () => appendSystem('Server đã kết nối.'));
     socket.on('disconnect', () => appendSystem('Mất kết nối server.'));
@@ -2468,6 +2575,7 @@
     const ltCleanUnreadable = document.getElementById('lt-clean-unreadable');
     const ltAiFilter = document.getElementById('lt-ai-filter');
     const ltSource = document.getElementById('lt-source');
+    const ltExcludedSource = document.getElementById('lt-excluded-source');
     const ltTarget = document.getElementById('lt-target');
     const ltVoice = document.getElementById('lt-voice');
     const ltTtsPreset = document.getElementById('lt-tts-preset');
@@ -2499,6 +2607,8 @@
     const btnCcMicTest = document.getElementById('btn-cc-mic-test');
     const ccSilence = document.getElementById('cc-silence');
     const ccSilenceV = document.getElementById('cc-silence-v');
+    const ccAutoTargets = document.getElementById('cc-auto-targets');
+    const ccAutoTargetTimeout = document.getElementById('cc-auto-target-timeout');
     const ccTargets = Array.from(document.querySelectorAll('input[name="cc-targets"]'));
     const btnCcToggle = document.getElementById('btn-cc-toggle');
     const btnCcCopy = document.getElementById('btn-cc-copy');
@@ -2513,6 +2623,9 @@
     let creatorCaptionRestarting = false;
     let creatorCaptionBuffer = '';
     let creatorCaptionSilenceTimer = null;
+    const creatorCaptionAutoTargetTimers = new Map();
+    const creatorCaptionAutoTargets = new Set();
+    const missingCreatorCaptionTargetLangs = new Set();
     let translateRulesAutoSynced = false;
 
     function setTranslateStatus(text, cls) {
@@ -2571,6 +2684,7 @@
         if (ltCleanUnreadable) ltCleanUnreadable.checked = liveTranslateConfig.cleanUnreadable !== false;
         if (ltAiFilter) ltAiFilter.checked = liveTranslateConfig.aiFilterEnabled !== false;
         if (ltSource) ltSource.value = liveTranslateConfig.sourceLang || 'auto';
+        if (ltExcludedSource) ltExcludedSource.value = liveTranslateConfig.excludedSourceLang || '';
         if (ltTarget) ltTarget.value = liveTranslateConfig.targetLang || 'vi';
         if (ltVoice) ltVoice.value = liveTranslateConfig.ttsVoice || 'auto';
         if (ltTtsPreset) ltTtsPreset.value = liveTranslateConfig.ttsPreset || 'auto';
@@ -2615,6 +2729,7 @@
             aiFilterEnabled: ltAiFilter ? !!ltAiFilter.checked : true,
             readUsername: (ltReadMode?.value || 'nameAndComment') === 'nameAndComment',
             sourceLang: ltSource?.value || 'auto',
+            excludedSourceLang: ltExcludedSource?.value || '',
             targetLang: ltTarget?.value || 'vi',
             ttsVoice: ltVoice?.value || 'auto',
             ttsPreset: ltTtsPreset?.value || 'auto',
@@ -2641,9 +2756,10 @@
             updateTranslateControls();
             return;
         }
+        const rulesSynced = running ? await syncTranslateSheetRules({ finalStatus: false }) : false;
         if (ltEnabled) ltEnabled.checked = !!running;
         await saveLiveTranslateConfig();
-        setTranslateStatus(running ? 'Đã bắt đầu dịch/đọc bình luận LIVE' : 'Đã dừng dịch/đọc', running ? 'ok' : '');
+        setTranslateStatus(running ? (rulesSynced ? 'Đã đồng bộ quy tắc và bắt đầu dịch/đọc bình luận LIVE' : 'Đã bắt đầu dịch/đọc, nhưng đồng bộ quy tắc có lỗi') : 'Đã dừng dịch/đọc', running ? (rulesSynced ? 'ok' : 'err') : '');
         updateTranslateControls();
     }
     function openTranslatePopup() {
@@ -2699,15 +2815,18 @@
         } catch (e) { setTranslateStatus('Import backup lỗi: ' + e.message, 'err'); }
         finally { if (backupImportFile) backupImportFile.value = ''; }
     }
-    async function syncTranslateSheetRules() {
+    async function syncTranslateSheetRules(options = {}) {
+        const showFinalStatus = options.finalStatus !== false;
         if (btnTranslateSyncSheet) btnTranslateSyncSheet.disabled = true;
         setTranslateStatus('Đang đồng bộ quy tắc...', '');
         try {
             const json = await (await fetch('/api/live-translate/rules/reload', { method: 'POST' })).json();
             updateTranslateSheetStatus(json);
-            setTranslateStatus(json.ok ? 'Đã đồng bộ quy tắc' : 'Đồng bộ quy tắc có lỗi', json.ok ? 'ok' : 'err');
+            if (showFinalStatus) setTranslateStatus(json.ok ? 'Đã đồng bộ quy tắc' : 'Đồng bộ quy tắc có lỗi', json.ok ? 'ok' : 'err');
+            return !!json.ok;
         } catch (e) { setTranslateStatus('Không đồng bộ được quy tắc: ' + e.message, 'err'); }
         finally { if (btnTranslateSyncSheet) btnTranslateSyncSheet.disabled = false; }
+        return false;
     }
     async function autoSyncTranslateRules() {
         if (translateRulesAutoSynced) return;
@@ -2732,6 +2851,8 @@
         if (ccSource) ccSource.value = creatorCaptionConfig.sourceLang || 'vi-VN';
         if (ccSilence) ccSilence.value = String(creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds);
         if (ccSilenceV) ccSilenceV.textContent = (creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds) + 's';
+        if (ccAutoTargets) ccAutoTargets.checked = creatorCaptionConfig.autoTargetsEnabled !== false;
+        if (ccAutoTargetTimeout) ccAutoTargetTimeout.value = String(creatorCaptionConfig.autoTargetTimeoutSeconds == null ? 60 : creatorCaptionConfig.autoTargetTimeoutSeconds);
         const targets = Array.isArray(creatorCaptionConfig.targetLangs) && creatorCaptionConfig.targetLangs.length ? creatorCaptionConfig.targetLangs : [creatorCaptionConfig.targetLang || 'en'];
         ccTargets.forEach(input => { input.checked = targets.includes(input.value); });
         if (btnCcToggle) {
@@ -2749,7 +2870,9 @@
             sourceLang: ccSource?.value || 'vi-VN',
             targetLangs: ccTargets.filter(input => input.checked).map(input => input.value),
             showOriginal: ccOriginal ? !!ccOriginal.checked : true,
-            silenceSeconds: Number.isFinite(parseFloat(ccSilence?.value || '')) ? parseFloat(ccSilence.value) : 2
+            silenceSeconds: Number.isFinite(parseFloat(ccSilence?.value || '')) ? parseFloat(ccSilence.value) : 2,
+            autoTargetsEnabled: ccAutoTargets ? !!ccAutoTargets.checked : true,
+            autoTargetTimeoutSeconds: Number.isFinite(parseInt(ccAutoTargetTimeout?.value || '', 10)) ? parseInt(ccAutoTargetTimeout.value, 10) : 60
         };
         if (!body.targetLangs.length) body.targetLangs = ['en'];
         body.targetLang = body.targetLangs[0];
@@ -2762,12 +2885,68 @@
     function getSpeechRecognitionCtor() {
         return window.SpeechRecognition || window.webkitSpeechRecognition || null;
     }
+    function getSelectedCreatorCaptionTargets() {
+        const targets = ccTargets.filter(input => input.checked).map(input => input.value);
+        return targets.length ? targets : ['en'];
+    }
     function flushCreatorCaptionBuffer(cfg) {
         const text = creatorCaptionBuffer.trim().replace(/\s{2,}/g, ' ');
         creatorCaptionBuffer = '';
         if (creatorCaptionSilenceTimer) clearTimeout(creatorCaptionSilenceTimer);
         creatorCaptionSilenceTimer = null;
-        if (text) socket.emit('creatorCaption:speech', { text, sourceLang: cfg.sourceLang, targetLangs: cfg.targetLangs });
+        if (text) socket.emit('creatorCaption:speech', { text, sourceLang: cfg.sourceLang, targetLangs: getSelectedCreatorCaptionTargets() });
+    }
+    function clearCreatorCaptionAutoTarget(lang) {
+        const timer = creatorCaptionAutoTargetTimers.get(lang);
+        if (timer) clearTimeout(timer);
+        creatorCaptionAutoTargetTimers.delete(lang);
+        creatorCaptionAutoTargets.delete(lang);
+    }
+    async function saveCreatorCaptionConfigSilent() {
+        try { await saveCreatorCaptionConfig(); }
+        catch (e) { setCreatorCaptionStatus('Lưu tự động ngôn ngữ phụ đề lỗi: ' + e.message, 'err'); }
+    }
+    function autoDeactivateCreatorCaptionTarget(lang) {
+        clearCreatorCaptionAutoTarget(lang);
+        const input = ccTargets.find(x => x.value === lang);
+        if (!input) return;
+        input.checked = false;
+        if (!ccTargets.some(x => x.checked)) {
+            const english = ccTargets.find(x => x.value === 'en');
+            if (english) english.checked = true;
+        }
+        saveCreatorCaptionConfigSilent();
+        const timeoutSeconds = Math.max(5, Math.min(3600, parseInt(ccAutoTargetTimeout?.value || '60', 10) || 60));
+        setCreatorCaptionStatus(`Đã tự tắt phụ đề ${input.parentElement?.textContent?.trim() || lang} vì ${timeoutSeconds}s không có phản hồi`, '');
+    }
+    function scheduleCreatorCaptionAutoTargetOff(lang) {
+        const timeoutSeconds = Math.max(5, Math.min(3600, parseInt(ccAutoTargetTimeout?.value || '60', 10) || 60));
+        const oldTimer = creatorCaptionAutoTargetTimers.get(lang);
+        if (oldTimer) clearTimeout(oldTimer);
+        creatorCaptionAutoTargetTimers.set(lang, setTimeout(() => autoDeactivateCreatorCaptionTarget(lang), timeoutSeconds * 1000));
+    }
+    function handleCreatorCaptionAutoTarget(item) {
+        if (!ccAutoTargets?.checked) return;
+        if (!item || item.canSpeak !== true) return;
+        const lang = String(item.sourceLang || '').toLowerCase().split('-')[0];
+        if (!lang || lang === 'auto') return;
+        const input = ccTargets.find(x => x.value === lang);
+        if (!input) {
+            if (!missingCreatorCaptionTargetLangs.has(lang)) {
+                missingCreatorCaptionTargetLangs.add(lang);
+                const label = item.sourceLangLabel || lang.toUpperCase();
+                setCreatorCaptionStatus(`Ngôn ngữ ${label} chưa có trong danh sách phụ đề. Nên bổ sung mã: ${lang}`, 'err');
+            }
+            return;
+        }
+        if (input.checked && !creatorCaptionAutoTargets.has(lang)) return;
+        if (!input.checked) {
+            input.checked = true;
+            creatorCaptionAutoTargets.add(lang);
+            saveCreatorCaptionConfigSilent();
+        }
+        scheduleCreatorCaptionAutoTargetOff(lang);
+        setCreatorCaptionStatus(`Đã tự bật phụ đề ${input.parentElement?.textContent?.trim() || lang} theo bình luận người xem`, 'ok');
     }
     function scheduleCreatorCaptionFlush(cfg) {
         if (creatorCaptionSilenceTimer) clearTimeout(creatorCaptionSilenceTimer);
@@ -2886,9 +3065,30 @@
         if (preset && preset !== 'auto' && ltTarget) ltTarget.value = preset;
     });
     ccSilence?.addEventListener('input', () => { if (ccSilenceV) ccSilenceV.textContent = (parseFloat(ccSilence.value || '2') || 2) + 's'; });
+    ccAutoTargets?.addEventListener('change', () => {
+        if (!ccAutoTargets.checked) {
+            for (const lang of Array.from(creatorCaptionAutoTargets)) clearCreatorCaptionAutoTarget(lang);
+        }
+        saveCreatorCaptionConfigSilent();
+    });
+    ccAutoTargetTimeout?.addEventListener('change', () => {
+        for (const lang of Array.from(creatorCaptionAutoTargets)) scheduleCreatorCaptionAutoTargetOff(lang);
+        saveCreatorCaptionConfigSilent();
+    });
+    ccTargets.forEach(input => input.addEventListener('change', () => {
+        if (!input.checked) clearCreatorCaptionAutoTarget(input.value);
+        saveCreatorCaptionConfigSilent();
+    }));
+    document.querySelectorAll('.translate-settings details').forEach(detail => {
+        detail.addEventListener('toggle', () => {
+            const scroller = detail.closest('.translate-settings');
+            if (!scroller) return;
+            setTimeout(() => detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60);
+        });
+    });
     socket.on('translate:config', applyLiveTranslateConfig);
     socket.on('translate:rules', updateTranslateSheetStatus);
-    socket.on('translate:comment', () => { if (!isTranslatePopupOpen()) setTranslateUnread(unreadTranslations + 1); });
+    socket.on('translate:comment', (item) => { if (!isTranslatePopupOpen()) setTranslateUnread(unreadTranslations + 1); handleCreatorCaptionAutoTarget(item); });
     socket.on('creatorCaption:config', applyCreatorCaptionConfig);
     setTranslateUnread(0);
     loadLiveTranslateConfig();
@@ -3013,6 +3213,12 @@
         showUpdateOverlay();
         socket.on('updateProgress', onUpdateProgress);
         try {
+            onUpdateProgress({ phase: 'verifying', percent: 0, message: 'Đang lưu gameplay Hũ trước khi cập nhật...' });
+            const preserved = await flushStateBeforeUpdate();
+            if (!preserved) {
+                onUpdateProgress({ phase: 'error', percent: 0, message: 'Không lưu được trạng thái Hũ. Vui lòng thử lại để tránh mất gameplay.' });
+                return;
+            }
             const r = await (await fetch('/api/update/download', { method: 'POST' })).json();
             if (!r.ok) {
                 onUpdateProgress({ phase: 'error', percent: 0, message: 'Lỗi: ' + (r.error || 'Không khởi tạo được tải về') });
@@ -3274,9 +3480,11 @@
             return `<div class="cp-row">
                 ${av}
                 <div class="cp-info">
-                    <div class="cp-name" title="${escAttrInline(c.name || 'Trộm')}">${escHtml(c.name || 'Trộm')}</div>
+                    <div class="cp-top">
+                        <div class="cp-name" title="${escAttrInline(c.name || 'Trộm')}">${escHtml(c.name || 'Trộm')}</div>
+                        <span class="cp-cd">${left}s</span>
+                    </div>
                     ${meta}
-                    <span class="cp-cd">${left}s</span>
                 </div>
                 <button class="cp-bail" data-uid="${escAttrInline(c.uid || '')}" title="Bảo lãnh trộm này ra sớm" aria-label="Bảo lãnh">🔓</button>
             </div>`;

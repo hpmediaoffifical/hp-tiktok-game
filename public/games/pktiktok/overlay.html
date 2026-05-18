@@ -84,6 +84,8 @@
         // Queue khi nhiều event xếp lớp + interruptCurrent=false
         const queue = [];
         let playing = false;
+        let lastFireSig = '';
+        let lastFireAt = 0;
 
         function applyDisplay() {
             if (!currentCfg || !currentCfg.display) return;
@@ -175,6 +177,11 @@
         }
         function fire(payload) {
             if (!payload || !payload.mediaUrl) return;
+            const sig = [payload.key, payload.mediaUrl, payload.source || '', payload.ts || ''].join('|');
+            const now = Date.now();
+            if (sig === lastFireSig && now - lastFireAt < 1200) return;
+            lastFireSig = sig;
+            lastFireAt = now;
             if (payload.interruptCurrent !== false) {
                 // Ngắt hiện tại + clear queue
                 queue.length = 0;

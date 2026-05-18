@@ -298,6 +298,7 @@
             else if (cmd === 'wind') { if (game.fxWind) game.fxWind(); }
             else if (cmd === 'crackJar') { if (game.fxCrackJar) game.fxCrackJar(); }
             else if (cmd === 'stealJar') { if (game.fxStealJar) game.fxStealJar(); }
+            else if (cmd === 'spinJar') { if (game.fxSpinJar) game.fxSpinJar(payload || {}); }
             else if (cmd === 'combo') { if (game.fxCombo) game.fxCombo(payload || {}); }
             else if (cmd === 'shape') { if (game.fxShape) game.fxShape(payload || {}); }
             else if (cmd === 'clear') game.clearAll();
