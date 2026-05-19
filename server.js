@@ -2618,18 +2618,20 @@ app.get('/api/last-user', (req, res) => {
 // ===== License gate API =====
 app.get('/api/license/status', async (req, res) => {
     const stored = appConfig.license || {};
-    if (!stored.activated || !stored.key) {
+    // Chỉ cần TỪNG có key đã lưu (kể cả khi bị revoke trước đó, activated=false)
+    // -> vẫn re-validate để TỰ kích hoạt lại khi admin mở khoá, KHỎI nhập key lại.
+    if (!stored.key) {
         return res.json({ activated: false });
     }
-    // Re-validate against sheet để bắt admin revoke kịp thời (cache 5 phút)
     try {
         const result = await validateLicenseKey(stored.key);
         if (result.ok) {
-            // Cập nhật info mới nhất từ sheet (role có thể đổi server-side)
             appConfig.license = {
                 ...stored,
-                vip: result.vip,
+                activated: true,
+                key: result.key,
                 role: result.role || 'ADMIN',
+                vip: result.vip,
                 expiry: result.expiry,
                 note: result.note,
                 lastValidated: Date.now()
@@ -2644,9 +2646,8 @@ app.get('/api/license/status', async (req, res) => {
                 note: result.note
             });
         }
-        // Sheet nói invalid (admin đã revoke / key đã expire)
-        if (result._offline) {
-            // Cho phép offline tối đa 24h kể từ lần validate cuối
+        // Mất mạng + trước đó đã kích hoạt -> cho offline tối đa 24h
+        if (result._offline && stored.activated) {
             const lastValid = stored.lastValidated || 0;
             if (Date.now() - lastValid < 24 * 3600 * 1000) {
                 return res.json({
@@ -2660,12 +2661,13 @@ app.get('/api/license/status', async (req, res) => {
                 });
             }
         }
-        // Revoke
-        appConfig.license = { activated: false, lastError: result.error };
+        // Đang bị khoá/hết hạn -> KHÔNG xoá key (giữ để lần sau tự vào),
+        // trả savedKey để gate điền sẵn (user khỏi gõ lại).
+        appConfig.license = { ...stored, activated: false, lastError: result.error };
         saveAppConfig();
-        return res.json({ activated: false, error: result.error });
+        return res.json({ activated: false, error: result.error, savedKey: stored.key });
     } catch (e) {
-        return res.json({ activated: false, error: e.message });
+        return res.json({ activated: false, error: e.message, savedKey: stored.key });
     }
 });
 
@@ -3591,7 +3593,8 @@ httpServer.listen(PORT, async () => {
             onRevoked: (reason) => {
                 console.warn('[hpkey] Key bị thu hồi:', reason, '-> đóng app');
                 try {
-                    appConfig.license = { activated: false, lastError: 'revoked:' + reason };
+                    // Giữ key đã lưu (chỉ đánh dấu chưa kích hoạt) -> mở khoá là tự vào lại
+                    appConfig.license = { ...(appConfig.license || {}), activated: false, lastError: 'revoked:' + reason };
                     saveAppConfig();
                 } catch (_) {}
                 try {
