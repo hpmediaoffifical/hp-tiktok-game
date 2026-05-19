@@ -1,6 +1,6 @@
 {
   "name": "hp-action-live",
-  "version": "1.0.63",
+  "version": "1.0.64",
   "description": "HP Action LIVE — TikTok Game Library cho streamer",
   "author": "HP Media",
   "main": "electron-main.js",
@@ -34,6 +34,7 @@
       "server.js",
       "soundfx-server.js",
       "sfx-preload.js",
+      "hpkey/**/*",
       "public/**/*",
       "hp-logo.png",
       "hp-logo-512.png",
@@ -42,14 +43,22 @@
       "node_modules/**/*"
     ],
     "extraResources": [
-      { "from": "data", "to": "data" }
+      {
+        "from": "data",
+        "to": "data"
+      }
     ],
     "win": {
       "icon": "hp-logo-512.png",
       "verifyUpdateCodeSignature": false,
       "requestedExecutionLevel": "asInvoker",
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "HP-Action-LIVE-Setup-${version}.exe"
     },

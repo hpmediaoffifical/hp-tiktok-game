@@ -32,3 +32,6 @@ _extracted_thuytinh/
 
 # Electron cache
 .electron/
+
+# HP KEY - khong commit secret
+hpkey/secret.local.js

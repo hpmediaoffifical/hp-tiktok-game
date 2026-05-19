@@ -927,82 +927,13 @@ async function loadGiftSheet() {
 }
 
 // ============================================================
-// LICENSE VALIDATION qua server riêng
+// LICENSE VALIDATION — HP KEY (hpvn.media)
 // ============================================================
-// App POST {key, deviceId?} tới LICENSE_WORKER_URL/activate.
-// Server (license-server/ hoặc cloudflare-worker/) đọc Sheet → return result.
-// Bảo mật đường truyền: HTTPS (server hardcoded URL trong app build).
-
-function parseDmy(s) {
-    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!m) return null;
-    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 23, 59, 59);
-    return isNaN(d.getTime()) ? null : d;
-}
-
-// Device fingerprint — gom CPU model + Windows MachineGuid + hostname để
-// đại diện cho máy. Server dùng để bind key, chống chia sẻ key trên nhiều máy.
-let _cachedDeviceId = null;
-function getDeviceFingerprint() {
-    if (_cachedDeviceId) return _cachedDeviceId;
-    try {
-        const parts = [
-            os.hostname(),
-            os.platform(),
-            os.arch(),
-            os.cpus()?.[0]?.model || '',
-            os.totalmem(),
-            // userInfo username (per-machine + per-user)
-            os.userInfo()?.username || ''
-        ].join('|');
-        _cachedDeviceId = crypto.createHash('sha256').update(parts).digest('hex').slice(0, 24);
-    } catch (e) {
-        _cachedDeviceId = 'unknown';
-    }
-    return _cachedDeviceId;
-}
-
-async function validateLicenseKey(rawKey) {
-    const key = String(rawKey || '').trim();
-    if (!key) return { ok: false, error: 'Vui lòng nhập key bản quyền' };
-
-    if (!isWorkerConfigured()) {
-        return { ok: false, error: 'Hệ thống bản quyền chưa cấu hình — liên hệ HP Media' };
-    }
-
-    // Gọi license-server (HP Media). Không có fallback đọc data nguồn trực tiếp.
-    let body;
-    try {
-        const res = await fetch(LICENSE_WORKER_URL.replace(/\/$/, '') + '/activate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key, deviceId: getDeviceFingerprint() }),
-            timeout: 10000
-        });
-        body = await res.json();
-    } catch (e) {
-        return { ok: false, error: 'Không kết nối được hệ thống bản quyền — kiểm tra mạng và thử lại', _offline: true };
-    }
-
-    if (!body || body.ok === false) {
-        return { ok: false, error: body?.error || 'Key không hợp lệ' };
-    }
-
-    if (body.expiryISO && new Date(body.expiryISO).getTime() < Date.now()) {
-        return { ok: false, error: `Key đã hết hạn từ ${body.expiry || body.expiryISO}` };
-    }
-
-    return {
-        ok: true,
-        key: body.key,
-        role: body.role || 'ADMIN',
-        vip: body.vip || body.role || '',
-        expiry: body.expiry,
-        expiryISO: body.expiryISO,
-        status: 'Đang sử dụng',
-        note: body.note || ''
-    };
-}
+// Thay backend cũ (Cloudflare Worker / Google Sheet) bằng HP KEY.
+// Cấu hình: hpkey/config.js + hpkey/secret.local.js + hpkey/public-key.js.
+// Giữ nguyên interface validateLicenseKey() nên gate + role không phải sửa.
+// (gift-sheet & auto-update vẫn dùng LICENSE_WORKER_URL cũ — không đổi)
+const { validateLicenseKey } = require('./hpkey/validate');
 
 // ====== TikTok connection ======
 let connection = null;
@@ -3652,6 +3583,28 @@ httpServer.listen(PORT, async () => {
     catch (e) { console.warn('[server] Không tải được Google Sheet:', e.message); }
     await refreshCommentRulesSheet();
     setInterval(refreshCommentRulesSheet, COMMENT_RULES_REFRESH_MS).unref?.();
+
+    // HP KEY - check key real-time: cấm key trên admin -> đóng app trong <= RECHECK_SECONDS
+    try {
+        require('./hpkey/validate').startWatch({
+            getKey: () => (appConfig.license && appConfig.license.key) || '',
+            onRevoked: (reason) => {
+                console.warn('[hpkey] Key bị thu hồi:', reason, '-> đóng app');
+                try {
+                    appConfig.license = { activated: false, lastError: 'revoked:' + reason };
+                    saveAppConfig();
+                } catch (_) {}
+                try {
+                    const { dialog } = require('electron');
+                    dialog.showErrorBox('Bản quyền bị thu hồi',
+                        'KEY của bạn đã bị khóa/thu hồi hoặc hết hạn (' + reason + ').\n' +
+                        'Ứng dụng sẽ đóng. Liên hệ HP Media để được hỗ trợ.');
+                } catch (_) {}
+                if (_electronApp) { _electronApp.quit(); setTimeout(() => { try { _electronApp.exit(0); } catch (_) {} }, 1500); }
+                else process.exit(0);
+            },
+        });
+    } catch (e) { console.warn('[hpkey] watch init failed:', e && e.message); }
 });
 
 // Export cho electron-main.js gọi httpServer.close() khi quit
