@@ -2631,6 +2631,7 @@ app.get('/api/license/status', async (req, res) => {
                 activated: true,
                 key: result.key,
                 role: result.role || 'ADMIN',
+                allowedIds: result.allowedIds || [],
                 vip: result.vip,
                 expiry: result.expiry,
                 note: result.note,
@@ -2678,7 +2679,8 @@ app.post('/api/license/activate', async (req, res) => {
     appConfig.license = {
         activated: true,
         key: result.key,
-        role: result.role || 'ADMIN',          // ADMIN | CREATOR
+        role: result.role || 'ADMIN',          // ADMIN | CREATOR | VIP
+        allowedIds: result.allowedIds || [],
         vip: result.vip,
         expiry: result.expiry,
         note: result.note,
@@ -2735,6 +2737,20 @@ app.post('/api/connect', async (req, res) => {
                 error: 'Bạn đã thay đổi TikTok ID hoặc nhập sai\nLIÊN HỆ HP MEDIA ĐỂ ĐƯỢC HỖ TRỢ',
                 _creatorLocked: true,
                 boundTiktokId: lic.key
+            });
+        }
+    }
+
+    // === VIP allow-list enforcement ===
+    // role=VIP có danh sách ID: chỉ cho kết nối các TikTok ID trong danh sách.
+    // Danh sách rỗng → không giới hạn (như trước).
+    if (lic.activated && lic.role === 'VIP' && Array.isArray(lic.allowedIds) && lic.allowedIds.length) {
+        if (lic.allowedIds.indexOf(cleanName.toLowerCase()) < 0) {
+            return res.status(403).json({
+                ok: false,
+                error: 'TikTok ID này không nằm trong danh sách được phép của key VIP\nLIÊN HỆ HP MEDIA ĐỂ ĐƯỢC HỖ TRỢ',
+                _vipNotAllowed: true,
+                allowedIds: lic.allowedIds
             });
         }
     }

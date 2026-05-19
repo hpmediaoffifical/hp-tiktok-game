@@ -141,7 +141,8 @@ async function validateLicenseKey(rawKey) {
   return {
     ok: true,
     key: p.k,                         // CREATOR: chính là TikTok ID
-    role: p.r || 'ADMIN',             // ADMIN | CREATOR
+    role: p.r || 'ADMIN',             // ADMIN | CREATOR | VIP
+    allowedIds: Array.isArray(p.ids) ? p.ids : [],  // VIP: chỉ kết nối các ID này (rỗng = không giới hạn)
     vip: p.r || '',
     expiry: fmtDmy(p.exp),            // '' n?u vinh vi?n
     expiryISO: p.exp ? new Date(p.exp * 1000).toISOString() : null,
