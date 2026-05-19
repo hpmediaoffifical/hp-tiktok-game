@@ -3583,6 +3583,28 @@ httpServer.listen(PORT, async () => {
     catch (e) { console.warn('[server] Không tải được Google Sheet:', e.message); }
     await refreshCommentRulesSheet();
     setInterval(refreshCommentRulesSheet, COMMENT_RULES_REFRESH_MS).unref?.();
+
+    // HP KEY - check key real-time: cấm key trên admin -> đóng app trong <= RECHECK_SECONDS
+    try {
+        require('./hpkey/validate').startWatch({
+            getKey: () => (appConfig.license && appConfig.license.key) || '',
+            onRevoked: (reason) => {
+                console.warn('[hpkey] Key bị thu hồi:', reason, '-> đóng app');
+                try {
+                    appConfig.license = { activated: false, lastError: 'revoked:' + reason };
+                    saveAppConfig();
+                } catch (_) {}
+                try {
+                    const { dialog } = require('electron');
+                    dialog.showErrorBox('Bản quyền bị thu hồi',
+                        'KEY của bạn đã bị khóa/thu hồi hoặc hết hạn (' + reason + ').\n' +
+                        'Ứng dụng sẽ đóng. Liên hệ HP Media để được hỗ trợ.');
+                } catch (_) {}
+                if (_electronApp) { _electronApp.quit(); setTimeout(() => { try { _electronApp.exit(0); } catch (_) {} }, 1500); }
+                else process.exit(0);
+            },
+        });
+    } catch (e) { console.warn('[hpkey] watch init failed:', e && e.message); }
 });
 
 // Export cho electron-main.js gọi httpServer.close() khi quit
