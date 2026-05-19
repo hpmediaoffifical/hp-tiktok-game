@@ -722,10 +722,9 @@
         const url = location.origin + '/overlay/caro';
         if (inp) inp.value = url;
         $('#caro-btn-copy').addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(url);
-                flashOk('Đã copy link OBS overlay Caro');
-            } catch (e) { flashWarn('Copy thất bại — ' + e.message); }
+            const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
+            if (ok) flashOk('Đã copy link OBS overlay Caro');
+            else flashWarn('Copy thất bại — link: ' + url);
         });
     }
 

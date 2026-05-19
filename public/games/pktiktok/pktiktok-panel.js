@@ -368,10 +368,9 @@
         const url = location.origin + '/overlay/pktiktok';
         if (inp) inp.value = url;
         $('#pktiktok-btn-copy')?.addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(url);
-                flashOk('Đã copy link OBS overlay PK TikTok');
-            } catch (e) { flashWarn('Copy thất bại — ' + e.message); }
+            const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
+            if (ok) flashOk('Đã copy link OBS overlay PK TikTok');
+            else flashWarn('Copy thất bại — link: ' + url);
         });
     }
 

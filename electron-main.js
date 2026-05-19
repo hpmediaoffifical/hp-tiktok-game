@@ -2,7 +2,7 @@
  * HP Action LIVE — Electron Desktop Wrapper
  * Khởi động server Express + mở cửa sổ Chromium tới http://localhost:PORT
  */
-const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, nativeImage, dialog, ipcMain, globalShortcut, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -144,6 +144,18 @@ function createSplash() {
 }
 
 function createMainWindow() {
+    try {
+        session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+            if (permission !== 'media' && permission !== 'microphone') return false;
+            return String(requestingOrigin || '').startsWith(APP_URL);
+        });
+        session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+            if (permission !== 'media' && permission !== 'microphone') return callback(false);
+            const origin = String(details?.requestingUrl || webContents.getURL() || '');
+            callback(origin.startsWith(APP_URL));
+        });
+    } catch (_) {}
+
     mainWindow = new BrowserWindow({
         width: 1440,
         height: 920,

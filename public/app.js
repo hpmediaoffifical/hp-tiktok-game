@@ -43,6 +43,19 @@
     function giftIdsForEffect(key) {
         return Object.keys(currentTriggers).filter(id => currentTriggers[id] === key);
     }
+    function findAssignedGiftId(gift) {
+        const directId = String(gift?.id ?? gift?.giftId ?? '');
+        if (directId && currentTriggers[directId]) return directId;
+        const giftName = String(gift?.name || gift?.giftName || '').trim().toLowerCase();
+        const giftImage = String(gift?.image || gift?.giftPicture || '').trim();
+        for (const id of Object.keys(currentTriggers || {})) {
+            const meta = giftMap[String(id)];
+            if (!meta) continue;
+            if (giftName && String(meta.name || '').trim().toLowerCase() === giftName) return String(id);
+            if (giftImage && String(meta.image || '').trim() === giftImage) return String(id);
+        }
+        return directId;
+    }
     // Đẩy giftId lên đầu danh sách "vừa gán" → catalog hiển thị quà này trước.
     function bumpRecent(giftId) {
         const id = String(giftId);
@@ -53,6 +66,12 @@
     function dropRecent(giftId) {
         const id = String(giftId);
         recentAssignments = recentAssignments.filter(x => x !== id);
+    }
+    function cleanupUnassignedGiftState(giftId) {
+        const id = String(giftId || '');
+        if (!id || currentTriggers[id]) return;
+        dropRecent(id);
+        if (currentBadgeItems[id]) delete currentBadgeItems[id];
     }
     // Đồng bộ danh sách giftIds trong editingDraft (multi) → currentTriggers.
     // Dùng để auto-commit ngay khi user pick/bỏ trong modal — tránh "save xong vẫn mất".
@@ -72,7 +91,7 @@
         }
         // Diff: thêm mới → bump; bỏ → drop
         for (const id of newIds) if (!oldIds.has(id)) bumpRecent(id);
-        for (const id of oldIds) if (!newIds.has(id)) dropRecent(id);
+        for (const id of oldIds) if (!newIds.has(id)) cleanupUnassignedGiftState(id);
     }
 
     // ===== Feature toggles map =====
@@ -286,6 +305,13 @@
     window.hpConfirm = hpConfirm;
 
     // ===== Games =====
+    const GAME_DEVELOPMENT_NOTICE = 'Đang phát triển, có thể gặp sự cố...';
+
+    function renderGameDevelopmentNotice(game) {
+        if (game.id === 'thuytinh') return '';
+        return `<div class="gd game-dev-notice game-dev-${game.id}">${GAME_DEVELOPMENT_NOTICE}</div>`;
+    }
+
     async function loadGames() {
         const res = await fetch('/api/games');
         games = await res.json();
@@ -313,7 +339,7 @@
             div.innerHTML = `<span class="ico">${g.icon}</span>
                 <div class="meta">
                     <div class="gn">${g.name}</div>
-                    ${g.description ? `<div class="gd">${g.description.length > 38 ? g.description.slice(0, 38) + '…' : g.description}</div>` : ''}
+                    ${renderGameDevelopmentNotice(g)}
                 </div>
                 <button class="game-toggle ${isEnabled ? 'on' : 'off'}" data-game-toggle="${g.id}" title="${isEnabled ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT'} ${g.virtual ? 'tool' : 'game'} chạy ngầm">⏻</button>`;
             // Click toàn thân (trừ toggle) → mở game
@@ -349,6 +375,10 @@
                         body: JSON.stringify({ enabled: next })
                     });
                     if (g.config) g.config.enabled = next;
+                    if (currentGame?.id === g.id) {
+                        currentGame.config = { ...(currentGame.config || {}), enabled: next };
+                        if (gameInstance && g.id === 'thuytinh') gameInstance.setConfig({ enabled: next });
+                    }
                 } catch (err) {
                     // revert
                     btn.classList.toggle('on', !next);
@@ -365,7 +395,7 @@
             card.className = 'home-card';
             card.innerHTML = `<div class="ico">${g.icon}</div>
                 <div class="gn">${g.name}</div>
-                ${g.description ? `<div class="gd">${g.description}</div>` : ''}`;
+                ${renderGameDevelopmentNotice(g)}`;
             card.addEventListener('click', () => openGame(g.id));
             dom.homeGrid.appendChild(card);
         }
@@ -807,6 +837,7 @@
                 }, 500);
             }
         }
+        for (const id of Object.keys(currentBadgeItems || {})) cleanupUnassignedGiftState(id);
         // Khởi tạo recentAssignments theo thứ tự key trong cfg.triggers (giữ relative order
         // sau khi reload). User mới gán quà nào trong phiên hiện tại thì bumpRecent sẽ đẩy lên đầu.
         recentAssignments = Object.keys(currentTriggers);
@@ -1505,8 +1536,8 @@
             // Single: xoá toàn bộ assignment cũ của effect này, drop khỏi recent, rồi gán mới
             for (const k of Object.keys(currentTriggers)) {
                 if (currentTriggers[k] === editingEffect.key) {
-                    dropRecent(k);
                     delete currentTriggers[k];
+                    cleanupUnassignedGiftState(k);
                 }
             }
             if (editingDraft.giftId) {
@@ -1593,6 +1624,15 @@
 
         // Click thả thử vào game preview
         item.addEventListener('click', () => spawnInGame(g));
+        item.addEventListener('contextmenu', (ev) => {
+            ev.preventDefault();
+            openGiftContextMenu({
+                id: String(g.giftId),
+                name: sheet?.name || g.giftName || 'Quà',
+                image: sheet?.image || g.image || g.giftPicture,
+                diamond: g.coinValue || sheet?.diamond || 0
+            }, ev.clientX, ev.clientY);
+        });
         dom.giftStreamEl.appendChild(item);
         if (dom.giftStreamEl.children.length > 80) dom.giftStreamEl.removeChild(dom.giftStreamEl.firstChild);
         dom.giftStreamEl.scrollTop = dom.giftStreamEl.scrollHeight;
@@ -1600,6 +1640,7 @@
 
     function spawnInGame(g) {
         if (!gameInstance) return;
+        if (currentGame?.id === 'thuytinh' && currentGame.config?.enabled === false) return;
         const sheet = giftMap[String(g.giftId)];
         gameInstance.drop({
             giftId: String(g.giftId),
@@ -1617,8 +1658,6 @@
         if (!dom.giftCatalogEl) return;
         dom.giftCatalogEl.innerHTML = '';
         const f = filter.trim().toLowerCase();
-        // ẨN các quà đã gán hiệu ứng (đã hiển thị ở quick-test grid bên trái tab Thử)
-        // → Tránh hiển thị 2 lần và làm giảm số card trong DANH SÁCH QUÀ
         let list = giftSheet.filter(g => !currentTriggers[String(g.id)]);
         if (f) {
             list = list.filter(g =>
@@ -1650,19 +1689,6 @@
             card.appendChild(nm);
             card.appendChild(idL);
             card.appendChild(di);
-            // Hiển thị badge nếu đã gán effect
-            const action = currentTriggers[String(g.id)];
-            if (action) {
-                card.classList.add('has-trigger');
-                const ef = EFFECTS.find(e => e.key === action);
-                if (ef) {
-                    const badge = document.createElement('div');
-                    badge.className = 'trigger-badge';
-                    badge.textContent = ef.ico;
-                    badge.title = `Đang gán: ${ef.label}`;
-                    card.appendChild(badge);
-                }
-            }
             card.addEventListener('click', () => {
                 fetch(`/api/games/${currentGame?.id || 'thuytinh'}/test-gift`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1687,27 +1713,29 @@
     let cmGift = null;
     function openGiftContextMenu(gift, clientX, clientY) {
         if (!ctxMenu) return;
-        cmGift = gift;
-        const currentAction = currentTriggers[String(gift.id)];
+        const giftId = String(gift?.id ?? gift?.giftId ?? '');
+        if (!giftId) return;
+        const assignedGiftId = findAssignedGiftId(gift);
+        cmGift = { ...gift, id: assignedGiftId || giftId };
+        const currentAction = currentTriggers[assignedGiftId] || '';
         const ef = EFFECTS.find(e => e.key === currentAction);
-        cmCurrent.innerHTML = `<b>${escHtml(gift.name)}</b> · ID ${gift.id} · ${gift.diamond || 0}⭐`
+        cmCurrent.innerHTML = `<b>${escHtml(gift.name || 'Quà')}</b> · ID ${giftId} · ${gift.diamond || 0}⭐`
             + (ef ? `<br/>Đang gán: <span style="color:#ffd166">${ef.ico} ${ef.label}</span>` : '');
+        if (cmClear) cmClear.hidden = !currentAction;
         cmList.innerHTML = '';
         for (const e of EFFECTS) {
             const btn = document.createElement('button');
             btn.dataset.effect = e.key;
-            // ✓ Hiển thị dấu tích cho effect đã có quà gán (giúp scan nhanh slot trống)
             const assignedIds = giftIdsForEffect(e.key);
             const hasAnyGift = assignedIds.length > 0;
             const isCurrent = currentAction === e.key;
-            // Multi effect: hiện số quà đã gán (vd "Pháo hoa ✓×3"). Single: chỉ ✓
             const checkmark = hasAnyGift
                 ? (e.multi ? `<span class="cm-check">✓×${assignedIds.length}</span>` : `<span class="cm-check">✓</span>`)
                 : '';
             btn.innerHTML = `<span>${e.ico}</span> ${e.label}${checkmark}`;
             if (isCurrent) btn.classList.add('active');
-            else if (hasAnyGift) btn.classList.add('assigned');   // có quà khác đang giữ slot
-            btn.addEventListener('click', () => assignTrigger(gift.id, e.key));
+            else if (hasAnyGift) btn.classList.add('assigned');
+            btn.addEventListener('click', () => assignTrigger(giftId, e.key));
             cmList.appendChild(btn);
         }
         ctxMenu.hidden = false;
@@ -1729,8 +1757,8 @@
             // Cũng xoá khỏi recent vì quà cũ không còn được gán nữa.
             for (const k of Object.keys(currentTriggers)) {
                 if (currentTriggers[k] === effect) {
-                    dropRecent(k);
                     delete currentTriggers[k];
+                    cleanupUnassignedGiftState(k);
                 }
             }
         }
@@ -1746,14 +1774,16 @@
     }
     cmClear?.addEventListener('click', () => {
         if (!cmGift) return;
-        const removed = currentTriggers[String(cmGift.id)];
-        delete currentTriggers[String(cmGift.id)];
-        dropRecent(cmGift.id);
+        const giftId = String(cmGift.id);
+        const giftName = cmGift.name;
+        const removed = currentTriggers[giftId];
+        delete currentTriggers[giftId];
+        cleanupUnassignedGiftState(giftId);
         closeGiftContextMenu();
         renderTriggerList();
         renderGiftCatalog(dom.giftSearchInput.value);
         pushConfigUpdate(true);
-        if (removed) flashTriggerToast(`✗ Đã xoá gán cho ${cmGift.name}`);
+        if (removed) flashTriggerToast(`✗ Đã xoá gán cho ${giftName}`);
     });
     document.addEventListener('click', (ev) => {
         if (!ctxMenu || ctxMenu.hidden) return;
@@ -1865,13 +1895,13 @@
 
     // Old license save handler đã chuyển sang gate flow (xem phần License Gate ở cuối file)
 
-    dom.btnCopyOverlay.addEventListener('click', () => {
-        dom.overlayUrl.select();
-        navigator.clipboard.writeText(dom.overlayUrl.value).then(() => {
-            const t = dom.btnCopyOverlay.textContent;
-            dom.btnCopyOverlay.textContent = '✓ Đã copy';
-            setTimeout(() => dom.btnCopyOverlay.textContent = t, 1500);
-        });
+    dom.btnCopyOverlay.addEventListener('click', async () => {
+        const url = dom.overlayUrl?.value || (location.origin + '/overlay/thuytinh');
+        const ok = await copyText(url);
+        const t = dom.btnCopyOverlay.textContent;
+        dom.btnCopyOverlay.textContent = ok ? '✓ Đã copy' : 'Copy lỗi';
+        if (!ok) flashTriggerToast('Không copy tự động được. Link: ' + url);
+        setTimeout(() => dom.btnCopyOverlay.textContent = t, 1500);
     });
     // (Nút "↗ Mở" đã bỏ — user dùng Copy link + paste vào OBS browser source)
     dom.btnSaveAll?.addEventListener('click', async () => {
@@ -2325,6 +2355,7 @@
     }
     async function copyText(text) {
         try {
+            if (!navigator.clipboard?.writeText) throw new Error('clipboard_unavailable');
             await navigator.clipboard.writeText(text);
             return true;
         } catch (e) {
@@ -2336,6 +2367,7 @@
             catch (_) { document.body.removeChild(ta); return false; }
         }
     }
+    window.hpCopyText = copyText;
     function renderUnknownList() {
         if (!unknownListEl) return;
         unknownListEl.innerHTML = '';
@@ -2510,6 +2542,7 @@
 
     socket.on('gameConfig', ({ gameId, config }) => {
         if (!gameInstance || gameId !== currentGame?.id) return;
+        currentGame.config = config;
         // Bỏ qua echo của save vừa thực hiện (1.5s) — tránh overwrite local state đang edit
         if (Date.now() - lastOwnSaveTs < 1500) return;
         gameInstance.setConfig(config);
@@ -2639,8 +2672,12 @@
     const ccEnabled = document.getElementById('cc-enabled');
     const ccOriginal = document.getElementById('cc-original');
     const ccSource = document.getElementById('cc-source');
+    const ccWhisperExe = document.getElementById('cc-whisper-exe');
+    const ccWhisperModel = document.getElementById('cc-whisper-model');
     const ccMic = document.getElementById('cc-mic');
     const btnCcMicTest = document.getElementById('btn-cc-mic-test');
+    const ccWave = document.getElementById('cc-wave');
+    const ccTranscript = document.getElementById('cc-transcript');
     const ccSilence = document.getElementById('cc-silence');
     const ccSilenceV = document.getElementById('cc-silence-v');
     const ccAutoTargets = document.getElementById('cc-auto-targets');
@@ -2659,6 +2696,22 @@
     let creatorCaptionRestarting = false;
     let creatorCaptionBuffer = '';
     let creatorCaptionSilenceTimer = null;
+    let creatorCaptionMicStream = null;
+    let creatorCaptionAudioCtx = null;
+    let creatorCaptionAnalyser = null;
+    let creatorCaptionWaveRaf = 0;
+    let creatorCaptionLastResultAt = 0;
+    let creatorCaptionNoResultTimer = null;
+    let creatorCaptionRecorder = null;
+    let creatorCaptionRecordTimer = null;
+    let creatorCaptionChunkPeak = 0;
+    let creatorCaptionChunkLevelSum = 0;
+    let creatorCaptionChunkLevelCount = 0;
+    let creatorCaptionChunkActiveFrames = 0;
+    let creatorCaptionTranscribing = false;
+    let creatorCaptionLastTranscribeAt = 0;
+    let creatorCaptionRateLimitedUntil = 0;
+    let creatorCaptionLastSkipNoticeAt = 0;
     const creatorCaptionAutoTargetTimers = new Map();
     const creatorCaptionAutoTargets = new Set();
     const missingCreatorCaptionTargetLangs = new Set();
@@ -2673,6 +2726,28 @@
         if (!ccStatus) return;
         ccStatus.textContent = text || '';
         ccStatus.className = 'translate-status' + (cls ? ' ' + cls : '');
+    }
+    function setCreatorCaptionTranscript(text, cls) {
+        if (!ccTranscript) return;
+        ccTranscript.textContent = text || 'Bấm BẮT ĐẦU NGHE rồi nói. Câu nghe được sẽ hiện ở đây trước khi dịch.';
+        ccTranscript.className = 'cc-transcript' + (cls ? ' ' + cls : '');
+    }
+    function updateCreatorCaptionProviderUi() {
+        document.querySelectorAll('.cc-local-row').forEach(row => { row.hidden = true; });
+    }
+    function scheduleCreatorCaptionNoResultCheck(stage) {
+        if (creatorCaptionNoResultTimer) clearTimeout(creatorCaptionNoResultTimer);
+        const startAt = Date.now();
+        creatorCaptionNoResultTimer = setTimeout(() => {
+            if (!creatorCaptionListening) return;
+            if (creatorCaptionLastResultAt >= startAt) return;
+            setCreatorCaptionTranscript(
+                `${stage || 'Có tín hiệu âm thanh'} nhưng chưa chuyển được thành chữ.\n` +
+                'Nếu sóng âm vẫn nhảy, micro OK; lỗi nằm ở engine Speech-to-Text của Chromium/Electron hoặc ngôn ngữ nhận giọng.',
+                'err'
+            );
+            setCreatorCaptionStatus('Micro có tín hiệu nhưng chưa nhận được chữ. Thử nói rõ hơn hoặc đổi Creator nói sang đúng ngôn ngữ.', 'err');
+        }, 8000);
     }
     function setTranslateUnread(n) {
         unreadTranslations = Math.max(0, n);
@@ -2815,13 +2890,14 @@
     async function copyTranslateOverlayUrl() {
         refreshTranslateOverlayUrl();
         const url = ltOverlayUrl?.value || (location.origin + '/overlay/translate');
-        try { await navigator.clipboard.writeText(url); setTranslateStatus('Đã copy link OBS dịch', 'ok'); }
-        catch (e) { if (ltOverlayUrl) ltOverlayUrl.select(); setTranslateStatus('Không copy tự động được', 'err'); }
+        const ok = await copyText(url);
+        if (ok) setTranslateStatus('Đã copy link OBS dịch', 'ok');
+        else setTranslateStatus('Không copy tự động được. Link: ' + url, 'err');
     }
     async function copyDashboardOverlayUrl() {
         const url = location.origin + '/overlay/dashboard';
-        try { await navigator.clipboard.writeText(url); setTranslateStatus('Đã copy link OBS dashboard', 'ok'); }
-        catch (e) { setTranslateStatus(url, 'ok'); }
+        const ok = await copyText(url);
+        setTranslateStatus(ok ? 'Đã copy link OBS dashboard' : 'Không copy tự động được. Link: ' + url, ok ? 'ok' : 'err');
     }
     async function exportBackupConfig() {
         try {
@@ -2885,6 +2961,9 @@
         if (ccEnabled) ccEnabled.checked = creatorCaptionConfig.enabled === true;
         if (ccOriginal) ccOriginal.checked = creatorCaptionConfig.showOriginal !== false;
         if (ccSource) ccSource.value = creatorCaptionConfig.sourceLang || 'vi-VN';
+        if (ccWhisperExe) ccWhisperExe.value = creatorCaptionConfig.whisperLocalExe || '';
+        if (ccWhisperModel) ccWhisperModel.value = creatorCaptionConfig.whisperLocalModel || '';
+        updateCreatorCaptionProviderUi();
         if (ccSilence) ccSilence.value = String(creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds);
         if (ccSilenceV) ccSilenceV.textContent = (creatorCaptionConfig.silenceSeconds == null ? 2 : creatorCaptionConfig.silenceSeconds) + 's';
         if (ccAutoTargets) ccAutoTargets.checked = creatorCaptionConfig.autoTargetsEnabled !== false;
@@ -2904,6 +2983,8 @@
         const body = {
             enabled: !!ccEnabled?.checked,
             sourceLang: ccSource?.value || 'vi-VN',
+            whisperLocalExe: ccWhisperExe?.value || '',
+            whisperLocalModel: ccWhisperModel?.value || '',
             targetLangs: ccTargets.filter(input => input.checked).map(input => input.value),
             showOriginal: ccOriginal ? !!ccOriginal.checked : true,
             silenceSeconds: Number.isFinite(parseFloat(ccSilence?.value || '')) ? parseFloat(ccSilence.value) : 2,
@@ -2930,7 +3011,10 @@
         creatorCaptionBuffer = '';
         if (creatorCaptionSilenceTimer) clearTimeout(creatorCaptionSilenceTimer);
         creatorCaptionSilenceTimer = null;
-        if (text) socket.emit('creatorCaption:speech', { text, sourceLang: cfg.sourceLang, targetLangs: getSelectedCreatorCaptionTargets() });
+        if (text) {
+            setCreatorCaptionTranscript(`Đã nhận giọng:\n${text}\n\nĐang gửi đi dịch...`, 'ok');
+            socket.emit('creatorCaption:speech', { text, sourceLang: cfg.sourceLang, targetLangs: getSelectedCreatorCaptionTargets() });
+        }
     }
     function clearCreatorCaptionAutoTarget(lang) {
         const timer = creatorCaptionAutoTargetTimers.get(lang);
@@ -2992,10 +3076,67 @@
     async function refreshCreatorCaptionMicrophones() {
         if (!ccMic || !navigator.mediaDevices?.enumerateDevices) return;
         try {
+            const selected = ccMic.value || 'default';
             const devices = await navigator.mediaDevices.enumerateDevices();
             const mics = devices.filter(d => d.kind === 'audioinput');
             ccMic.innerHTML = '<option value="default">Micro mặc định của máy</option>' + mics.map((d, i) => `<option value="${d.deviceId}">${d.label || `Micro ${i + 1}`}</option>`).join('');
+            if (Array.from(ccMic.options).some(opt => opt.value === selected)) ccMic.value = selected;
         } catch (e) {}
+    }
+    function resetCreatorCaptionWave() {
+        ccWave?.classList.remove('listening');
+        ccWave?.querySelectorAll('span').forEach(bar => { bar.style.height = '6px'; bar.style.opacity = '0.38'; });
+    }
+    function stopCreatorCaptionMicMonitor() {
+        if (creatorCaptionWaveRaf) cancelAnimationFrame(creatorCaptionWaveRaf);
+        creatorCaptionWaveRaf = 0;
+        if (creatorCaptionNoResultTimer) clearTimeout(creatorCaptionNoResultTimer);
+        creatorCaptionNoResultTimer = null;
+        try { creatorCaptionMicStream?.getTracks().forEach(t => t.stop()); } catch (e) {}
+        creatorCaptionMicStream = null;
+        try { creatorCaptionAudioCtx?.close(); } catch (e) {}
+        creatorCaptionAudioCtx = null;
+        creatorCaptionAnalyser = null;
+        resetCreatorCaptionWave();
+    }
+    async function startCreatorCaptionMicMonitor() {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Máy này không hỗ trợ micro');
+        stopCreatorCaptionMicMonitor();
+        const selectedMic = ccMic?.value || 'default';
+        const audio = selectedMic && selectedMic !== 'default'
+            ? { deviceId: { exact: selectedMic }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        creatorCaptionMicStream = await navigator.mediaDevices.getUserMedia({ audio });
+        await refreshCreatorCaptionMicrophones();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx || !ccWave) return;
+        creatorCaptionAudioCtx = new AudioCtx();
+        if (creatorCaptionAudioCtx.state === 'suspended') await creatorCaptionAudioCtx.resume();
+        creatorCaptionAnalyser = creatorCaptionAudioCtx.createAnalyser();
+        creatorCaptionAnalyser.fftSize = 256;
+        creatorCaptionAudioCtx.createMediaStreamSource(creatorCaptionMicStream).connect(creatorCaptionAnalyser);
+        const data = new Uint8Array(creatorCaptionAnalyser.frequencyBinCount);
+        const bars = Array.from(ccWave.querySelectorAll('span'));
+        ccWave.classList.add('listening');
+        const draw = () => {
+            if (!creatorCaptionAnalyser || !bars.length) return;
+            creatorCaptionAnalyser.getByteFrequencyData(data);
+            const step = Math.max(1, Math.floor(data.length / bars.length));
+            bars.forEach((bar, i) => {
+                let sum = 0;
+                for (let j = 0; j < step; j++) sum += data[i * step + j] || 0;
+                const level = sum / step / 255;
+                creatorCaptionChunkPeak = Math.max(creatorCaptionChunkPeak, level);
+                creatorCaptionChunkLevelSum += level;
+                creatorCaptionChunkLevelCount += 1;
+                if (level >= 0.09) creatorCaptionChunkActiveFrames += 1;
+                const height = Math.max(6, Math.round(6 + level * 28));
+                bar.style.height = height + 'px';
+                bar.style.opacity = String(0.42 + Math.min(0.58, level * 1.6));
+            });
+            creatorCaptionWaveRaf = requestAnimationFrame(draw);
+        };
+        draw();
     }
     async function testCreatorCaptionMicrophone() {
         if (!navigator.mediaDevices?.getUserMedia) { setCreatorCaptionStatus('Máy này không hỗ trợ kiểm tra micro', 'err'); return; }
@@ -3004,47 +3145,231 @@
             const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId } : true });
             stream.getTracks().forEach(t => t.stop());
             await refreshCreatorCaptionMicrophones();
-            setCreatorCaptionStatus('Micro đã sẵn sàng. Nhận giọng vẫn dùng micro mặc định của hệ thống.', 'ok');
+            setCreatorCaptionStatus('Micro đã sẵn sàng. App sẽ chỉ gửi đoạn có giọng rõ vào Whisper local.', 'ok');
         } catch (e) { setCreatorCaptionStatus('Không truy cập được micro: ' + e.message, 'err'); }
     }
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+            reader.onerror = () => reject(reader.error || new Error('read_audio_failed'));
+            reader.readAsDataURL(blob);
+        });
+    }
+    function encodeWavFromAudioBuffer(audioBuffer) {
+        const channels = Math.min(2, audioBuffer.numberOfChannels || 1);
+        const sampleRate = audioBuffer.sampleRate;
+        const samples = audioBuffer.length;
+        const bytesPerSample = 2;
+        const blockAlign = channels * bytesPerSample;
+        const buffer = new ArrayBuffer(44 + samples * blockAlign);
+        const view = new DataView(buffer);
+        function writeString(offset, text) {
+            for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+        }
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + samples * blockAlign, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, channels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * blockAlign, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, samples * blockAlign, true);
+        const data = [];
+        for (let ch = 0; ch < channels; ch++) data.push(audioBuffer.getChannelData(ch));
+        let offset = 44;
+        for (let i = 0; i < samples; i++) {
+            for (let ch = 0; ch < channels; ch++) {
+                const s = Math.max(-1, Math.min(1, data[ch][i] || 0));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+                offset += 2;
+            }
+        }
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
+    function analyzeCreatorCaptionAudio(audioBuffer) {
+        const channels = Math.min(2, audioBuffer.numberOfChannels || 1);
+        const sampleRate = audioBuffer.sampleRate || 48000;
+        const samples = audioBuffer.length || 0;
+        const frameSize = Math.max(1, Math.round(sampleRate * 0.02));
+        let peak = 0;
+        let sumSquares = 0;
+        let voicedMs = 0;
+        let frameSquares = 0;
+        let frameCount = 0;
+        for (let i = 0; i < samples; i++) {
+            let sample = 0;
+            for (let ch = 0; ch < channels; ch++) sample += audioBuffer.getChannelData(ch)[i] || 0;
+            sample /= channels;
+            const abs = Math.abs(sample);
+            peak = Math.max(peak, abs);
+            const square = sample * sample;
+            sumSquares += square;
+            frameSquares += square;
+            frameCount += 1;
+            if (frameCount >= frameSize || i === samples - 1) {
+                const frameRms = Math.sqrt(frameSquares / Math.max(1, frameCount));
+                if (frameRms >= 0.012) voicedMs += (frameCount / sampleRate) * 1000;
+                frameSquares = 0;
+                frameCount = 0;
+            }
+        }
+        return {
+            durationMs: samples ? (samples / sampleRate) * 1000 : 0,
+            peak,
+            rms: samples ? Math.sqrt(sumSquares / samples) : 0,
+            voicedMs
+        };
+    }
+    async function convertBlobToWav(blob) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) throw new Error('browser_no_audio_context');
+        const ctx = new AudioCtx();
+        try {
+            const arrayBuffer = await blob.arrayBuffer();
+            const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+            return { blob: encodeWavFromAudioBuffer(audioBuffer), metrics: analyzeCreatorCaptionAudio(audioBuffer) };
+        } finally {
+            try { await ctx.close(); } catch (e) {}
+        }
+    }
+    async function sendCreatorCaptionAudio(blob, metrics, cfg) {
+        // Whisper hallucinates from silence/noise. Require sustained voice-like energy, not just one spike.
+        const peak = metrics?.peak || 0;
+        const avgLevel = metrics?.avgLevel || 0;
+        const activeFrames = metrics?.activeFrames || 0;
+        if (!blob || blob.size < 6000 || creatorCaptionTranscribing) return;
+        if (peak < 0.10 || avgLevel < 0.012 || activeFrames < 6) {
+            if (peak >= 0.06 && Date.now() - creatorCaptionLastSkipNoticeAt > 5000) {
+                creatorCaptionLastSkipNoticeAt = Date.now();
+                setCreatorCaptionTranscript('Đã nghe thấy âm thanh nhưng chưa đủ rõ để nhận giọng. Hãy nói gần mic/rõ hơn.', 'pending');
+            }
+            return;
+        }
+        const now = Date.now();
+        if (now < creatorCaptionRateLimitedUntil) return;
+        if (now - creatorCaptionLastTranscribeAt < 2500) return;
+        creatorCaptionTranscribing = true;
+        const providerLabel = 'Whisper local';
+        try {
+            setCreatorCaptionTranscript(`Đang gửi audio sang ${providerLabel} để nhận chữ...`, 'pending');
+            creatorCaptionLastTranscribeAt = Date.now();
+            const converted = await convertBlobToWav(blob);
+            const sendBlob = converted.blob;
+            const audioMetrics = converted.metrics || {};
+            if (audioMetrics.peak < 0.055 || audioMetrics.rms < 0.0065 || audioMetrics.voicedMs < 260) {
+                if (audioMetrics.peak >= 0.035 && Date.now() - creatorCaptionLastSkipNoticeAt > 5000) {
+                    creatorCaptionLastSkipNoticeAt = Date.now();
+                    setCreatorCaptionTranscript('Đã nghe âm thanh nhưng chưa đủ giống giọng nói. Bỏ qua để tránh phụ đề ảo.', 'pending');
+                }
+                return;
+            }
+            const audioBase64 = await blobToBase64(sendBlob);
+            const res = await fetch('/api/creator-caption/transcribe', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    audioBase64,
+                    mimeType: sendBlob.type || blob.type || 'audio/webm',
+                    audioMetrics,
+                    sourceLang: cfg.sourceLang,
+                    targetLangs: getSelectedCreatorCaptionTargets()
+                })
+            });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.error || 'transcribe_failed');
+            if (json.text) {
+                setCreatorCaptionTranscript(`${providerLabel} đã nhận giọng:\n${json.text}\n\nĐang dịch ra OBS...`, 'ok');
+                setCreatorCaptionStatus(`Đã nhận giọng bằng ${providerLabel} và đang dịch`, 'ok');
+            } else {
+                setCreatorCaptionTranscript(`${providerLabel} không nhận được chữ trong đoạn audio này. Hãy nói rõ hơn/gần mic hơn.`, 'pending');
+            }
+        } catch (e) {
+            setCreatorCaptionTranscript(`${providerLabel} STT lỗi: ` + e.message, 'err');
+            setCreatorCaptionStatus(`${providerLabel} STT lỗi: ` + e.message, 'err');
+        } finally {
+            creatorCaptionTranscribing = false;
+        }
+    }
+    function startCreatorCaptionLocalRecorder(cfg) {
+        if (!window.MediaRecorder) throw new Error('Máy này không hỗ trợ MediaRecorder');
+        const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+        const mimeType = types.find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+        const recordOnce = () => {
+            if (!creatorCaptionListening || !creatorCaptionMicStream) return;
+            const chunks = [];
+            creatorCaptionChunkPeak = 0;
+            creatorCaptionChunkLevelSum = 0;
+            creatorCaptionChunkLevelCount = 0;
+            creatorCaptionChunkActiveFrames = 0;
+            creatorCaptionRecorder = new MediaRecorder(creatorCaptionMicStream, mimeType ? { mimeType } : undefined);
+            creatorCaptionRecorder.ondataavailable = (ev) => {
+                if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+            };
+            creatorCaptionRecorder.onstop = () => {
+                const metrics = {
+                    peak: creatorCaptionChunkPeak,
+                    avgLevel: creatorCaptionChunkLevelCount ? creatorCaptionChunkLevelSum / creatorCaptionChunkLevelCount : 0,
+                    activeFrames: creatorCaptionChunkActiveFrames
+                };
+                creatorCaptionChunkPeak = 0;
+                creatorCaptionChunkLevelSum = 0;
+                creatorCaptionChunkLevelCount = 0;
+                creatorCaptionChunkActiveFrames = 0;
+                if (chunks.length) {
+                    const blob = new Blob(chunks, { type: creatorCaptionRecorder?.mimeType || mimeType || 'audio/webm' });
+                    sendCreatorCaptionAudio(blob, metrics, cfg);
+                }
+                creatorCaptionRecorder = null;
+                if (creatorCaptionListening) creatorCaptionRecordTimer = setTimeout(recordOnce, 150);
+            };
+            creatorCaptionRecorder.onerror = (ev) => setCreatorCaptionStatus('Thu audio lỗi: ' + (ev.error?.message || 'recorder_error'), 'err');
+            creatorCaptionRecorder.start();
+            creatorCaptionRecordTimer = setTimeout(() => {
+                try { if (creatorCaptionRecorder?.state === 'recording') creatorCaptionRecorder.stop(); } catch (e) {}
+            }, 3000);
+        };
+        recordOnce();
+    }
+    function stopCreatorCaptionLocalRecorder() {
+        if (creatorCaptionRecordTimer) clearTimeout(creatorCaptionRecordTimer);
+        creatorCaptionRecordTimer = null;
+        try {
+            if (creatorCaptionRecorder && creatorCaptionRecorder.state !== 'inactive') creatorCaptionRecorder.stop();
+        } catch (e) {}
+        creatorCaptionRecorder = null;
+        creatorCaptionTranscribing = false;
+        creatorCaptionChunkPeak = 0;
+        creatorCaptionChunkLevelSum = 0;
+        creatorCaptionChunkLevelCount = 0;
+        creatorCaptionChunkActiveFrames = 0;
+        creatorCaptionLastTranscribeAt = 0;
+        creatorCaptionRateLimitedUntil = 0;
+        creatorCaptionLastSkipNoticeAt = 0;
+    }
     async function startCreatorCaptionListening() {
-        const Ctor = getSpeechRecognitionCtor();
-        if (!Ctor) { setCreatorCaptionStatus('Máy này chưa hỗ trợ nhận giọng nói trực tiếp', 'err'); return; }
         try {
             if (ccEnabled) ccEnabled.checked = true;
             const cfg = await saveCreatorCaptionConfig();
+            setCreatorCaptionStatus('Đang xin quyền micro...', '');
+            await startCreatorCaptionMicMonitor();
+            setCreatorCaptionTranscript('Micro đã mở. Whisper local chỉ ghi nhận khi phát hiện giọng nói rõ...', 'pending');
+            creatorCaptionLastResultAt = 0;
             creatorCaptionListening = true;
-            creatorCaptionRecognition = new Ctor();
-            creatorCaptionRecognition.lang = cfg.sourceLang || 'vi-VN';
-            creatorCaptionRecognition.continuous = true;
-            creatorCaptionRecognition.interimResults = true;
-            creatorCaptionRecognition.maxAlternatives = 1;
-            creatorCaptionRecognition.onresult = (ev) => {
-                for (let i = ev.resultIndex; i < ev.results.length; i++) {
-                    const r = ev.results[i];
-                    if (!r?.isFinal) continue;
-                    const text = String(r[0]?.transcript || '').trim();
-                    if (text) {
-                        creatorCaptionBuffer = `${creatorCaptionBuffer} ${text}`.trim();
-                        scheduleCreatorCaptionFlush(cfg);
-                        setCreatorCaptionStatus(`Đã ghi nhận, chờ ngưng nói ${cfg.silenceSeconds || 2}s để dịch...`, 'ok');
-                    }
-                }
-            };
-            creatorCaptionRecognition.onerror = (ev) => setCreatorCaptionStatus('Nhận giọng: ' + (ev.error || 'lỗi'), 'err');
-            creatorCaptionRecognition.onend = () => {
-                if (!creatorCaptionListening) return;
-                creatorCaptionRestarting = true;
-                setTimeout(() => {
-                    try { creatorCaptionRecognition?.start(); setCreatorCaptionStatus('Đang nghe giọng Creator...', 'ok'); }
-                    catch (e) {}
-                    creatorCaptionRestarting = false;
-                }, 450);
-            };
-            creatorCaptionRecognition.start();
+            startCreatorCaptionLocalRecorder(cfg);
             applyCreatorCaptionConfig(cfg);
-            setCreatorCaptionStatus('Đang nghe giọng Creator...', 'ok');
-        } catch (e) { setCreatorCaptionStatus('Không bật được micro: ' + e.message, 'err'); }
+            setCreatorCaptionStatus('Đang nghe bằng Whisper local...', 'ok');
+        } catch (e) {
+            stopCreatorCaptionLocalRecorder();
+            stopCreatorCaptionMicMonitor();
+            creatorCaptionListening = false;
+            applyCreatorCaptionConfig(creatorCaptionConfig);
+            setCreatorCaptionStatus('Không bật được micro: ' + e.message, 'err');
+        }
     }
     function stopCreatorCaptionListening() {
         creatorCaptionListening = false;
@@ -3052,6 +3377,9 @@
         if (creatorCaptionConfig) flushCreatorCaptionBuffer(creatorCaptionConfig);
         try { creatorCaptionRecognition?.stop(); } catch (e) {}
         creatorCaptionRecognition = null;
+        stopCreatorCaptionLocalRecorder();
+        stopCreatorCaptionMicMonitor();
+        setCreatorCaptionTranscript('', 'pending');
         applyCreatorCaptionConfig(creatorCaptionConfig);
         setCreatorCaptionStatus('Đã dừng nghe giọng Creator', '');
     }
@@ -3061,8 +3389,8 @@
     }
     async function copyCreatorCaptionOverlayUrl() {
         const url = location.origin + '/overlay/creator-caption';
-        try { await navigator.clipboard.writeText(url); setCreatorCaptionStatus('Đã copy link OBS phụ đề', 'ok'); }
-        catch (e) { setCreatorCaptionStatus(url, 'ok'); }
+        const ok = await copyText(url);
+        setCreatorCaptionStatus(ok ? 'Đã copy link OBS phụ đề' : 'Không copy tự động được. Link: ' + url, ok ? 'ok' : 'err');
     }
     async function testCreatorCaption() {
         try {
@@ -3101,6 +3429,8 @@
         if (preset && preset !== 'auto' && ltTarget) ltTarget.value = preset;
     });
     ccSilence?.addEventListener('input', () => { if (ccSilenceV) ccSilenceV.textContent = (parseFloat(ccSilence.value || '2') || 2) + 's'; });
+    ccWhisperExe?.addEventListener('change', saveCreatorCaptionConfigSilent);
+    ccWhisperModel?.addEventListener('change', saveCreatorCaptionConfigSilent);
     ccAutoTargets?.addEventListener('change', () => {
         if (!ccAutoTargets.checked) {
             for (const lang of Array.from(creatorCaptionAutoTargets)) clearCreatorCaptionAutoTarget(lang);
@@ -3126,6 +3456,22 @@
     socket.on('translate:rules', updateTranslateSheetStatus);
     socket.on('translate:comment', (item) => { if (!isTranslatePopupOpen()) setTranslateUnread(unreadTranslations + 1); handleCreatorCaptionAutoTarget(item); });
     socket.on('creatorCaption:config', applyCreatorCaptionConfig);
+    socket.on('creatorCaption:debug', (item) => {
+        if (!isCreatorCaptionPopupOpen()) return;
+        const text = item?.text || item?.message || '';
+        if (!text) return;
+        if (item.type === 'final') setCreatorCaptionTranscript(`Đã nhận giọng:\n${text}\n\nĐang gửi đi dịch...`, 'ok');
+        else if (item.type === 'interim') setCreatorCaptionTranscript(`Đang nghe:\n${text}`, 'pending');
+        else setCreatorCaptionStatus(text, item.type === 'error' ? 'err' : 'ok');
+    });
+    socket.on('creatorCaption:line', (item) => {
+        if (!item?.originalText || !isCreatorCaptionPopupOpen()) return;
+        const translations = Array.isArray(item.translations) && item.translations.length
+            ? item.translations.map(row => `${row.targetLangLabel || row.targetLang}: ${row.translatedText || ''}`).join('\n')
+            : `${item.targetLangLabel || item.targetLang || 'Dịch'}: ${item.translatedText || ''}`;
+        setCreatorCaptionTranscript(`Đã nhận giọng:\n${item.originalText}\n\nKết quả dịch:\n${translations}`, item.error ? 'err' : 'ok');
+        setCreatorCaptionStatus(item.error ? ('Dịch lỗi: ' + item.error) : 'Đã nhận giọng và dịch xong', item.error ? 'err' : 'ok');
+    });
     setTranslateUnread(0);
     loadLiveTranslateConfig();
     loadCreatorCaptionConfig();
@@ -3333,6 +3679,9 @@
     const openSettingsPopup = () => { if (settingsPopup) settingsPopup.hidden = false; };
     document.getElementById('btn-open-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('caro-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('pktiktok-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('vipwelcome-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('live-translate-btn-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('settings-close')?.addEventListener('click', () => {
         if (settingsPopup) settingsPopup.hidden = true;
     });

@@ -1,6 +1,6 @@
 {
   "name": "hp-action-live",
-  "version": "1.0.66",
+  "version": "1.0.68",
   "description": "HP Action LIVE — TikTok Game Library cho streamer",
   "author": "HP Media",
   "main": "electron-main.js",
@@ -46,6 +46,10 @@
       {
         "from": "data",
         "to": "data"
+      },
+      {
+        "from": "tools",
+        "to": "tools"
       }
     ],
     "win": {

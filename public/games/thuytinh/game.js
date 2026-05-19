@@ -458,6 +458,7 @@
 
         let config = mergeConfig(defaultConfig(), opts.config || {});
         const DISABLED_TRIGGER_ACTIONS = new Set(['tilt', 'fireworks', 'tornado', 'geyser', 'slow']);
+        const SINGLE_RUN_TRIGGER_ACTIONS = new Set(['joinPolice', 'clear']);
         const engine = Engine.create();
         engine.gravity.y = config.physics.gravity;
 
@@ -476,6 +477,10 @@
         const imgCache = new Map();
         let spawnQueue = [];
         let spawnTicker = null;
+
+        function isEnabled() {
+            return config.enabled !== false;
+        }
 
         // ===== State =====
         const stats = {
@@ -618,6 +623,7 @@
 
         // ===== Drop =====
         function drop(g, count) {
+            if (!isEnabled()) return;
             const n = Math.max(1, parseInt(count || g.repeatCount || 1, 10));
             let triggerAction = config.triggers && config.triggers[String(g.giftId)];
             if (DISABLED_TRIGGER_ACTIONS.has(triggerAction)) triggerAction = null;
@@ -635,9 +641,15 @@
                     avatar: g.profilePicture,
                     uid: String(g.userId || g.uniqueId || '')
                 };
-                // 1 quà = 1 trigger, KHÔNG nhân theo repeatCount.
-                // Trước đây loop n lần → user gift x2 spawn 2 tên trộm cùng lúc.
-                runTriggerAction(triggerAction, userInfo);
+                handleCombo(g, n);
+                checkBigGiftFx(g, n);
+                const runs = SINGLE_RUN_TRIGGER_ACTIONS.has(triggerAction) ? 1 : n;
+                for (let i = 0; i < runs; i++) {
+                    const payload = { ...userInfo, comboIndex: i + 1, comboCount: n };
+                    const delayMs = i * 120;
+                    if (delayMs) setTimeout(() => runTriggerAction(triggerAction, payload), delayMs);
+                    else runTriggerAction(triggerAction, payload);
+                }
                 return;
             }
             for (let i = 0; i < n; i++) spawnQueue.push(g);
@@ -1422,6 +1434,19 @@
                     el.style.cssText = origStyle[i];
                     el.style.transform = origTr[i];
                 });
+                // Dốc ngược luôn phải kết thúc bằng hũ đứng thẳng. Không giữ transform cũ
+                // vì nếu lần trước bị ngắt giữa chừng, origStyle/origTr có thể đã chứa rotate.
+                [jarBottomEl, jarGlassEl].filter(Boolean).forEach(el => {
+                    el.style.transition = '';
+                    el.style.transform = '';
+                    el.style.transformOrigin = '50% 50%';
+                });
+                if (countDisplay) {
+                    countDisplay.style.transition = '';
+                    countDisplay.style.transform = 'translate(-50%, 0)';
+                    countDisplay.style.transformOrigin = '50% 50%';
+                }
+                currentTiltAngle = 0;
                 if (topHangersEl) { topHangersEl.style.transform = ''; updateTopHangers(); }
                 clearJarLandingZone(baseRect);
                 buildJarWalls();
@@ -4869,6 +4894,13 @@
                 config.triggers = patch.triggers ? JSON.parse(JSON.stringify(patch.triggers)) : {};
             }
             engine.gravity.y = config.physics.gravity;
+            if (!isEnabled()) {
+                spawnQueue.length = 0;
+                if (spawnTicker) { clearInterval(spawnTicker); spawnTicker = null; }
+                stopRandomEvents();
+                stopThiefAuto();
+                if (historyTimer) { clearInterval(historyTimer); historyTimer = null; }
+            }
             positionJar();
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown(); updateTopHangers();
@@ -4877,9 +4909,9 @@
             applyJarTheme();
             applyJarAccessory();
             renderBadges();
-            if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
-            if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
-            restartGiftHistoryTimer();
+            if (isEnabled() && config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
+            if (isEnabled() && config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
+            if (isEnabled()) restartGiftHistoryTimer();
         }
         function getConfig() { return JSON.parse(JSON.stringify(config)); }
         function getStats() {
@@ -4980,8 +5012,8 @@
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
         applyActorScales();
         applyJarAccessory();
-        if (config.features.randomEvents) startRandomEvents();
-        if (config.features.thiefAuto) startThiefAuto();
+        if (isEnabled() && config.features.randomEvents) startRandomEvents();
+        if (isEnabled() && config.features.thiefAuto) startThiefAuto();
         // Runner FIXED delta — Matter.js default isFixed:false sẽ adapt dt theo real time.
         // Khi OBS browser source giới hạn FPS (mặc định 30fps trong OBS), dt tăng từ 16.67ms → 33ms
         // → bodies di chuyển GẤP ĐÔI mỗi tick → dễ tunneling qua tường (đáy hũ, sàn world).

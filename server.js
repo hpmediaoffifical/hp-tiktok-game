@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 const express = require('express');
 const { Server: SocketIOServer } = require('socket.io');
 const fetch = require('node-fetch');
@@ -278,6 +279,8 @@ const DEFAULT_CREATOR_CAPTION_CONFIG = {
     sourceLang: 'vi-VN',
     targetLang: 'en',
     targetLangs: ['en'],
+    whisperLocalExe: '',
+    whisperLocalModel: '',
     showOriginal: true,
     maxItems: 3,
     holdSeconds: 12,
@@ -507,6 +510,8 @@ function sanitizeCreatorCaptionConfig(input) {
     cfg.targetLangs = rawTargets.map(x => String(x || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12)).filter(x => allowed.includes(x)).slice(0, 8);
     if (!cfg.targetLangs.length) cfg.targetLangs = [cfg.targetLang || DEFAULT_CREATOR_CAPTION_CONFIG.targetLang];
     cfg.targetLang = cfg.targetLangs[0];
+    cfg.whisperLocalExe = String(cfg.whisperLocalExe || '').trim().slice(0, 500);
+    cfg.whisperLocalModel = String(cfg.whisperLocalModel || '').trim().slice(0, 500);
     cfg.showOriginal = cfg.showOriginal !== false;
     cfg.autoTargetsEnabled = cfg.autoTargetsEnabled !== false;
     cfg.autoTargetTimeoutSeconds = Math.max(5, Math.min(3600, parseInt(cfg.autoTargetTimeoutSeconds, 10) || DEFAULT_CREATOR_CAPTION_CONFIG.autoTargetTimeoutSeconds));
@@ -522,6 +527,172 @@ function sourceLangForTranslate(lang) {
     return short || 'auto';
 }
 
+let lastCreatorCaptionNorm = '';
+let lastCreatorCaptionAt = 0;
+function normalizeCaptionDedupeText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/[\s\p{P}\p{S}]+/gu, ' ')
+        .trim();
+}
+function isLikelyWhisperHallucination(text) {
+    const norm = normalizeCaptionDedupeText(text);
+    if (!norm) return true;
+    const words = norm.split(/\s+/).filter(Boolean);
+    const exact = new Set([
+        'thank you for watching',
+        'thanks for watching',
+        'see you next time',
+        'see you again in the next video',
+        'dont forget to like and subscribe',
+        'do not forget to like and subscribe',
+        'so you dont miss out on interesting videos',
+        'this may be of some help',
+        'where are you from',
+        'what are you from',
+        'skip',
+        'face name',
+        'shall we do something',
+        'de khong bo lo nhung video hap dan',
+        'de khong bo lo nhung video moi nhat',
+        'de khong bo lo nhung video tiep theo',
+        'hay dang ky kenh',
+        'nho dang ky kenh',
+        'cam on cac ban a',
+        'cam on moi nguoi',
+        'cam on cac ban da theo doi',
+        'hen gap lai cac ban trong video tiep theo'
+    ]);
+    if (exact.has(norm)) return true;
+    const suspicious = [
+        'dont miss out on interesting videos',
+        'miss out on interesting videos',
+        'see you again in the next video',
+        'in the next video',
+        'like and subscribe',
+        'thanks for watching',
+        'thank you for watching',
+        'this may be of some help',
+        'where are you from',
+        'so you dont miss out',
+        'shall we do something',
+        'face name',
+        'skip',
+        'de khong bo lo',
+        'nhung video hap dan',
+        'nhung video moi nhat',
+        'nhung video tiep theo',
+        'dang ky kenh',
+        'cam on cac ban a',
+        'cam on moi nguoi',
+        'cam on cac ban da theo doi',
+        'hen gap lai cac ban trong video'
+    ];
+    if (suspicious.some(s => norm.includes(s))) return true;
+    // Very short generic English questions often appear from silence in multilingual models.
+    if (words.length <= 5 && /^(who|what|where|how|why)\b/.test(norm)) return true;
+    return false;
+}
+
+function validateCreatorCaptionAudioMetrics(metrics) {
+    if (!metrics || typeof metrics !== 'object') throw new Error('missing_audio_metrics');
+    const peak = Number(metrics.peak) || 0;
+    const rms = Number(metrics.rms) || 0;
+    const voicedMs = Number(metrics.voicedMs) || 0;
+    const durationMs = Number(metrics.durationMs) || 0;
+    if (durationMs && durationMs < 400) throw new Error('audio_too_short');
+    if (peak < 0.055 || rms < 0.0065 || voicedMs < 260) throw new Error('audio_not_voice_like');
+}
+
+function sourceLangForTranscription(lang) {
+    const short = sourceLangForTranslate(lang);
+    return short === 'auto' ? '' : short;
+}
+
+async function transcribeCreatorCaptionAudio(payload) {
+    const cfg = sanitizeCreatorCaptionConfig(appConfig.creatorCaption);
+    return transcribeCreatorCaptionAudioLocal(payload, cfg);
+}
+
+function runWhisperLocal(exePath, args, timeoutMs = 45000) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(exePath, args, { windowsHide: true });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            try { child.kill(); } catch (e) {}
+            reject(new Error('whisper_local_timeout'));
+        }, timeoutMs);
+        child.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        child.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        child.on('error', err => { clearTimeout(timer); reject(err); });
+        child.on('close', code => {
+            clearTimeout(timer);
+            if (code !== 0) return reject(new Error((stderr || stdout || `whisper_exit_${code}`).trim()));
+            resolve((stdout || stderr || '').trim());
+        });
+    });
+}
+
+function cleanWhisperOutput(text) {
+    return String(text || '')
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*\[[^\]]+\]\s*/g, '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function bundledResourcePath(...parts) {
+    const roots = [__dirname];
+    if (process.resourcesPath && process.resourcesPath !== __dirname) roots.push(process.resourcesPath);
+    for (const root of roots) {
+        const p = path.join(root, ...parts);
+        if (fs.existsSync(p)) return p;
+    }
+    return '';
+}
+
+function resolveWhisperLocalExe(cfg) {
+    if (cfg.whisperLocalExe && fs.existsSync(cfg.whisperLocalExe)) return cfg.whisperLocalExe;
+    return bundledResourcePath('tools', 'whisper', 'Release', 'whisper-cli.exe')
+        || bundledResourcePath('tools', 'whisper', 'whisper-cli.exe');
+}
+
+function resolveWhisperLocalModel(cfg) {
+    if (cfg.whisperLocalModel && fs.existsSync(cfg.whisperLocalModel)) return cfg.whisperLocalModel;
+    return bundledResourcePath('tools', 'whisper', 'models', 'ggml-base.bin');
+}
+
+async function transcribeCreatorCaptionAudioLocal(payload, cfg) {
+    validateCreatorCaptionAudioMetrics(payload?.audioMetrics);
+    const whisperExe = resolveWhisperLocalExe(cfg);
+    const whisperModel = resolveWhisperLocalModel(cfg);
+    if (!whisperExe) throw new Error('missing_whisper_local_exe');
+    if (!whisperModel) throw new Error('missing_whisper_local_model');
+    const b64 = String(payload?.audioBase64 || '').replace(/^data:audio\/[^;]+;base64,/, '');
+    if (!b64) throw new Error('missing_audio');
+    const audio = Buffer.from(b64, 'base64');
+    if (!audio.length || audio.length > 12 * 1024 * 1024) throw new Error('invalid_audio_size');
+    const tmpDir = path.join(DATA_DIR, 'tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    const wavPath = path.join(tmpDir, `creator-caption-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.wav`);
+    fs.writeFileSync(wavPath, audio);
+    try {
+        const lang = sourceLangForTranscription(payload?.sourceLang || cfg.sourceLang) || 'auto';
+        const args = ['-m', whisperModel, '-f', wavPath, '-nt', '-np', '-nf', '-sns', '-nth', '0.75'];
+        if (lang && lang !== 'auto') args.push('-l', lang);
+        const out = await runWhisperLocal(whisperExe, args);
+        return cleanWhisperOutput(out);
+    } finally {
+        try { fs.unlinkSync(wavPath); } catch (e) {}
+    }
+}
+
 function isLiveTranslateExcludedSource(detectedLang, cfg) {
     const excluded = sourceLangForTranslate(cfg.excludedSourceLang);
     if (!excluded || excluded === 'auto') return false;
@@ -534,9 +705,24 @@ async function processCreatorCaptionSpeech(payload) {
         cfg.targetLangs = sanitizeCreatorCaptionConfig({ ...cfg, targetLangs: payload.targetLangs }).targetLangs;
         cfg.targetLang = cfg.targetLangs[0];
     }
+    if (payload?.sourceLang) {
+        cfg.sourceLang = sanitizeCreatorCaptionConfig({ ...cfg, sourceLang: payload.sourceLang }).sourceLang;
+    }
     if (!cfg.enabled) return;
     const originalText = String(payload?.text || '').trim().replace(/\s{2,}/g, ' ').slice(0, 450);
     if (!originalText) return;
+    if (isLikelyWhisperHallucination(originalText)) {
+        io.emit('creatorCaption:debug', { type: 'status', text: 'Bỏ qua câu nghi ảo giác Whisper: ' + originalText, ts: Date.now() });
+        return;
+    }
+    const norm = normalizeCaptionDedupeText(originalText);
+    const now = Date.now();
+    if (norm && norm === lastCreatorCaptionNorm && (now - lastCreatorCaptionAt) < 30000) {
+        io.emit('creatorCaption:debug', { type: 'status', text: 'Bỏ qua phụ đề trùng lặp: ' + originalText, ts: now });
+        return;
+    }
+    lastCreatorCaptionNorm = norm;
+    lastCreatorCaptionAt = now;
     try {
         const translations = await Promise.all(cfg.targetLangs.map(async targetLang => {
             const result = await translateTextToTarget(originalText, sourceLangForTranslate(cfg.sourceLang), targetLang);
@@ -1026,9 +1212,10 @@ function attachConnectionEvents(conn) {
 
     conn.on(WebcastEvent.GIFT, (data) => {
         const giftType = data?.giftDetails?.giftType ?? data?.gift?.gift_type ?? data?.giftType;
-        const isStreak = giftType === 1;
+        const isStreak = Number(giftType) === 1;
         maybeTriggerPkItemFromGift(data);
-        if (isStreak && !data?.repeatEnd) return;
+        const repeatEnded = data?.repeatEnd ?? data?.repeat_end ?? data?.isStreakEnd ?? data?.is_streak_end;
+        if (isStreak && !repeatEnded) return;
         rememberUserMapping(data?.user?.userId, data?.user?.uniqueId);
         emitGift({
             uniqueId: data?.user?.uniqueId,
@@ -1041,7 +1228,7 @@ function attachConnectionEvents(conn) {
             giftName: data?.giftDetails?.giftName || data?.gift?.name || data?.giftName,
             giftPicture: data?.giftDetails?.giftImage?.giftPictureUrl || data?.gift?.image?.url_list?.[0],
             diamondCount: data?.giftDetails?.diamondCount ?? data?.gift?.diamond_count,
-            repeatCount: data?.repeatCount ?? 1,
+            repeatCount: normalizeGiftRepeatCount(data),
             source: 'tiktok'
         });
     });
@@ -1698,6 +1885,18 @@ function recordUnknownGift(g) {
 
 // Retry lookup icon cho gift chưa có image — quét lại availableGifts sau khi connect ổn định
 const giftIconRetryAttempts = new Map();   // id → number of attempts
+function normalizeGiftRepeatCount(data) {
+    const raw = data?.repeatCount
+        ?? data?.repeat_count
+        ?? data?.comboCount
+        ?? data?.combo_count
+        ?? data?.gift?.repeat_count
+        ?? data?.gift?.repeatCount
+        ?? data?.giftDetails?.repeatCount
+        ?? 1;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 500) : 1;
+}
 function scheduleGiftIconRetry(id) {
     const attempts = giftIconRetryAttempts.get(id) || 0;
     if (attempts >= 5) return;   // bỏ cuộc sau 5 lần
@@ -2061,6 +2260,25 @@ app.post('/api/creator-caption/config', (req, res) => {
     saveAppConfig();
     io.emit('creatorCaption:config', appConfig.creatorCaption);
     res.json({ ok: true, config: appConfig.creatorCaption });
+});
+
+app.post('/api/creator-caption/transcribe', async (req, res) => {
+    try {
+        const text = await transcribeCreatorCaptionAudio(req.body || {});
+        if (text) {
+            io.emit('creatorCaption:debug', { type: 'final', text, ts: Date.now() });
+            await processCreatorCaptionSpeech({
+                text,
+                sourceLang: req.body?.sourceLang,
+                targetLangs: req.body?.targetLangs
+            });
+        }
+        res.json({ ok: true, text });
+    } catch (e) {
+        const error = e?.message || 'transcribe_failed';
+        io.emit('creatorCaption:debug', { type: 'error', text: error, ts: Date.now() });
+        res.status(502).json({ ok: false, error });
+    }
 });
 
 app.post('/api/creator-caption/test', (req, res) => {
@@ -3573,6 +3791,9 @@ io.on('connection', (socket) => {
 
     socket.on('creatorCaption:speech', (payload) => {
         processCreatorCaptionSpeech(payload).catch(e => console.warn('[creator-caption] translate failed:', e.message));
+    });
+    socket.on('creatorCaption:debug', (payload) => {
+        io.emit('creatorCaption:debug', { ...(payload || {}), ts: Date.now() });
     });
 
     socket.on('subscribe', (roomName) => {
