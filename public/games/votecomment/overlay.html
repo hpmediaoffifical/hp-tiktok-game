@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP Vote Bình Luận — OBS Overlay</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+    #stage {
+        position: fixed; inset: 0;
+        background: transparent; overflow: hidden; pointer-events: none;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+    }
+    /* Layout linh hoạt — fit theo viewport (OBS browser source bất kỳ size đều OK).
+       Scale (config) là zoom thêm sau khi đã fit. xPercent/yPercent dịch trong-khung. */
+    #content {
+        position: relative;
+        width: 100%; max-width: 1080px;
+        transform: translate(var(--dx, 0%), var(--dy, 0%)) scale(var(--scale, 1));
+        transform-origin: center center;
+        display: flex; flex-direction: column;
+        background: transparent;
+    }
+    .vc-panel {
+        margin: 0;
+        background: var(--overlay-bg, rgba(28,28,28,0.55));
+        border-radius: 28px;
+        padding: 32px 36px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
+        backdrop-filter: blur(6px);
+        color: var(--text-color, #fff);
+    }
+    .vc-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 22px;
+    }
+    .vc-title {
+        font-weight: 900;
+        font-size: var(--title-size, 56px);
+        line-height: 1.05;
+        letter-spacing: 0.4px;
+        text-shadow: 0 4px 16px rgba(0,0,0,0.55);
+        flex: 1; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .vc-clock {
+        font-weight: 900;
+        font-size: 64px;
+        line-height: 1;
+        padding: 14px 22px;
+        border-radius: 18px;
+        background: rgba(0,0,0,0.55);
+        border: 2px solid rgba(255,255,255,0.18);
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 3px 10px rgba(0,0,0,0.55);
+    }
+    .vc-clock.urgent { color: #ffd24d; border-color: #ffd24d; animation: vcPulse 0.9s ease-in-out infinite; }
+    .vc-clock.done { color: #ff6b6b; border-color: #ff6b6b; }
+    @keyframes vcPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+
+    .vc-rows { display: flex; flex-direction: column; gap: 14px; }
+
+    /* ===== TOP 1 highlight — layered: 👑 crown + viền vàng glow + shimmer + tint vàng + scale ===== */
+    .vc-row.vc-top1 {
+        transform: scale(1.06);
+        z-index: 2;
+        border: 2px solid rgba(255, 206, 77, 0.9);
+        background:
+            linear-gradient(90deg, rgba(255, 206, 77, 0.18), rgba(255, 206, 77, 0.06) 50%, rgba(255, 206, 77, 0.18)),
+            var(--row-bg, var(--item-bg, rgba(139,0,0,0.45)));
+        box-shadow:
+            0 0 0 0 rgba(255, 206, 77, 0.7),
+            0 8px 28px rgba(0, 0, 0, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.16);
+        animation: vcTop1Pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes vcTop1Pulse {
+        0%, 100% {
+            box-shadow:
+                0 0 0 0 rgba(255, 206, 77, 0.55),
+                0 8px 28px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.16);
+        }
+        50% {
+            box-shadow:
+                0 0 0 8px rgba(255, 206, 77, 0),
+                0 12px 36px rgba(255, 206, 77, 0.32),
+                inset 0 1px 0 rgba(255, 255, 255, 0.22);
+        }
+    }
+    /* 👑 Crown chèn vào vc-key qua ::before — không cần đổi JS */
+    .vc-row.vc-top1 .vc-key::before {
+        content: '👑';
+        margin-right: 6px;
+        font-size: calc(var(--item-size, 36px) * 0.85);
+        filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
+        vertical-align: middle;
+    }
+    /* Shimmer chạy ngang thanh máu của TOP 1 */
+    .vc-row.vc-top1 .vc-bar {
+        opacity: 0.40;
+    }
+    .vc-row.vc-top1 .vc-bar::after {
+        content: '';
+        position: absolute; inset: 0;
+        background: linear-gradient(100deg,
+            transparent 30%,
+            rgba(255, 255, 255, 0.55) 50%,
+            transparent 70%
+        );
+        animation: vcTop1Shimmer 2.2s linear infinite;
+        pointer-events: none;
+    }
+    @keyframes vcTop1Shimmer {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+    /* Bar cần position relative để ::after absolute */
+    .vc-row .vc-bar { position: absolute; }
+    /* GRID layout — mỗi cell có CỘT cố định để tất cả rows align thẳng dọc.
+       Cột co theo --item-size để vẫn đẹp khi user đổi cỡ chữ. */
+    .vc-row {
+        position: relative;
+        display: grid;
+        grid-template-columns:
+            calc(var(--item-size, 36px) * 2.4)   /* key — 3 ký tự */
+            calc(var(--item-size, 36px) * 1.6)   /* gift icon */
+            1fr                                   /* label — co dãn */
+            calc(var(--item-size, 36px) * 2.8)   /* pct */
+            calc(var(--item-size, 36px) * 4.2);  /* cnt + unit */
+        align-items: center;
+        gap: 18px;
+        padding: 0 22px;
+        height: var(--item-height, 84px);
+        border-radius: 18px;
+        background: var(--row-bg, var(--item-bg, rgba(139,0,0,0.45)));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 6px 18px rgba(0,0,0,0.32);
+        overflow: hidden;
+        color: var(--text-color, #fff);
+        font-size: var(--item-size, 36px);
+        font-weight: 800;
+        line-height: 1;
+    }
+    /* Mỗi cell tự center dọc + đặt z-index trên bar */
+    .vc-row .vc-cell { display: flex; align-items: center; min-width: 0; }
+    /* Bar absolute background — span toàn row (vượt grid) */
+    .vc-row .vc-bar { grid-column: 1 / -1; grid-row: 1; }
+    .vc-row .vc-bar {
+        position: absolute; inset: 0;
+        background: linear-gradient(90deg, var(--bar-color, #ffce4d) 0%, color-mix(in srgb, var(--bar-color, #ffce4d) 75%, #fff) 100%);
+        width: 0%;
+        transition: width 0.45s cubic-bezier(.22,.61,.36,1);
+        opacity: 0.32;
+        z-index: 0;
+    }
+    .vc-row.no-bar .vc-bar { display: none; }
+    .vc-row > .vc-cell { position: relative; z-index: 1; }
+    .vc-row .vc-key {
+        font-size: calc(var(--item-size, 36px) * 1.1);
+        font-weight: 900;
+        justify-content: center;
+        padding: 4px 10px;
+        border-radius: 10px;
+        background: rgba(0,0,0,0.30);
+        text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+        white-space: nowrap;
+    }
+    .vc-row .vc-gift {
+        justify-content: center;
+    }
+    .vc-row .vc-gift img {
+        height: calc(var(--item-size, 36px) * 1.15);
+        width: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    }
+    .vc-row .vc-gift .vc-gift-emoji {
+        font-size: calc(var(--item-size, 36px) * 1.0);
+        opacity: 0.75;
+    }
+    .vc-row .vc-label {
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.65);
+        position: relative;
+    }
+    /* Label cần block để marquee + overflow hoạt động; nhưng vẫn căn giữa dọc qua grid align-items */
+    .vc-row .vc-cell.vc-label { display: block; align-self: center; }
+    /* Marquee cho label vượt khung — chữ chạy ngang vô hạn để user đọc trọn nội dung dài */
+    .vc-row .vc-label.vc-marquee {
+        text-overflow: clip;
+        mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+        -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+    }
+    .vc-row .vc-label.vc-marquee .vc-marquee-track {
+        display: inline-block;
+        animation: vcMarqueeScroll var(--marquee-duration, 12s) linear infinite;
+        padding-left: 100%;
+    }
+    @keyframes vcMarqueeScroll {
+        from { transform: translateX(0); }
+        to   { transform: translateX(-100%); }
+    }
+    .vc-row .vc-pct {
+        font-weight: 900;
+        font-size: calc(var(--item-size, 36px) * 1.0);
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+        justify-content: flex-end;
+    }
+    .vc-row .vc-cnt {
+        font-weight: 900;
+        font-size: calc(var(--item-size, 36px) * 0.95);
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        white-space: nowrap;
+        justify-content: flex-end;
+    }
+    .vc-row .vc-cnt .vc-cnt-unit {
+        font-size: calc(var(--item-size, 36px) * 0.70);
+        font-weight: 700;
+        opacity: 0.9;
+        margin-left: 4px;
+        letter-spacing: 0.5px;
+    }
+
+    /* Inactive (idle) state: dim the panel */
+    body.offline #content, body.offline #stage { background: transparent; }
+    #content.idle { opacity: 0.78; }
+
+    /* POPOUT MODE — cửa sổ riêng dùng để monitor trên PC */
+    body.popout-mode {
+        background:
+            linear-gradient(45deg, #0d0d11 25%, #15151b 25%, #15151b 50%, #0d0d11 50%, #0d0d11 75%, #15151b 75%, #15151b 100%) 0 0 / 32px 32px;
+    }
+    body.popout-mode #stage { padding: 16px; }
+
+    .debug-pill {
+        position: fixed; bottom: 8px; left: 8px;
+        background: rgba(0,0,0,0.5);
+        color: #fff; font: 11px/1.2 monospace;
+        padding: 4px 8px; border-radius: 6px;
+        z-index: 9999; opacity: 0.5;
+    }
+    .debug-pill.hidden { display: none; }
+</style>
+</head>
+<body>
+    <div id="stage">
+        <div id="content">
+            <div class="vc-panel">
+                <div class="vc-head">
+                    <div class="vc-title" id="vc-title">BIỂU QUYẾT</div>
+                    <div class="vc-clock" id="vc-clock">00:00</div>
+                </div>
+                <div class="vc-rows" id="vc-rows"></div>
+            </div>
+        </div>
+    </div>
+    <div class="debug-pill hidden" id="debug">connecting…</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/games/votecomment/game.js"></script>
+    <script>
+    (function () {
+        const debugEl = document.getElementById('debug');
+        const content = document.getElementById('content');
+        const titleEl = document.getElementById('vc-title');
+        const clockEl = document.getElementById('vc-clock');
+        const rowsEl = document.getElementById('vc-rows');
+        let currentCfg = null;
+        let currentState = null;
+        let clockTimer = null;
+
+        function applyDisplayCfg() {
+            const d = currentCfg?.display || {};
+            content.style.setProperty('--scale', (d.scale || 100) / 100);
+            // xPercent/yPercent 50 = chính giữa (default). Lệch khỏi 50 = dịch trong khung.
+            content.style.setProperty('--dx', ((d.xPercent ?? 50) - 50) + '%');
+            content.style.setProperty('--dy', ((d.yPercent ?? 50) - 50) + '%');
+            content.style.setProperty('--title-size', (d.titleSize || 56) + 'px');
+            content.style.setProperty('--item-size', (d.itemSize || 36) + 'px');
+            content.style.setProperty('--item-height', (d.itemHeight || 84) + 'px');
+            content.style.setProperty('--overlay-bg', d.overlayBg || 'rgba(28,28,28,0.55)');
+            content.style.setProperty('--item-bg', d.itemBg || 'rgba(139,0,0,0.45)');
+            content.style.setProperty('--bar-color', d.barColor || '#ffce4d');
+            content.style.setProperty('--text-color', d.textColor || '#ffffff');
+        }
+
+        function renderRows() {
+            if (!currentState) return;
+            const rowsRaw = currentState.rows || [];
+            const mode = currentState.countingMode || 'both';
+            const weights = { commentWeight: currentState.commentWeight, giftWeight: currentState.giftWeight };
+            const total = window.HpGame.votecomment.totalPoints(rowsRaw, mode, weights);
+            const showBar = currentCfg?.display?.showBar !== false;
+
+            // Sort theo points DESC (stable — giữ thứ tự gốc khi cùng điểm)
+            const sorted = rowsRaw.map((r, i) => ({ r, i, pts: window.HpGame.votecomment.rowPoints(r, mode, weights) }))
+                .sort((a, b) => b.pts - a.pts || a.i - b.i);
+            const rows = sorted.map(x => x.r);
+            // TOP 1 chỉ khi điểm > 0 (tránh highlight khi chưa ai vote)
+            const top1Id = (sorted[0] && sorted[0].pts > 0) ? sorted[0].r.id : null;
+
+            // Build / reuse row nodes by id (avoids re-flicker)
+            const wantedIds = new Set(rows.map(r => r.id));
+            for (const child of Array.from(rowsEl.children)) {
+                if (!wantedIds.has(child.dataset.id)) child.remove();
+            }
+
+            rows.forEach(r => {
+                let node = rowsEl.querySelector(`[data-id="${CSS.escape(r.id)}"]`);
+                if (!node) {
+                    node = document.createElement('div');
+                    node.className = 'vc-row';
+                    node.dataset.id = r.id;
+                    node.innerHTML = `
+                        <div class="vc-bar"></div>
+                        <div class="vc-cell vc-key"></div>
+                        <div class="vc-cell vc-gift"></div>
+                        <div class="vc-cell vc-label"></div>
+                        <div class="vc-cell vc-pct"></div>
+                        <div class="vc-cell vc-cnt"></div>
+                    `;
+                    rowsEl.appendChild(node);
+                }
+                const pts = window.HpGame.votecomment.rowPoints(r, mode, weights);
+                const pct = total > 0 ? (pts / total * 100) : 0;
+                node.querySelector('.vc-key').textContent = r.keyword || '—';
+                // Gift cell: CHỈ hiện icon (image quà nếu gán, hoặc emoji 🎁)
+                const giftEl = node.querySelector('.vc-gift');
+                if (r.giftImage) {
+                    giftEl.innerHTML = '';
+                    const img = document.createElement('img');
+                    img.src = r.giftImage;
+                    img.alt = r.giftName || 'gift';
+                    img.onerror = () => { giftEl.innerHTML = '<span class="vc-gift-emoji">🎁</span>'; };
+                    giftEl.appendChild(img);
+                } else {
+                    giftEl.innerHTML = '<span class="vc-gift-emoji">🎁</span>';
+                }
+                applyLabel(node.querySelector('.vc-label'), r.label || '');
+                node.querySelector('.vc-pct').textContent = pct.toFixed(0) + '%';
+                // Cnt cell giờ hiện ĐIỂM (số + nhãn tuỳ chỉnh) thay vì comment count
+                const cntEl = node.querySelector('.vc-cnt');
+                const unitLabel = (currentState && currentState.pointsLabel) || 'ĐIỂM';
+                cntEl.innerHTML = pts + '<span class="vc-cnt-unit">' + escapeOverlayText(unitLabel) + '</span>';
+                node.querySelector('.vc-bar').style.width = Math.min(100, pct) + '%';
+                node.classList.toggle('no-bar', !showBar);
+                node.classList.toggle('vc-top1', r.id === top1Id);
+                node.style.removeProperty('--row-bg');   // unified itemBg — no per-row override
+            });
+            // Sort DOM order to match SORTED data order (FLIP-style animation)
+            rows.forEach((r, i) => {
+                const node = rowsEl.querySelector(`[data-id="${CSS.escape(r.id)}"]`);
+                if (node && rowsEl.children[i] !== node) {
+                    rowsEl.insertBefore(node, rowsEl.children[i]);
+                }
+            });
+
+            titleEl.textContent = currentState.title || (currentCfg?.title || '');
+            content.classList.toggle('idle', !currentState.active);
+            // Auto-fit nếu panel vượt viewport → scale down giữ tỉ lệ + nét
+            requestAnimationFrame(fitToViewport);
+        }
+
+        function escapeOverlayText(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // POPOUT mode — khi mở overlay qua window.open('...?popout=1'), tự lưu vị trí/size để
+        // lần sau mở lại restore. Theo dõi mỗi 800ms (browser không có 'move' event chuẩn).
+        const isPopout = new URLSearchParams(location.search).has('popout');
+        if (isPopout) {
+            document.body.classList.add('popout-mode');
+            const KEY = 'hp-vc-popout-bounds';
+            let lastSaved = '';
+            setInterval(() => {
+                const bounds = {
+                    x: window.screenX, y: window.screenY,
+                    w: window.outerWidth, h: window.outerHeight
+                };
+                const s = JSON.stringify(bounds);
+                if (s !== lastSaved) {
+                    lastSaved = s;
+                    try { localStorage.setItem(KEY, s); } catch (e) {}
+                }
+            }, 800);
+        }
+
+        // Áp label + auto-marquee nếu vượt khung. Sau khi set text, đo scrollWidth vs clientWidth
+        // → nếu vượt → wrap text vào <span class="vc-marquee-track"> và scale tốc độ chạy theo độ dài.
+        function applyLabel(el, text) {
+            const t = String(text || '');
+            // Skip nếu đang giữ marquee đúng nội dung — tránh restart animation mỗi render
+            if (el.dataset.label === t) return;
+            el.dataset.label = t;
+            el.classList.remove('vc-marquee');
+            el.innerHTML = '';
+            el.textContent = t;
+            // Defer measure 1 frame để DOM cập nhật xong
+            requestAnimationFrame(() => {
+                if (el.scrollWidth > el.clientWidth + 2) {
+                    const dur = Math.max(6, Math.min(30, t.length * 0.35));
+                    el.style.setProperty('--marquee-duration', dur + 's');
+                    el.classList.add('vc-marquee');
+                    const track = document.createElement('span');
+                    track.className = 'vc-marquee-track';
+                    track.textContent = t;
+                    el.innerHTML = '';
+                    el.appendChild(track);
+                }
+            });
+        }
+
+        // Tự scale panel xuống nếu nó cao hơn viewport — giữ tỉ lệ + giữ nét ở 1080×1920 OBS
+        function fitToViewport() {
+            if (!content) return;
+            // Reset scale trước khi đo
+            const baseScale = (currentCfg?.display?.scale || 100) / 100;
+            content.style.setProperty('--auto-scale', '1');
+            content.style.setProperty('--scale', String(baseScale));
+            const panel = content.querySelector('.vc-panel');
+            if (!panel) return;
+            const stage = document.getElementById('stage');
+            const stageRect = stage.getBoundingClientRect();
+            const panelH = panel.scrollHeight * baseScale;
+            const availH = stageRect.height - 48;   // padding của stage
+            if (panelH > availH) {
+                const fit = Math.max(0.2, availH / panelH);
+                content.style.setProperty('--scale', String(baseScale * fit));
+            }
+        }
+        window.addEventListener('resize', () => fitToViewport());
+
+        function renderClock() {
+            if (!currentState) { clockEl.textContent = '00:00'; clockEl.className = 'vc-clock'; return; }
+            if (!currentState.active && !currentState.endsAt) {
+                // Idle — show full configured duration
+                const dur = (currentState.durationSec || currentCfg?.durationSec || 0) * 1000;
+                clockEl.textContent = window.HpGame.votecomment.formatClock(dur);
+                clockEl.className = 'vc-clock';
+                return;
+            }
+            const left = (currentState.endsAt || 0) - Date.now();
+            clockEl.textContent = window.HpGame.votecomment.formatClock(Math.max(0, left));
+            clockEl.classList.toggle('urgent', currentState.active && left > 0 && left <= 10000);
+            clockEl.classList.toggle('done', left <= 0 && !currentState.active);
+        }
+
+        function ensureClockTick() {
+            if (clockTimer) return;
+            clockTimer = setInterval(renderClock, 250);
+        }
+
+        function applyState(state) {
+            currentState = state;
+            ensureClockTick();
+            renderClock();
+            renderRows();
+        }
+
+        const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
+
+        async function syncFromServer() {
+            try {
+                const cfgRes = await fetch('/api/games/votecomment/config');
+                if (cfgRes.ok) currentCfg = await cfgRes.json();
+                const stRes = await fetch('/api/games/votecomment/livestate');
+                if (stRes.ok) applyState(await stRes.json());
+            } catch (e) {}
+            applyDisplayCfg();
+            renderRows();
+            renderClock();
+            socket.emit('subscribe', 'overlay');
+        }
+
+        socket.on('connect', () => {
+            debugEl.textContent = 'connected';
+            debugEl.classList.remove('hidden');
+            setTimeout(() => debugEl.classList.add('hidden'), 2500);
+            syncFromServer();
+        });
+        socket.on('disconnect', (reason) => {
+            debugEl.textContent = 'disconnected: ' + reason;
+            debugEl.classList.remove('hidden');
+        });
+        socket.on('gameConfig', ({ gameId, config }) => {
+            if (gameId !== 'votecomment') return;
+            currentCfg = config;
+            applyDisplayCfg();
+            renderRows();
+            renderClock();
+        });
+        socket.on('votecomment:state', (state) => { applyState(state); });
+        socket.on('gameDisabled', ({ gameId }) => {
+            if (gameId !== 'votecomment') return;
+            // Hide content khi game tắt
+            currentState = { ...(currentState || {}), active: false, endsAt: 0 };
+            renderClock();
+            renderRows();
+        });
+
+        // Initial fetch (trước khi socket connect)
+        fetch('/api/games/votecomment/config').then(r => r.json()).then(cfg => {
+            currentCfg = cfg;
+            applyDisplayCfg();
+            renderClock();
+        }).catch(() => {});
+    })();
+    </script>
+</body>
+</html>

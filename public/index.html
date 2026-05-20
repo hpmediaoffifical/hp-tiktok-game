@@ -828,6 +828,137 @@
                 </div>
             </section>
 
+            <!-- ============ GAME VIEW: Vote Bình Luận ============ -->
+            <section id="view-votecomment" class="view game-view votecomment-view">
+                <header class="game-header">
+                    <div>
+                        <h2 id="votecomment-title">🗳 Vote Bình Luận</h2>
+                        <div class="game-sub">Khán giả bình luận từ khoá / tặng quà để bình chọn — thanh máu + % cập nhật realtime.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <label class="vc-switch" title="Bật / Tắt toàn bộ game"><input id="vc-cfg-enabled" type="checkbox" checked /><span>Bật</span></label>
+                        <button id="vc-btn-popout" class="primary small" title="Mở overlay ra cửa sổ riêng để theo dõi trên PC — vị trí và kích thước tự lưu cho lần sau">🪟 Mở overlay PC</button>
+                        <button id="vc-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link OBS</button>
+                        <button id="vc-btn-reload" class="ghost small" title="Buộc overlay reload (test layout mới)">🔄 Reload</button>
+                    </div>
+                </header>
+
+                <div class="game-body votecomment-body">
+                    <div class="col votecomment-bottom">
+                        <div class="card votecomment-card">
+                            <div class="vc-top-row">
+                                <div class="vc-field vc-field-grow">
+                                    <label for="vc-cfg-title">Tiêu đề</label>
+                                    <input id="vc-cfg-title" type="text" maxlength="120" placeholder="VD: Idol mặc đồ nào?" />
+                                </div>
+                                <div class="vc-field">
+                                    <label for="vc-cfg-duration">Thời gian (giây)</label>
+                                    <input id="vc-cfg-duration" type="number" min="10" max="7200" step="10" />
+                                </div>
+                                <div class="vc-field">
+                                    <label for="vc-cfg-points-label" title="Tên đơn vị điểm — vd ĐIỂM, TICKER, BÌNH, POINT...">Tên điểm</label>
+                                    <input id="vc-cfg-points-label" type="text" maxlength="20" placeholder="VD: ĐIỂM / TICKER" />
+                                </div>
+                                <div class="vc-field vc-clock-field">
+                                    <label>Đếm lùi</label>
+                                    <div id="vc-clock" class="vc-clock">00:00</div>
+                                </div>
+                                <div class="vc-field vc-status-field">
+                                    <label>Trạng thái</label>
+                                    <div id="vc-status"><span class="vc-pill">⏸ Sẵn sàng</span></div>
+                                </div>
+                            </div>
+
+                            <div class="vc-controls-row">
+                                <button id="vc-btn-toggle" class="primary vc-btn-toggle" title="Bắt đầu phiên bình chọn — reset điểm + chạy đồng hồ">▶ Bắt đầu</button>
+                                <button id="vc-btn-reset" class="danger" title="Reset toàn bộ điểm về 0">↺ Reset</button>
+                                <button id="vc-btn-save" class="ghost" title="Lưu cài đặt ngay (cũng tự lưu sau ~0.4s mỗi khi đổi)">💾 Lưu cài đặt</button>
+                                <span id="vc-save-flash" class="vc-save-flash" hidden>✓ Đã lưu</span>
+                                <span class="vc-controls-spacer"></span>
+                                <div class="vc-count-mode">
+                                    <span class="vc-count-mode-label">Tính điểm:</span>
+                                    <label><input type="radio" name="vc-count-mode" value="comments" /> Bình luận</label>
+                                    <label><input type="radio" name="vc-count-mode" value="gifts" /> Quà tặng</label>
+                                    <label><input type="radio" name="vc-count-mode" value="both" checked /> Cả hai</label>
+                                    <span id="vc-count-mode-warn" class="vc-count-mode-warn" hidden></span>
+                                </div>
+                            </div>
+
+                            <div class="vc-scoring-row">
+                                <div class="vc-scoring-title">🎯 Quy tắc chấm điểm</div>
+                                <div class="vc-scoring-group">
+                                    <label for="vc-cfg-comment-weight" title="Mỗi comment khớp keyword cộng bao nhiêu điểm">Bình luận ×</label>
+                                    <input id="vc-cfg-comment-weight" type="number" min="0" max="100" step="0.5" />
+                                    <span class="vc-scoring-unit">điểm/cmt</span>
+                                </div>
+                                <div class="vc-scoring-group">
+                                    <label for="vc-cfg-gift-weight" title="Mỗi 1 xu quà cộng bao nhiêu điểm (vd 2 = ưu tiên người tặng quà)">Quà ×</label>
+                                    <input id="vc-cfg-gift-weight" type="number" min="0" max="100" step="0.5" />
+                                    <span class="vc-scoring-unit">điểm/xu</span>
+                                </div>
+                                <label class="vc-switch vc-join-switch" title="CHỌN PHE: tặng quà chỉ định = gia nhập phe → MỌI quà sau đó cộng vào phe đó (bất kể loại quà gì)">
+                                    <input id="vc-cfg-join-by-gift" type="checkbox" />
+                                    <span>👥 Chọn phe (gift gia nhập)</span>
+                                </label>
+                                <span class="vc-scoring-hint">Tặng quà chỉ định = gia nhập phe đó → mọi quà tiếp theo cũng cộng vào phe</span>
+                            </div>
+
+                            <div class="vc-section">
+                                <div class="vc-section-head">
+                                    <div class="vc-section-title">📋 Các dòng bình chọn</div>
+                                    <button id="vc-add-row" class="primary small" title="Thêm 1 dòng mới">➕ Thêm dòng</button>
+                                </div>
+                                <div class="vc-section-hint">Khán giả comment đúng <b>từ khoá</b> để vote dòng đó. Quà tặng được cộng theo XU vào dòng user đã vote gần nhất.</div>
+                                <div id="vc-rows-host" class="vc-rows-host"></div>
+                            </div>
+
+                            <div class="vc-section vc-section-display">
+                                <div class="vc-section-title">🎨 Hiển thị overlay</div>
+                                <div class="vc-display-grid">
+                                    <div class="vc-disp">
+                                        <label for="vc-disp-titleSize">Cỡ chữ tiêu đề <span id="vc-disp-titleSize-val">56px</span></label>
+                                        <input id="vc-disp-titleSize" type="range" min="24" max="120" step="2" />
+                                    </div>
+                                    <div class="vc-disp">
+                                        <label for="vc-disp-itemSize">Cỡ chữ dòng <span id="vc-disp-itemSize-val">36px</span></label>
+                                        <input id="vc-disp-itemSize" type="range" min="16" max="80" step="2" />
+                                    </div>
+                                    <div class="vc-disp">
+                                        <label for="vc-disp-itemHeight">Chiều cao dòng <span id="vc-disp-itemHeight-val">84px</span></label>
+                                        <input id="vc-disp-itemHeight" type="range" min="48" max="180" step="2" />
+                                    </div>
+                                    <div class="vc-disp vc-disp-check">
+                                        <label class="vc-switch"><input id="vc-disp-showBar" type="checkbox" /><span>Hiện thanh máu</span></label>
+                                    </div>
+                                    <div class="vc-disp vc-disp-color">
+                                        <label for="vc-disp-overlayBg">Màu nền overlay <span id="vc-disp-overlayAlpha-val">55%</span></label>
+                                        <div class="vc-color-alpha">
+                                            <input id="vc-disp-overlayBg" type="color" />
+                                            <input id="vc-disp-overlayAlpha" type="range" min="0" max="100" step="5" title="Độ đục — 0% = trong suốt hoàn toàn" />
+                                        </div>
+                                    </div>
+                                    <div class="vc-disp vc-disp-color">
+                                        <label for="vc-disp-itemBg">Màu nền dòng <span id="vc-disp-itemAlpha-val">45%</span></label>
+                                        <div class="vc-color-alpha">
+                                            <input id="vc-disp-itemBg" type="color" />
+                                            <input id="vc-disp-itemAlpha" type="range" min="0" max="100" step="5" title="Độ đục — 0% = trong suốt hoàn toàn" />
+                                        </div>
+                                    </div>
+                                    <div class="vc-disp vc-disp-color">
+                                        <label for="vc-disp-barColor">Màu thanh máu</label>
+                                        <input id="vc-disp-barColor" type="color" />
+                                    </div>
+                                    <div class="vc-disp vc-disp-color">
+                                        <label for="vc-disp-textColor">Màu chữ</label>
+                                        <input id="vc-disp-textColor" type="color" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="view-live-translate" class="view game-view live-translate-view">
                 <header class="game-header">
                     <div>
@@ -1308,6 +1439,8 @@
     <script src="/games/pktiktok/pktiktok-panel.js"></script>
     <script src="/games/vipwelcome/game.js"></script>
     <script src="/games/vipwelcome/vipwelcome-panel.js"></script>
+    <script src="/games/votecomment/game.js"></script>
+    <script src="/games/votecomment/votecomment-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

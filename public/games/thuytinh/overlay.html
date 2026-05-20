@@ -91,7 +91,9 @@
         setTimeout(() => debugEl.classList.add('hidden'), 5000);
 
         let game = null;
+        let currentCfg = null;       // theo dõi config — gate gift khi enabled=false
         function ensureGame(cfg) {
+            if (cfg) currentCfg = cfg;
             if (game) return;
             // mirrorMode: true → OBS chỉ render, không tự chạy trigger logic.
             // Mọi animation đặc biệt (trộm, OSIN, hiệu ứng) chạy qua gameCmd từ App.
@@ -188,6 +190,7 @@
 
         socket.on('gameConfig', ({ gameId, config }) => {
             if (gameId !== 'thuytinh') return;
+            currentCfg = config;
             // Đảm bảo game tồn tại với config được gửi — tránh race với fetch initial
             if (!game) {
                 ensureGame(config);
@@ -204,6 +207,8 @@
         });
 
         function handleGift(g) {
+            // Game đã TẮT trong Thư viện → bỏ qua, không spawn vào hũ
+            if (currentCfg && currentCfg.enabled === false) return;
             ensureGame();
             game.drop({
                 giftId: String(g.giftId || ''),

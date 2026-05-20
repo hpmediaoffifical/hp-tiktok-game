@@ -382,7 +382,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-liveTranslate');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-liveTranslate');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -393,7 +393,16 @@
         else if (gameId === 'caro') openCaro(game);
         else if (gameId === 'pktiktok') openPkTiktok(game);
         else if (gameId === 'vipwelcome') openVipWelcome(game);
+        else if (gameId === 'votecomment') openVoteComment(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
+    }
+
+    function openVoteComment(game) {
+        if (window.HpVoteCommentPanel && typeof window.HpVoteCommentPanel.open === 'function') {
+            window.HpVoteCommentPanel.open(socket);
+        } else {
+            console.error('[votecomment] HpVoteCommentPanel chưa load');
+        }
     }
 
     function openLiveTranslateView() {
@@ -2520,8 +2529,10 @@
     socket.on('chat', appendComment);
     socket.on('gift', (g) => {
         appendGiftEvent(g);
-        // Cũng spawn vào preview thực (overlay nhận qua room 'overlay')
-        if (currentGame) spawnInGame(g);
+        // Cũng spawn vào preview thực (overlay nhận qua room 'overlay').
+        // Gate: nếu game hiện tại đang TẮT trong Thư viện → KHÔNG spawn (tránh quà rơi vào hũ
+        // khi user đã tắt). Áp dụng cho mọi game có field enabled.
+        if (currentGame && currentGame.config?.enabled !== false) spawnInGame(g);
     });
     socket.on('gameGift', (g) => {
         // tin từ server đẩy cho preview/overlay — preview cũng đã xử lý qua 'gift' event

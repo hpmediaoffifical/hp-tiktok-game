@@ -302,6 +302,9 @@
         let ctx = null;
         let noiseBuf = null;
         function ensureCtx() {
+            // Game đã TẮT trong Thư viện → mọi âm thanh tắt (defense-in-depth — caller phía
+            // app.js + overlay.html cũng đã gate spawn, đây là chốt cuối).
+            if (config.enabled === false) return null;
             if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
             return ctx;
         }
