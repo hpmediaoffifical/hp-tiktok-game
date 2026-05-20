@@ -26,7 +26,7 @@
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'pourOut',    ico: '🫗', label: 'Dốc ngược hũ (đổ hết)' },
         { key: 'gravflip',   ico: '🔃', label: 'Đảo trọng lực' },
-        { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
+        { key: 'shake',      ico: '💢', label: 'Rung hũ' },
         { key: 'rain',       ico: '☔', label: 'Mưa quà' },
         { key: 'magnet',     ico: '🧲', label: 'Nam châm' },
         { key: 'wind',       ico: '🪁', label: 'Thả diều Avatar Gió' },

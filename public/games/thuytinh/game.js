@@ -2786,7 +2786,7 @@
                 thief: 'Trộm', joinPolice: 'Gia nhập CS', osin: 'Osin nhặt quà', ufo: 'UFO hút quà',
                 shape: 'Tạo hình', fireworks: 'Pháo hoa', megaboom: 'Megaboom', tornado: 'Lốc xoáy',
                 tilt: 'Nghiêng hũ', pourOut: 'Dốc ngược hũ', gravflip: 'Đảo trọng lực',
-                shake: 'Lắc hũ', slow: 'Slow motion', rain: 'Mưa quà', geyser: 'Phun trào',
+                shake: 'Rung hũ', slow: 'Slow motion', rain: 'Mưa quà', geyser: 'Phun trào',
                 magnet: 'Nam châm', crackJar: 'Nứt hũ', stealJar: 'Trộm cả hũ',
                 combo: 'Combo', clear: 'Xoá hết hũ', kickJar: 'OSIN đá hũ', throwJar: 'OSIN ném hũ'
             };
