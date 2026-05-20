@@ -193,6 +193,9 @@
         socket.on('gameConfig', ({ gameId, config }) => {
             if (gameId !== 'thuytinh') return;
             currentCfg = config;
+            // v1.0.76 fix: SYNC gameEnabled từ config push. Trước đây chỉ update qua gameDisabled/gameEnabled
+            // events → khi overlay load với cfg.enabled=true rồi user toggle → gameEnabled stale.
+            gameEnabled = !config || config.enabled !== false;
             // Đảm bảo game tồn tại với config được gửi — tránh race với fetch initial
             if (!game) {
                 ensureGame(config);
@@ -267,9 +270,13 @@
             // Dedup phụ chỉ dành cho cmd cũ không có seq. Cmd mới có seq riêng phải được phép lặp theo combo x10/x100.
             if (seq == null) {
                 const now = Date.now();
+                // v1.0.76 fix: hash dedup window 800ms → 80ms.
+                // Bug cũ: combo crackJar/magnet/shake từ cùng user (cùng uid → cùng hash) với spacing
+                // 120ms BỊ DROP 4/5 fires → crackLevel ko đạt threshold → kính KHÔNG VỠ ở OBS.
+                // Window 80ms < 120ms → cho combo pass, vẫn catch accidental dupe (browser source clone).
                 const hashKey = cmd + ':' + JSON.stringify(payload?.thieves?.map(t=>t.uid) || payload?.uid || payload?.name || '');
                 const lastTs = recentCmdHashes.get(hashKey);
-                if (lastTs && (now - lastTs) < 800) return;
+                if (lastTs && (now - lastTs) < 80) return;
                 recentCmdHashes.set(hashKey, now);
                 // Cleanup map cũ (giữ tối đa 30 entries)
                 if (recentCmdHashes.size > 30) {
