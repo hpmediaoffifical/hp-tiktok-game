@@ -91,8 +91,9 @@
         setTimeout(() => debugEl.classList.add('hidden'), 5000);
 
         let game = null;
-        let gameEnabled = true;
+        let currentCfg = null;       // theo dõi config — gate gift khi enabled=false
         function ensureGame(cfg) {
+            if (cfg) currentCfg = cfg;
             if (game) return;
             // mirrorMode: true → OBS chỉ render, không tự chạy trigger logic.
             // Mọi animation đặc biệt (trộm, OSIN, hiệu ứng) chạy qua gameCmd từ App.
@@ -190,7 +191,7 @@
 
         socket.on('gameConfig', ({ gameId, config }) => {
             if (gameId !== 'thuytinh') return;
-            gameEnabled = !config || config.enabled !== false;
+            currentCfg = config;
             // Đảm bảo game tồn tại với config được gửi — tránh race với fetch initial
             if (!game) {
                 ensureGame(config);
@@ -207,7 +208,8 @@
         });
 
         function handleGift(g) {
-            if (!gameEnabled) return;
+            // Game đã TẮT trong Thư viện → bỏ qua, không spawn vào hũ
+            if (currentCfg && currentCfg.enabled === false) return;
             ensureGame();
             game.drop({
                 giftId: String(g.giftId || ''),
@@ -288,6 +290,8 @@
             else if (cmd === 'ufo') game.triggerUFO(payload || {});
             else if (cmd === 'kickJar') { if (game.fxKickJar) game.fxKickJar(payload || {}); }
             else if (cmd === 'throwJar') { if (game.fxThrowJar) game.fxThrowJar(payload || {}); }
+            else if (cmd === 'osinKickOut') { if (game.fxOsinKickOut) game.fxOsinKickOut(payload || {}); }
+            else if (cmd === 'dragonFire') { if (game.fxDragonFire) game.fxDragonFire(payload || {}); }
             else if (cmd === 'joinPolice') {
                 // User gia nhập / rời lực lượng CS — payload là userInfo
                 if (typeof game.togglePoliceMembership === 'function') {

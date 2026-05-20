@@ -60,7 +60,8 @@ const GAMES = {
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
             physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
             jarVisible: true,
-            maxCapacity: 0
+            maxCapacity: 0,
+            webmFxVolume: 80
         }
     },
     caro: {
@@ -102,6 +103,14 @@ const GAMES = {
         icon: '🎊',
         overlayPath: '/overlay/vipwelcome',
         defaultConfig: makeDefaultVipWelcomeConfig()
+    },
+    votecomment: {
+        id: 'votecomment',
+        name: 'Vote Bình Luận',
+        description: 'Khán giả bình luận từ khoá / tặng quà để bình chọn — thanh máu + % cập nhật realtime.',
+        icon: '🗳',
+        overlayPath: '/overlay/votecomment',
+        defaultConfig: makeDefaultVoteCommentConfig()
     }
 };
 
@@ -179,6 +188,43 @@ function makeDefaultVipWelcomeConfig() {
             textPosition: 'bottom',
             labelStyle: 'goldpink',
             showAvatar: true             // hiện avatar tròn của user (lấy từ profilePicture TikTok)
+        }
+    };
+}
+
+// ====== Vote Bình Luận — defaults ======
+// Khán giả bình luận đúng từ khoá (vd "1", "A", "đỏ") để bình chọn; quà tặng (XU) cộng dồn theo
+// dòng mà user đã vote gần nhất. Server giữ live state in-memory + broadcast realtime.
+function makeDefaultVoteCommentConfig() {
+    return {
+        enabled: true,
+        title: 'BIỂU QUYẾT',
+        durationSec: 300,
+        countingMode: 'both',          // 'comments' | 'gifts' | 'both'
+        pointsLabel: 'ĐIỂM',           // nhãn tự đặt: ĐIỂM, TICKER, BÌNH, v.v.
+        commentWeight: 1,              // trọng số: 1 comment = N điểm
+        giftWeight: 1,                 // trọng số: 1 xu quà = N điểm (vd 2 để ưu tiên người tặng quà)
+        joinByGift: false,             // CHỌN PHE: tặng quà chỉ định = gia nhập → mọi quà sau cộng vào phe đó
+        // Mỗi row giữ thêm:
+        //   giftId / giftName / giftImage : quà cụ thể được gán (optional). Khi có → quà đó chỉ
+        //   cộng XU vào row này. Khi rỗng → fallback last-vote-attribution (user comment vote
+        //   keyword nào → quà của họ vào row đó).
+        rows: [
+            { id: 'r1', keyword: '1', label: 'Lựa chọn 1', color: '', giftId: '', giftName: '', giftImage: '' },
+            { id: 'r2', keyword: '2', label: 'Lựa chọn 2', color: '', giftId: '', giftName: '', giftImage: '' }
+        ],
+        display: {
+            titleSize: 56,
+            itemSize: 36,
+            itemHeight: 84,
+            showBar: true,
+            overlayBg: 'rgba(28,28,28,0.55)',
+            itemBg: 'rgba(139,0,0,0.45)',
+            barColor: '#ffce4d',
+            textColor: '#ffffff',
+            scale: 100,
+            xPercent: 50,
+            yPercent: 50
         }
     };
 }
@@ -1208,6 +1254,7 @@ function attachConnectionEvents(conn) {
         // First-seen JOIN fallback + dedicated 'comment' trigger
         maybeFireFirstSeenJoin(uniqueId, nickname, level, profilePicture, 'chat', verified, userId);
         try { handleVipWelcomeEvent('comment', { uniqueId, nickname, level, profilePicture, verified, comment }); } catch (e) {}
+        try { handleVoteCommentChat({ uniqueId, comment }); } catch (e) {}
     });
 
     conn.on(WebcastEvent.GIFT, (data) => {
@@ -1992,6 +2039,15 @@ function emitGift(g) {
             repeatCount: g.repeatCount || 1
         });
     } catch (e) { /* non-fatal */ }
+    // Vote Bình Luận — ưu tiên row có gán giftId; fallback last-vote
+    try {
+        handleVoteCommentGift({
+            uniqueId: g.uniqueId,
+            giftId: g.giftId,
+            coinValue: enriched.coinValue || 0,
+            repeatCount: g.repeatCount || 1
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 function makeTikTokConnectOptions(extra = {}) {
@@ -2451,6 +2507,12 @@ app.post('/api/games/:id/config', (req, res) => {
     if (g.id === 'vipwelcome') {
         appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
     }
+    if (g.id === 'votecomment') {
+        // Khi panel save config (title, rows, duration, display) → đồng bộ state.
+        // Không reset counters đang chạy — counts giữ theo row.id.
+        try { voteCommentApplyConfigToState(appConfig.games.votecomment); } catch (e) {}
+        broadcastVoteCommentState({ immediate: true });
+    }
     const newEnabled = appConfig.games[g.id].enabled !== false;
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
@@ -2463,6 +2525,8 @@ app.post('/api/games/:id/config', (req, res) => {
             if (vipWelcomeDrainTimer) { clearTimeout(vipWelcomeDrainTimer); vipWelcomeDrainTimer = null; }
             io.emit('vipwelcome:stop', { ts: Date.now(), reason: 'gameDisabled' });
             io.emit('vipwelcome:queue', { size: 0 });
+        } else if (g.id === 'votecomment') {
+            voteCommentStop({ reason: 'gameDisabled' });
         }
         // Generic event cho mọi game — overlay nào lắng nghe sẽ tự clear
         io.emit('gameDisabled', { gameId: g.id, ts: Date.now() });
@@ -3072,6 +3136,9 @@ app.get('/overlay/pktiktok', (req, res) => {
 app.get('/overlay/vipwelcome', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'games', 'vipwelcome', 'overlay.html'));
 });
+app.get('/overlay/votecomment', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'votecomment', 'overlay.html'));
+});
 app.get('/overlay/translate', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'overlay', 'translate.html'));
 });
@@ -3080,6 +3147,227 @@ app.get('/overlay/creator-caption', (req, res) => {
 });
 app.get('/overlay/dashboard', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'overlay', 'dashboard.html'));
+});
+
+// ============================================================
+// VOTE BÌNH LUẬN — live state + control + chat/gift hooks
+// ============================================================
+// In-memory state (không persist) — mỗi lần app restart sẽ reset.
+// Mỗi row tính 2 nguồn điểm: comments (số bình luận khớp keyword) + giftXu (XU quà
+// của user đã vote dòng đó). Tổng điểm = comments + giftXu (hoặc 1 trong 2 tuỳ countingMode).
+let voteCommentState = {
+    active: false,
+    startedAt: 0,
+    endsAt: 0,                        // 0 = chưa start hoặc đã hết
+    title: '',
+    durationSec: 0,
+    countingMode: 'both',
+    pointsLabel: 'ĐIỂM',
+    commentWeight: 1,
+    giftWeight: 1,
+    joinByGift: false,
+    rows: [],                         // [{ id, keyword, label, color, comments, giftXu }]
+    userLastRow: {}                   // { uniqueId(lower) → rowId }
+};
+let voteCommentAutoStopTimer = null;
+let voteCommentLastBroadcast = 0;
+let voteCommentPendingBroadcast = null;
+
+function voteCommentSnapshot() {
+    return {
+        active: voteCommentState.active,
+        startedAt: voteCommentState.startedAt,
+        endsAt: voteCommentState.endsAt,
+        title: voteCommentState.title,
+        durationSec: voteCommentState.durationSec,
+        countingMode: voteCommentState.countingMode,
+        pointsLabel: voteCommentState.pointsLabel || 'ĐIỂM',
+        commentWeight: Number(voteCommentState.commentWeight) || 1,
+        giftWeight: Number(voteCommentState.giftWeight) || 1,
+        joinByGift: !!voteCommentState.joinByGift,
+        rows: voteCommentState.rows.map(r => ({
+            id: r.id, keyword: r.keyword, label: r.label, color: r.color || '',
+            giftId: r.giftId || '', giftName: r.giftName || '', giftImage: r.giftImage || '',
+            comments: r.comments | 0, giftXu: r.giftXu | 0, bonus: r.bonus | 0
+        }))
+    };
+}
+
+function broadcastVoteCommentState({ immediate = false } = {}) {
+    const send = () => {
+        voteCommentLastBroadcast = Date.now();
+        voteCommentPendingBroadcast = null;
+        io.emit('votecomment:state', voteCommentSnapshot());
+    };
+    if (immediate) {
+        if (voteCommentPendingBroadcast) { clearTimeout(voteCommentPendingBroadcast); voteCommentPendingBroadcast = null; }
+        return send();
+    }
+    // Throttle: tối đa 4 lần/giây để tránh spam socket
+    const now = Date.now();
+    const wait = Math.max(0, 250 - (now - voteCommentLastBroadcast));
+    if (voteCommentPendingBroadcast) return;
+    voteCommentPendingBroadcast = setTimeout(send, wait);
+}
+
+function clearVoteCommentAutoStop() {
+    if (voteCommentAutoStopTimer) { clearTimeout(voteCommentAutoStopTimer); voteCommentAutoStopTimer = null; }
+}
+
+function scheduleVoteCommentAutoStop() {
+    clearVoteCommentAutoStop();
+    if (!voteCommentState.active || !voteCommentState.endsAt) return;
+    const ms = voteCommentState.endsAt - Date.now();
+    if (ms <= 0) { voteCommentStop({ reason: 'timeout' }); return; }
+    voteCommentAutoStopTimer = setTimeout(() => {
+        voteCommentStop({ reason: 'timeout' });
+    }, ms + 30);
+}
+
+function voteCommentResetCounts() {
+    for (const r of voteCommentState.rows) { r.comments = 0; r.giftXu = 0; r.bonus = 0; }
+    voteCommentState.userLastRow = {};
+}
+
+function voteCommentAdjustBonus(rowId, delta) {
+    const row = voteCommentState.rows.find(r => r.id === rowId);
+    if (!row) return false;
+    const d = parseInt(delta, 10) || 0;
+    if (d === 0) return false;
+    row.bonus = (row.bonus | 0) + d;
+    broadcastVoteCommentState({ immediate: true });
+    console.log(`[votecomment] ADJUST row=${rowId} delta=${d > 0 ? '+' : ''}${d} → bonus=${row.bonus}`);
+    return true;
+}
+
+function voteCommentApplyConfigToState(cfg) {
+    // Tái sử dụng counts theo row.id nếu chưa start; nếu đang chạy thì giữ counters
+    const prev = new Map(voteCommentState.rows.map(r => [r.id, r]));
+    voteCommentState.title = String(cfg.title || '').slice(0, 120);
+    voteCommentState.durationSec = Math.max(10, Math.min(7200, parseInt(cfg.durationSec, 10) || 300));
+    voteCommentState.countingMode = ['comments', 'gifts', 'both'].includes(cfg.countingMode) ? cfg.countingMode : 'both';
+    voteCommentState.pointsLabel = String(cfg.pointsLabel || 'ĐIỂM').trim().slice(0, 20) || 'ĐIỂM';
+    const cw = parseFloat(cfg.commentWeight); voteCommentState.commentWeight = isFinite(cw) && cw >= 0 ? Math.min(100, cw) : 1;
+    const gw = parseFloat(cfg.giftWeight); voteCommentState.giftWeight = isFinite(gw) && gw >= 0 ? Math.min(100, gw) : 1;
+    voteCommentState.joinByGift = cfg.joinByGift === true;
+    const rows = Array.isArray(cfg.rows) ? cfg.rows : [];
+    voteCommentState.rows = rows.slice(0, 24).map(r => {
+        const id = String(r?.id || ('r' + Math.random().toString(36).slice(2, 8)));
+        const existing = prev.get(id);
+        return {
+            id,
+            keyword: String(r?.keyword || '').trim().slice(0, 40),
+            label: String(r?.label || '').slice(0, 120),
+            color: String(r?.color || '').slice(0, 32),
+            giftId: String(r?.giftId || '').slice(0, 40),
+            giftName: String(r?.giftName || '').slice(0, 80),
+            giftImage: String(r?.giftImage || '').slice(0, 500),
+            comments: existing ? (existing.comments | 0) : 0,
+            giftXu: existing ? (existing.giftXu | 0) : 0,
+            bonus: existing ? (existing.bonus | 0) : 0
+        };
+    });
+}
+
+function voteCommentStart() {
+    const cfg = appConfig.games.votecomment || makeDefaultVoteCommentConfig();
+    voteCommentApplyConfigToState(cfg);
+    voteCommentResetCounts();
+    voteCommentState.active = true;
+    voteCommentState.startedAt = Date.now();
+    voteCommentState.endsAt = Date.now() + voteCommentState.durationSec * 1000;
+    scheduleVoteCommentAutoStop();
+    broadcastVoteCommentState({ immediate: true });
+    console.log(`[votecomment] START — title="${voteCommentState.title}" rows=${voteCommentState.rows.length} duration=${voteCommentState.durationSec}s mode=${voteCommentState.countingMode}`);
+}
+
+function voteCommentStop({ reason } = {}) {
+    if (!voteCommentState.active && !voteCommentState.endsAt) return;
+    voteCommentState.active = false;
+    clearVoteCommentAutoStop();
+    broadcastVoteCommentState({ immediate: true });
+    console.log(`[votecomment] STOP (${reason || 'manual'})`);
+}
+
+function voteCommentReset() {
+    clearVoteCommentAutoStop();
+    voteCommentState.active = false;
+    voteCommentState.startedAt = 0;
+    voteCommentState.endsAt = 0;
+    const cfg = appConfig.games.votecomment || makeDefaultVoteCommentConfig();
+    voteCommentApplyConfigToState(cfg);
+    voteCommentResetCounts();
+    broadcastVoteCommentState({ immediate: true });
+    console.log(`[votecomment] RESET`);
+}
+
+function normalizeVoteText(s) {
+    return String(s || '').trim().toLowerCase();
+}
+
+function handleVoteCommentChat({ uniqueId, comment }) {
+    if (!voteCommentState.active) return;
+    if (!uniqueId || !comment) return;
+    const norm = normalizeVoteText(comment);
+    if (!norm) return;
+    // Match: comment chuẩn hoá EQUAL với keyword chuẩn hoá (case-insensitive, trim)
+    const hit = voteCommentState.rows.find(r => r.keyword && normalizeVoteText(r.keyword) === norm);
+    if (!hit) return;
+    hit.comments = (hit.comments | 0) + 1;
+    voteCommentState.userLastRow[String(uniqueId).toLowerCase()] = hit.id;
+    broadcastVoteCommentState();
+}
+
+function handleVoteCommentGift({ uniqueId, giftId, coinValue, repeatCount }) {
+    if (!voteCommentState.active) return;
+    const xu = (Number(coinValue) || 0) * (Number(repeatCount) || 1);
+    if (xu <= 0) return;
+    const uidLower = uniqueId ? String(uniqueId).toLowerCase() : '';
+    let row = null;
+    // (A) Quà chỉ định khớp giftId → cộng trực tiếp + nếu joinByGift thì GHI NHẬN user vào phe đó
+    if (giftId) {
+        row = voteCommentState.rows.find(r => r.giftId && String(r.giftId) === String(giftId));
+        if (row && voteCommentState.joinByGift && uidLower) {
+            voteCommentState.userLastRow[uidLower] = row.id;   // gia nhập phe
+        }
+    }
+    // (B) Không khớp → dùng fallback theo userLastRow (gia nhập trước đó qua comment hoặc qualifying-gift)
+    if (!row && uidLower) {
+        const rowId = voteCommentState.userLastRow[uidLower];
+        if (rowId) {
+            const cand = voteCommentState.rows.find(r => r.id === rowId);
+            // Mode joinByGift: cho phép dồn vào phe đã gia nhập kể cả row có giftId riêng (đó là "phe" của họ)
+            // Mode mặc định: chỉ fallback nếu row đó KHÔNG gán quà riêng (tránh "cướp" XU của row khác)
+            if (cand && (voteCommentState.joinByGift || !cand.giftId)) row = cand;
+        }
+    }
+    if (!row) return;
+    row.giftXu = (row.giftXu | 0) + xu;
+    broadcastVoteCommentState();
+}
+
+// Khởi tạo state ban đầu từ config (rows + title) để overlay đầu tiên không trống
+try { voteCommentApplyConfigToState(appConfig.games.votecomment || makeDefaultVoteCommentConfig()); } catch (e) {}
+
+// Control endpoint — start/stop/reset/adjustBonus
+app.post('/api/games/votecomment/control', (req, res) => {
+    const cmd = String(req.body?.cmd || '');
+    const c = cmd.toLowerCase();
+    if (c === 'start') voteCommentStart();
+    else if (c === 'stop') voteCommentStop({ reason: 'manual' });
+    else if (c === 'reset') voteCommentReset();
+    else if (c === 'adjustbonus') {
+        const ok = voteCommentAdjustBonus(req.body?.rowId, req.body?.delta);
+        if (!ok) return res.status(400).json({ ok: false, error: 'rowId không tồn tại hoặc delta=0' });
+    }
+    else return res.status(400).json({ ok: false, error: 'cmd phải là start|stop|reset|adjustBonus' });
+    res.json({ ok: true, state: voteCommentSnapshot() });
+});
+
+// "livestate" để tránh va với generic /api/games/:id/state — generic ưu tiên match trước
+// (server.js convention, xem CLAUDE.md).
+app.get('/api/games/votecomment/livestate', (req, res) => {
+    res.json(voteCommentSnapshot());
 });
 
 // ============================================================
@@ -3811,6 +4099,8 @@ io.on('connection', (socket) => {
                         socket.emit('gameStateSnapshot', { gameId: gid, state: gameStateCache[gid] });
                     }
                 }
+                // Vote Bình Luận: state riêng (in-memory) — đẩy snapshot ngay
+                socket.emit('votecomment:state', voteCommentSnapshot());
             }
         }
     });

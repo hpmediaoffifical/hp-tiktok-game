@@ -21,12 +21,14 @@
         { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
         { key: 'spinJar',    ico: '🌀', label: 'OSIN xoay hũ' },
+        { key: 'osinKickOut',ico: '🥾', label: 'OSIN đá tung quà' },
+        { key: 'dragonFire', ico: '🐉', label: 'Rồng phun lửa (5s)' },
         { key: 'zigzagLuck', ico: '🎰', label: 'Zikzak may mắn' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
         { key: 'pourOut',    ico: '🫗', label: 'Dốc ngược hũ (đổ hết)' },
         { key: 'gravflip',   ico: '🔃', label: 'Đảo trọng lực' },
-        { key: 'shake',      ico: '💢', label: 'Lắc hũ' },
+        { key: 'shake',      ico: '💢', label: 'Rung hũ' },
         { key: 'rain',       ico: '☔', label: 'Mưa quà' },
         { key: 'magnet',     ico: '🧲', label: 'Nam châm' },
         { key: 'wind',       ico: '🪁', label: 'Thả diều Avatar Gió' },
@@ -95,12 +97,12 @@
     }
 
     // ===== Feature toggles map =====
-    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers'];
+    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers','defaultHpAvatar'];
     const FEATURE_INPUT = {
         audio:'ft-audio', welcome:'ft-welcome', crown:'ft-crown', leaderboard:'ft-leaderboard',
         sessionTotals:'ft-totals', goalBar:'ft-goalbar', combo:'ft-combo', tierBorder:'ft-tier',
         bigGiftFx:'ft-bigfx', autoShake:'ft-autoshake', randomEvents:'ft-random', thiefAuto:'ft-thiefauto',
-        police:'ft-police', topHangers:'ft-tophangers'
+        police:'ft-police', topHangers:'ft-tophangers', defaultHpAvatar:'ft-default-hp'
     };
 
     // ===== DOM =====
@@ -174,6 +176,8 @@
         cfgShakeAtV: $('#cfg-shake-at-v'),
         cfgGoalGap: $('#cfg-goal-gap'),
         cfgGoalGapV: $('#cfg-goal-gap-v'),
+        cfgWebmVol: $('#cfg-webm-vol'),
+        cfgWebmVolV: $('#cfg-webm-vol-v'),
         cfgThiefMiss: $('#cfg-thief-miss'),
         cfgThiefMissV: $('#cfg-thief-miss-v'),
         cfgPoliceRate: $('#cfg-police-rate'),
@@ -412,7 +416,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-liveTranslate');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-liveTranslate');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -423,7 +427,16 @@
         else if (gameId === 'caro') openCaro(game);
         else if (gameId === 'pktiktok') openPkTiktok(game);
         else if (gameId === 'vipwelcome') openVipWelcome(game);
+        else if (gameId === 'votecomment') openVoteComment(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
+    }
+
+    function openVoteComment(game) {
+        if (window.HpVoteCommentPanel && typeof window.HpVoteCommentPanel.open === 'function') {
+            window.HpVoteCommentPanel.open(socket);
+        } else {
+            console.error('[votecomment] HpVoteCommentPanel chưa load');
+        }
     }
 
     function openLiveTranslateView() {
@@ -738,6 +751,7 @@
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
         bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
+        bindRange(dom.cfgWebmVol, cfg.webmFxVolume ?? 80, dom.cfgWebmVolV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
         bindRange(dom.cfgThiefMiss, missPct, dom.cfgThiefMissV);
         const polPct = Math.round((cfg.policeCatchRate ?? 0.25) * 100);
@@ -878,6 +892,7 @@
             features,
             goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
+            webmFxVolume: Math.max(0, Math.min(100, parseInt(dom.cfgWebmVol?.value, 10) || 80)),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,
             policeCatchRate: (parseInt(dom.cfgPoliceRate.value, 10) || 0) / 100,
@@ -933,6 +948,7 @@
         if (dom.cfgGdropV) dom.cfgGdropV.textContent = cfg.gift.dropHeight ?? 220;
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal.target;
         if (dom.cfgShakeAtV) dom.cfgShakeAtV.textContent = cfg.autoShakeAt;
+        if (dom.cfgWebmVolV) dom.cfgWebmVolV.textContent = cfg.webmFxVolume ?? 80;
         if (dom.cfgThiefMissV) dom.cfgThiefMissV.textContent = Math.round((cfg.thiefMissRate || 0) * 100);
         if (dom.cfgPoliceRateV) dom.cfgPoliceRateV.textContent = Math.round((cfg.policeCatchRate || 0) * 100);
         if (dom.cfgPoliceBanV) dom.cfgPoliceBanV.textContent = cfg.policeBanSec;
@@ -1918,7 +1934,7 @@
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGdrop', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGdrop', 'cfgGoal', 'cfgGoalGap', 'cfgWebmVol', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);
@@ -2553,8 +2569,10 @@
     socket.on('chat', appendComment);
     socket.on('gift', (g) => {
         appendGiftEvent(g);
-        // Cũng spawn vào preview thực (overlay nhận qua room 'overlay')
-        if (currentGame) spawnInGame(g);
+        // Cũng spawn vào preview thực (overlay nhận qua room 'overlay').
+        // Gate: nếu game hiện tại đang TẮT trong Thư viện → KHÔNG spawn (tránh quà rơi vào hũ
+        // khi user đã tắt). Áp dụng cho mọi game có field enabled.
+        if (currentGame && currentGame.config?.enabled !== false) spawnInGame(g);
     });
     socket.on('gameGift', (g) => {
         // tin từ server đẩy cho preview/overlay — preview cũng đã xử lý qua 'gift' event
