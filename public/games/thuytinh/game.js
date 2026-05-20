@@ -646,9 +646,12 @@
                 const runs = SINGLE_RUN_TRIGGER_ACTIONS.has(triggerAction) ? 1 : n;
                 for (let i = 0; i < runs; i++) {
                     const payload = { ...userInfo, comboIndex: i + 1, comboCount: n };
-                    const delayMs = i * 120;
-                    if (delayMs) setTimeout(() => runTriggerAction(triggerAction, payload), delayMs);
-                    else runTriggerAction(triggerAction, payload);
+                    // v1.0.73 fix: combo gift bị drop với các hiệu ứng single-instance (osin/ufo/kick/
+                    // throw/spin/pour/shape/tilt/stealJar) vì guard `xBusy`. Trước đây setTimeout 120ms
+                    // không đủ — call 2-N hit guard và bị bỏ. Giờ enqueue qua serial dispatcher: hiệu ứng
+                    // serial chờ busy clear rồi mới chạy tiếp; hiệu ứng parallel-safe (megaboom/shake/rain/
+                    // magnet/wind/gravflip/crackJar/zigzag/combo) vẫn fire ngay với spacing 120ms như cũ.
+                    enqueueTriggerRun(triggerAction, payload, i);
                 }
                 return;
             }
@@ -692,6 +695,74 @@
             // App broadcast cmd cho OBS replay cùng action (chỉ chạy ở authoritative mode)
             if (!mirrorMode) onTrigger(action, userInfo);
         }
+
+        // ============================================================
+        // v1.0.73 — Serial trigger queue (fix combo gift)
+        // ============================================================
+        // Bug v1.0.68 và trước: combo gift x10 → các effect single-instance (osin/ufo/pour/kick/throw/
+        // spin/shape/tilt/stealJar) chỉ chạy 1 lần. Các call 2-N hit guard `xBusy` và silently return.
+        //
+        // Fix: per-action queue. Mỗi action có queue riêng + 1 worker. Worker check busy state → khi
+        // clear thì dequeue và chạy tiếp. Effect parallel-safe (megaboom/shake/rain/magnet/wind/gravflip/
+        // crackJar/zigzagLuck/combo/fireworks/tornado/geyser/slow) → isActionBusy luôn false → drains
+        // tức thì với spacing 120ms giữ feel "rolling" cho khán giả.
+        //
+        // SERIAL_ACTIONS: list các action có guard xBusy. Predicate isActionBusy đọc trực tiếp các flag
+        // local trong IIFE để không lệch state. Khi thêm effect mới có guard, add vào đây.
+        const SERIAL_ACTIONS = new Set([
+            'osin', 'ufo', 'pourOut', 'kickJar', 'throwJar', 'spinJar',
+            'shape', 'stealJar', 'tilt'
+        ]);
+        function isActionBusy(action) {
+            switch (action) {
+                case 'pourOut':
+                case 'tilt':     return tiltAnimating || spillInProgress || jarStolen;
+                case 'osin':     return osinBusy;
+                case 'ufo':      return ufoBusy;
+                case 'kickJar':  return kickJarBusy || jarStolen;
+                case 'throwJar': return throwJarBusy || kickJarBusy || jarStolen;
+                case 'spinJar':  return spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || jarStolen;
+                case 'shape':    return shapeBusy;
+                case 'stealJar': return jarStolen;
+                default:         return false;  // parallel-safe — never queue
+            }
+        }
+        const triggerQueues = {};   // { actionName: { items: [...], pumping: bool } }
+        function enqueueTriggerRun(action, payload, comboIdx) {
+            // Parallel-safe effects: vẫn dùng spacing 120ms như cũ (feel rolling)
+            if (!SERIAL_ACTIONS.has(action)) {
+                const delayMs = (comboIdx || 0) * 120;
+                if (delayMs) setTimeout(() => runTriggerAction(action, payload), delayMs);
+                else runTriggerAction(action, payload);
+                return;
+            }
+            // Serial effects: queue + worker pump theo busy state
+            let q = triggerQueues[action];
+            if (!q) q = triggerQueues[action] = { items: [], pumping: false };
+            q.items.push(payload);
+            pumpTriggerQueue(action);
+        }
+        function pumpTriggerQueue(action) {
+            const q = triggerQueues[action];
+            if (!q || q.pumping) return;
+            q.pumping = true;
+            const tick = () => {
+                if (!q.items.length) { q.pumping = false; return; }
+                if (isActionBusy(action)) {
+                    // Đợi busy clear — poll 250ms cho responsive nhưng không tốn CPU
+                    setTimeout(tick, 250);
+                    return;
+                }
+                const payload = q.items.shift();
+                runTriggerAction(action, payload);
+                // Sau khi gọi: busy flag thường set true trong vài chục ms (effects async).
+                // Chờ 400ms để busy flag kịp set, sau đó tick để check (sẽ thấy busy → đợi tiếp).
+                // Nếu effect quá ngắn không set busy → 400ms sau tick thấy clear → dequeue tiếp ngay.
+                setTimeout(tick, 400);
+            };
+            tick();
+        }
+
         function fxCombo(userInfo) {
             const seq = (config.effects?.combo?.sequence || '').trim();
             if (!seq) return;
