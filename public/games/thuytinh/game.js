@@ -4160,32 +4160,47 @@
             const r = jarRect();
             const { name } = opts;
 
-            // 1. Spawn dragon webm overlay — full width trên + bao trùm hũ
+            // 1. Spawn webm overlay — FULL CANVAS 1080x1920.
+            // STANDARD cho mọi webm effect: full canvas → creator designe action ngay trong webm,
+            // không cần code căn vị trí. Hũ ở vị trí cố định trong canvas (theo jarRect).
+            // Tip cho người làm webm: render 1080x1920, đặt hũ giả ở vị trí thật (~center, cy~50%),
+            // action overlap hũ tại đúng toạ độ đó.
             const video = document.createElement('video');
             video.src = '/assets/jar-fx-webm/dragon.webm';
             video.autoplay = true;
-            video.muted = true;
             video.playsInline = true;
             video.loop = false;
             video.className = 'tt-dragon-fx';
-            const vidW = CANVAS_W * 0.95;
-            const vidX = (CANVAS_W - vidW) / 2;
-            // Top half — fire stream xuống hũ
-            const vidY = Math.max(0, r.cy - CANVAS_H * 0.45);
-            const vidH = CANVAS_H * 0.7;
+            // Audio: tôn trọng features.audio (OFF → mute). Volume từ config.webmFxVolume (0-100, default 80).
+            const audioOn = config.features?.audio !== false;
+            const webmVol = Math.max(0, Math.min(100, parseInt(config.webmFxVolume, 10))) || 80;
+            if (audioOn) {
+                video.muted = false;
+                video.volume = webmVol / 100;
+            } else {
+                video.muted = true;
+                video.volume = 0;
+            }
             video.style.cssText = `
                 position: absolute;
-                left: ${(vidX / CANVAS_W * 100).toFixed(2)}%;
-                top: ${(vidY / CANVAS_H * 100).toFixed(2)}%;
-                width: ${(vidW / CANVAS_W * 100).toFixed(2)}%;
-                height: ${(vidH / CANVAS_H * 100).toFixed(2)}%;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
                 object-fit: contain;
                 pointer-events: none;
                 z-index: 50;
-                mix-blend-mode: normal;
             `;
             overlayLayer.appendChild(video);
-            try { await video.play(); } catch (e) {}
+            try {
+                await video.play();
+            } catch (e) {
+                // Browser block autoplay-with-audio (vd tab background, chưa user-interact).
+                // Fallback: mute + replay → ít nhất hình vẫn chạy. OBS/foreground sẽ có audio.
+                video.muted = true;
+                video.volume = 0;
+                try { await video.play(); } catch (e2) {}
+            }
 
             // 2. Red glow halo behind jar (radial gradient orange→red fade)
             const halo = document.createElement('div');

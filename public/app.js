@@ -157,6 +157,8 @@
         cfgShakeAtV: $('#cfg-shake-at-v'),
         cfgGoalGap: $('#cfg-goal-gap'),
         cfgGoalGapV: $('#cfg-goal-gap-v'),
+        cfgWebmVol: $('#cfg-webm-vol'),
+        cfgWebmVolV: $('#cfg-webm-vol-v'),
         cfgThiefMiss: $('#cfg-thief-miss'),
         cfgThiefMissV: $('#cfg-thief-miss-v'),
         cfgPoliceRate: $('#cfg-police-rate'),
@@ -719,6 +721,7 @@
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal?.target ?? 5000;
         bindRange(dom.cfgShakeAt, cfg.autoShakeAt ?? 200, dom.cfgShakeAtV);
         bindRange(dom.cfgGoalGap, cfg.goalBarGap ?? -1.2, dom.cfgGoalGapV);
+        bindRange(dom.cfgWebmVol, cfg.webmFxVolume ?? 80, dom.cfgWebmVolV);
         const missPct = Math.round((cfg.thiefMissRate ?? 0.1) * 100);
         bindRange(dom.cfgThiefMiss, missPct, dom.cfgThiefMissV);
         const polPct = Math.round((cfg.policeCatchRate ?? 0.25) * 100);
@@ -858,6 +861,7 @@
             features,
             goal: { target: Math.max(100, parseInt(dom.cfgGoal.value, 10) || 5000) },
             goalBarGap: parseFloat(dom.cfgGoalGap?.value ?? -1.2),
+            webmFxVolume: Math.max(0, Math.min(100, parseInt(dom.cfgWebmVol?.value, 10) || 80)),
             autoShakeAt: parseInt(dom.cfgShakeAt.value, 10) || 0,
             thiefMissRate: (parseInt(dom.cfgThiefMiss.value, 10) || 0) / 100,
             policeCatchRate: (parseInt(dom.cfgPoliceRate.value, 10) || 0) / 100,
@@ -913,6 +917,7 @@
         if (dom.cfgGdropV) dom.cfgGdropV.textContent = cfg.gift.dropHeight ?? 220;
         if (dom.cfgGoalV) dom.cfgGoalV.textContent = cfg.goal.target;
         if (dom.cfgShakeAtV) dom.cfgShakeAtV.textContent = cfg.autoShakeAt;
+        if (dom.cfgWebmVolV) dom.cfgWebmVolV.textContent = cfg.webmFxVolume ?? 80;
         if (dom.cfgThiefMissV) dom.cfgThiefMissV.textContent = Math.round((cfg.thiefMissRate || 0) * 100);
         if (dom.cfgPoliceRateV) dom.cfgPoliceRateV.textContent = Math.round((cfg.policeCatchRate || 0) * 100);
         if (dom.cfgPoliceBanV) dom.cfgPoliceBanV.textContent = cfg.policeBanSec;
@@ -1899,7 +1904,7 @@
     dom.usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.btnConnect.click(); });
 
     // Config range inputs
-    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGdrop', 'cfgGoal', 'cfgGoalGap', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
+    ['cfgGravity', 'cfgBounce', 'cfgFriction', 'cfgJarH', 'cfgGmin', 'cfgGmax', 'cfgGdrop', 'cfgGoal', 'cfgGoalGap', 'cfgWebmVol', 'cfgShakeAt', 'cfgThiefMiss', 'cfgPoliceRate', 'cfgPoliceBan', 'cfgScaleLb', 'cfgScaleCaught', 'cfgScaleThief', 'cfgScalePolice', 'cfgScaleOsin', 'cfgScaleUfo']
         .forEach(k => dom[k]?.addEventListener('input', pushConfigUpdate));
     dom.cfgPoliceName?.addEventListener('input', pushConfigUpdate);
     dom.cfgShowCount?.addEventListener('change', pushConfigUpdate);

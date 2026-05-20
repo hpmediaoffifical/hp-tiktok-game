@@ -59,7 +59,8 @@ const GAMES = {
             gift: { minSize: 40, maxSize: 220, showName: false, showCount: true },
             physics: { gravity: 1.4, bounce: 0.42, friction: 0.05 },
             jarVisible: true,
-            maxCapacity: 0
+            maxCapacity: 0,
+            webmFxVolume: 80
         }
     },
     caro: {
