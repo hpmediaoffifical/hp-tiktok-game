@@ -21,6 +21,8 @@
         { key: 'kickJar',    ico: '🦵', label: 'OSIN giận đá hũ' },
         { key: 'throwJar',   ico: '💪', label: 'OSIN ném hũ lên trời' },
         { key: 'spinJar',    ico: '🌀', label: 'OSIN xoay hũ' },
+        { key: 'osinKickOut',ico: '🥾', label: 'OSIN đá tung quà' },
+        { key: 'dragonFire', ico: '🐉', label: 'Rồng phun lửa (5s)' },
         { key: 'zigzagLuck', ico: '🎰', label: 'Zikzak may mắn' },
         { key: 'shape',      ico: '🎨', label: 'Tạo hình quà' },
         { key: 'megaboom',   ico: '💥', label: 'Megaboom' },
@@ -76,12 +78,12 @@
     }
 
     // ===== Feature toggles map =====
-    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers'];
+    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers','defaultHpAvatar'];
     const FEATURE_INPUT = {
         audio:'ft-audio', welcome:'ft-welcome', crown:'ft-crown', leaderboard:'ft-leaderboard',
         sessionTotals:'ft-totals', goalBar:'ft-goalbar', combo:'ft-combo', tierBorder:'ft-tier',
         bigGiftFx:'ft-bigfx', autoShake:'ft-autoshake', randomEvents:'ft-random', thiefAuto:'ft-thiefauto',
-        police:'ft-police', topHangers:'ft-tophangers'
+        police:'ft-police', topHangers:'ft-tophangers', defaultHpAvatar:'ft-default-hp'
     };
 
     // ===== DOM =====

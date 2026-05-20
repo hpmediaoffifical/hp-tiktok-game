@@ -286,6 +286,8 @@
             else if (cmd === 'ufo') game.triggerUFO(payload || {});
             else if (cmd === 'kickJar') { if (game.fxKickJar) game.fxKickJar(payload || {}); }
             else if (cmd === 'throwJar') { if (game.fxThrowJar) game.fxThrowJar(payload || {}); }
+            else if (cmd === 'osinKickOut') { if (game.fxOsinKickOut) game.fxOsinKickOut(payload || {}); }
+            else if (cmd === 'dragonFire') { if (game.fxDragonFire) game.fxDragonFire(payload || {}); }
             else if (cmd === 'joinPolice') {
                 // User gia nhập / rời lực lượng CS — payload là userInfo
                 if (typeof game.togglePoliceMembership === 'function') {
