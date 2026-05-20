@@ -92,6 +92,7 @@
 
         let game = null;
         let currentCfg = null;       // theo dõi config — gate gift khi enabled=false
+        let gameEnabled = true;      // mirror enabled flag — gate gameCmd (osin/dragon/etc.). v1.0.75 fix: bị xoá khi merge → mọi gameCmd bị block.
         function ensureGame(cfg) {
             if (cfg) currentCfg = cfg;
             if (game) return;

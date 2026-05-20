@@ -716,7 +716,8 @@
         // local trong IIFE để không lệch state. Khi thêm effect mới có guard, add vào đây.
         const SERIAL_ACTIONS = new Set([
             'osin', 'ufo', 'pourOut', 'kickJar', 'throwJar', 'spinJar',
-            'shape', 'stealJar', 'tilt'
+            'shape', 'stealJar', 'tilt',
+            'osinKickOut', 'dragonFire'   // v1.0.75: my new effects also have busy guards
         ]);
         function isActionBusy(action) {
             switch (action) {
@@ -729,6 +730,8 @@
                 case 'spinJar':  return spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || jarStolen;
                 case 'shape':    return shapeBusy;
                 case 'stealJar': return jarStolen;
+                case 'osinKickOut': return osinKickOutBusy || kickJarBusy || throwJarBusy || spinJarBusy || jarStolen;
+                case 'dragonFire':  return dragonFireBusy || jarStolen;
                 default:         return false;  // parallel-safe — never queue
             }
         }
