@@ -461,6 +461,7 @@
 
         let config = mergeConfig(defaultConfig(), opts.config || {});
         const DISABLED_TRIGGER_ACTIONS = new Set(['tilt', 'fireworks', 'tornado', 'geyser', 'slow']);
+        const SINGLE_RUN_TRIGGER_ACTIONS = new Set(['joinPolice', 'clear']);
         const engine = Engine.create();
         engine.gravity.y = config.physics.gravity;
 
@@ -479,6 +480,10 @@
         const imgCache = new Map();
         let spawnQueue = [];
         let spawnTicker = null;
+
+        function isEnabled() {
+            return config.enabled !== false;
+        }
 
         // ===== State =====
         const stats = {
@@ -621,6 +626,7 @@
 
         // ===== Drop =====
         function drop(g, count) {
+            if (!isEnabled()) return;
             const n = Math.max(1, parseInt(count || g.repeatCount || 1, 10));
             let triggerAction = config.triggers && config.triggers[String(g.giftId)];
             if (DISABLED_TRIGGER_ACTIONS.has(triggerAction)) triggerAction = null;
@@ -638,9 +644,18 @@
                     avatar: g.profilePicture,
                     uid: String(g.userId || g.uniqueId || '')
                 };
-                // 1 quà = 1 trigger, KHÔNG nhân theo repeatCount.
-                // Trước đây loop n lần → user gift x2 spawn 2 tên trộm cùng lúc.
-                runTriggerAction(triggerAction, userInfo);
+                handleCombo(g, n);
+                checkBigGiftFx(g, n);
+                const runs = SINGLE_RUN_TRIGGER_ACTIONS.has(triggerAction) ? 1 : n;
+                for (let i = 0; i < runs; i++) {
+                    const payload = { ...userInfo, comboIndex: i + 1, comboCount: n };
+                    // v1.0.73 fix: combo gift bị drop với các hiệu ứng single-instance (osin/ufo/kick/
+                    // throw/spin/pour/shape/tilt/stealJar) vì guard `xBusy`. Trước đây setTimeout 120ms
+                    // không đủ — call 2-N hit guard và bị bỏ. Giờ enqueue qua serial dispatcher: hiệu ứng
+                    // serial chờ busy clear rồi mới chạy tiếp; hiệu ứng parallel-safe (megaboom/shake/rain/
+                    // magnet/wind/gravflip/crackJar/zigzag/combo) vẫn fire ngay với spacing 120ms như cũ.
+                    enqueueTriggerRun(triggerAction, payload, i);
+                }
                 return;
             }
             for (let i = 0; i < n; i++) spawnQueue.push(g);
@@ -685,6 +700,77 @@
             // App broadcast cmd cho OBS replay cùng action (chỉ chạy ở authoritative mode)
             if (!mirrorMode) onTrigger(action, userInfo);
         }
+
+        // ============================================================
+        // v1.0.73 — Serial trigger queue (fix combo gift)
+        // ============================================================
+        // Bug v1.0.68 và trước: combo gift x10 → các effect single-instance (osin/ufo/pour/kick/throw/
+        // spin/shape/tilt/stealJar) chỉ chạy 1 lần. Các call 2-N hit guard `xBusy` và silently return.
+        //
+        // Fix: per-action queue. Mỗi action có queue riêng + 1 worker. Worker check busy state → khi
+        // clear thì dequeue và chạy tiếp. Effect parallel-safe (megaboom/shake/rain/magnet/wind/gravflip/
+        // crackJar/zigzagLuck/combo/fireworks/tornado/geyser/slow) → isActionBusy luôn false → drains
+        // tức thì với spacing 120ms giữ feel "rolling" cho khán giả.
+        //
+        // SERIAL_ACTIONS: list các action có guard xBusy. Predicate isActionBusy đọc trực tiếp các flag
+        // local trong IIFE để không lệch state. Khi thêm effect mới có guard, add vào đây.
+        const SERIAL_ACTIONS = new Set([
+            'osin', 'ufo', 'pourOut', 'kickJar', 'throwJar', 'spinJar',
+            'shape', 'stealJar', 'tilt',
+            'osinKickOut', 'dragonFire'   // v1.0.75: my new effects also have busy guards
+        ]);
+        function isActionBusy(action) {
+            switch (action) {
+                case 'pourOut':
+                case 'tilt':     return tiltAnimating || spillInProgress || jarStolen;
+                case 'osin':     return osinBusy;
+                case 'ufo':      return ufoBusy;
+                case 'kickJar':  return kickJarBusy || jarStolen;
+                case 'throwJar': return throwJarBusy || kickJarBusy || jarStolen;
+                case 'spinJar':  return spinJarBusy || kickJarBusy || throwJarBusy || tiltAnimating || jarStolen;
+                case 'shape':    return shapeBusy;
+                case 'stealJar': return jarStolen;
+                case 'osinKickOut': return osinKickOutBusy || kickJarBusy || throwJarBusy || spinJarBusy || jarStolen;
+                case 'dragonFire':  return dragonFireBusy || jarStolen;
+                default:         return false;  // parallel-safe — never queue
+            }
+        }
+        const triggerQueues = {};   // { actionName: { items: [...], pumping: bool } }
+        function enqueueTriggerRun(action, payload, comboIdx) {
+            // Parallel-safe effects: vẫn dùng spacing 120ms như cũ (feel rolling)
+            if (!SERIAL_ACTIONS.has(action)) {
+                const delayMs = (comboIdx || 0) * 120;
+                if (delayMs) setTimeout(() => runTriggerAction(action, payload), delayMs);
+                else runTriggerAction(action, payload);
+                return;
+            }
+            // Serial effects: queue + worker pump theo busy state
+            let q = triggerQueues[action];
+            if (!q) q = triggerQueues[action] = { items: [], pumping: false };
+            q.items.push(payload);
+            pumpTriggerQueue(action);
+        }
+        function pumpTriggerQueue(action) {
+            const q = triggerQueues[action];
+            if (!q || q.pumping) return;
+            q.pumping = true;
+            const tick = () => {
+                if (!q.items.length) { q.pumping = false; return; }
+                if (isActionBusy(action)) {
+                    // Đợi busy clear — poll 250ms cho responsive nhưng không tốn CPU
+                    setTimeout(tick, 250);
+                    return;
+                }
+                const payload = q.items.shift();
+                runTriggerAction(action, payload);
+                // Sau khi gọi: busy flag thường set true trong vài chục ms (effects async).
+                // Chờ 400ms để busy flag kịp set, sau đó tick để check (sẽ thấy busy → đợi tiếp).
+                // Nếu effect quá ngắn không set busy → 400ms sau tick thấy clear → dequeue tiếp ngay.
+                setTimeout(tick, 400);
+            };
+            tick();
+        }
+
         function fxCombo(userInfo) {
             const seq = (config.effects?.combo?.sequence || '').trim();
             if (!seq) return;
@@ -1427,6 +1513,19 @@
                     el.style.cssText = origStyle[i];
                     el.style.transform = origTr[i];
                 });
+                // Dốc ngược luôn phải kết thúc bằng hũ đứng thẳng. Không giữ transform cũ
+                // vì nếu lần trước bị ngắt giữa chừng, origStyle/origTr có thể đã chứa rotate.
+                [jarBottomEl, jarGlassEl].filter(Boolean).forEach(el => {
+                    el.style.transition = '';
+                    el.style.transform = '';
+                    el.style.transformOrigin = '50% 50%';
+                });
+                if (countDisplay) {
+                    countDisplay.style.transition = '';
+                    countDisplay.style.transform = 'translate(-50%, 0)';
+                    countDisplay.style.transformOrigin = '50% 50%';
+                }
+                currentTiltAngle = 0;
                 if (topHangersEl) { topHangersEl.style.transform = ''; updateTopHangers(); }
                 clearJarLandingZone(baseRect);
                 buildJarWalls();
@@ -5226,6 +5325,13 @@
                 config.triggers = patch.triggers ? JSON.parse(JSON.stringify(patch.triggers)) : {};
             }
             engine.gravity.y = config.physics.gravity;
+            if (!isEnabled()) {
+                spawnQueue.length = 0;
+                if (spawnTicker) { clearInterval(spawnTicker); spawnTicker = null; }
+                stopRandomEvents();
+                stopThiefAuto();
+                if (historyTimer) { clearInterval(historyTimer); historyTimer = null; }
+            }
             positionJar();
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown(); updateTopHangers();
@@ -5234,9 +5340,9 @@
             applyJarTheme();
             applyJarAccessory();
             renderBadges();
-            if (config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
-            if (config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
-            restartGiftHistoryTimer();
+            if (isEnabled() && config.features.randomEvents) startRandomEvents(); else stopRandomEvents();
+            if (isEnabled() && config.features.thiefAuto) startThiefAuto(); else stopThiefAuto();
+            if (isEnabled()) restartGiftHistoryTimer();
         }
         function getConfig() { return JSON.parse(JSON.stringify(config)); }
         function getStats() {
@@ -5337,8 +5443,8 @@
         updateGoalBar(); updateSessionTotals(); updateLeaderboard(); updateCrown();
         applyActorScales();
         applyJarAccessory();
-        if (config.features.randomEvents) startRandomEvents();
-        if (config.features.thiefAuto) startThiefAuto();
+        if (isEnabled() && config.features.randomEvents) startRandomEvents();
+        if (isEnabled() && config.features.thiefAuto) startThiefAuto();
         // Runner FIXED delta — Matter.js default isFixed:false sẽ adapt dt theo real time.
         // Khi OBS browser source giới hạn FPS (mặc định 30fps trong OBS), dt tăng từ 16.67ms → 33ms
         // → bodies di chuyển GẤP ĐÔI mỗi tick → dễ tunneling qua tường (đáy hũ, sàn world).

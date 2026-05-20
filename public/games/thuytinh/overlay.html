@@ -92,6 +92,7 @@
 
         let game = null;
         let currentCfg = null;       // theo dõi config — gate gift khi enabled=false
+        let gameEnabled = true;      // mirror enabled flag — gate gameCmd (osin/dragon/etc.). v1.0.75 fix: bị xoá khi merge → mọi gameCmd bị block.
         function ensureGame(cfg) {
             if (cfg) currentCfg = cfg;
             if (game) return;
@@ -154,6 +155,7 @@
             try {
                 cfg = await fetch('/api/games/thuytinh/config').then(r => r.json());
             } catch (e) { /* server có thể đang sập, vẫn cho phép ensureGame default */ }
+            gameEnabled = !cfg || cfg.enabled !== false;
             if (!game) ensureGame(cfg);
             else if (cfg) game.setConfig(cfg);
             // SAU khi game ready với config đúng → subscribe để nhận state snapshot
@@ -251,6 +253,7 @@
         const recentCmdHashes = new Map();   // hash → timestamp
         socket.on('gameCmd', ({ gameId, cmd, payload, seq }) => {
             if (gameId !== 'thuytinh' || !game) return;
+            if (!gameEnabled && cmd !== 'clear' && cmd !== 'resetSession') return;
             // Dedup nếu có seq (cmd cũ không có → vẫn process — backward compat)
             if (seq != null) {
                 if (seenSeqs.has(seq)) return;
@@ -261,16 +264,18 @@
                     seenSeqs.delete(old);
                 }
             }
-            // Dedup phụ: same cmd+payload trong 800ms → bỏ qua
-            const now = Date.now();
-            const hashKey = cmd + ':' + JSON.stringify(payload?.thieves?.map(t=>t.uid) || payload?.uid || payload?.name || '');
-            const lastTs = recentCmdHashes.get(hashKey);
-            if (lastTs && (now - lastTs) < 800) return;
-            recentCmdHashes.set(hashKey, now);
-            // Cleanup map cũ (giữ tối đa 30 entries)
-            if (recentCmdHashes.size > 30) {
-                const oldestKey = recentCmdHashes.keys().next().value;
-                recentCmdHashes.delete(oldestKey);
+            // Dedup phụ chỉ dành cho cmd cũ không có seq. Cmd mới có seq riêng phải được phép lặp theo combo x10/x100.
+            if (seq == null) {
+                const now = Date.now();
+                const hashKey = cmd + ':' + JSON.stringify(payload?.thieves?.map(t=>t.uid) || payload?.uid || payload?.name || '');
+                const lastTs = recentCmdHashes.get(hashKey);
+                if (lastTs && (now - lastTs) < 800) return;
+                recentCmdHashes.set(hashKey, now);
+                // Cleanup map cũ (giữ tối đa 30 entries)
+                if (recentCmdHashes.size > 30) {
+                    const oldestKey = recentCmdHashes.keys().next().value;
+                    recentCmdHashes.delete(oldestKey);
+                }
             }
             if (payload && payload._state) {
                 try { game.loadState(payload._state); } catch (e) {}
@@ -318,6 +323,18 @@
                 const uid = payload?.uid;
                 if (uid) game.bailUser(uid);
             }
+        });
+
+        socket.on('gameDisabled', ({ gameId }) => {
+            if (gameId !== 'thuytinh') return;
+            gameEnabled = false;
+            try { if (game) game.setConfig({ enabled: false }); } catch (e) {}
+        });
+
+        socket.on('gameEnabled', ({ gameId }) => {
+            if (gameId !== 'thuytinh') return;
+            gameEnabled = true;
+            syncFromServer();
         });
     })();
     </script>
