@@ -4434,7 +4434,9 @@
                         }, 1100);
                     });
                 }, 1500);
-                dragonFireBusy = false;
+                // v1.0.77 fix: hold busy until visual cleanup truly done (video fade 500ms + buffer).
+                // Trước đây set false NGAY -> queue dequeue next dragon overlap với 1st đang fade-out.
+                setTimeout(() => { dragonFireBusy = false; }, 800);
             };
             video.onended = finishCleanup;
             // Safety: nếu video không onended (lỗi load) → cleanup ở 5.6s
