@@ -302,9 +302,11 @@
         let ctx = null;
         let noiseBuf = null;
         function ensureCtx() {
-            // Game đã TẮT trong Thư viện → mọi âm thanh tắt (defense-in-depth — caller phía
-            // app.js + overlay.html cũng đã gate spawn, đây là chốt cuối).
-            if (config.enabled === false) return null;
+            // v1.0.78 CRITICAL FIX: bỏ `if (config.enabled === false) return null;` của v1.0.74.
+            // `config` ở scope NÀY (audio IIFE module-level) KHÔNG TỒN TẠI -> ReferenceError mỗi
+            // lần call audio -> halt async chain -> TOÀN BỘ effect (OSIN/UFO/Thief/Magnet/Wind/
+            // GravFlip/Rain/PourOut/SpinJar...) bị freeze giữa animation. Audio gate đã có ở 2
+            // tầng khác (app.js spawnInGame + overlay handleGift) — đủ rồi.
             if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
             return ctx;
         }
