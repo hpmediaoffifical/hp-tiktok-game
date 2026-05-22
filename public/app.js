@@ -429,6 +429,7 @@
         else if (gameId === 'vipwelcome') openVipWelcome(game);
         else if (gameId === 'votecomment') openVoteComment(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
+        else if (gameId === 'level-quest') showView('view-level-quest');
     }
 
     function openVoteComment(game) {

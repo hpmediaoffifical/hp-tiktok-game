@@ -463,7 +463,10 @@
 
         let config = mergeConfig(defaultConfig(), opts.config || {});
         const DISABLED_TRIGGER_ACTIONS = new Set(['tilt', 'fireworks', 'tornado', 'geyser', 'slow']);
-        const SINGLE_RUN_TRIGGER_ACTIONS = new Set(['joinPolice', 'clear']);
+        // v1.0.79 fix: 'thief' single-run — 1 gift event = 1 tên trộm, không nhân theo repeatCount
+        // của TikTok streak (vd: 3 hearts liên tiếp → repeatCount=3 → trước đây spawn 3 trộm).
+        // Bấm test button vẫn 1 trộm. Combo nhiều user khác nhau vẫn ra nhiều trộm như cũ.
+        const SINGLE_RUN_TRIGGER_ACTIONS = new Set(['joinPolice', 'clear', 'thief']);
         const engine = Engine.create();
         engine.gravity.y = config.physics.gravity;
 
@@ -5365,8 +5368,31 @@
             bannedUntilByUid.clear();
             policeForce.clear();
             // Clear cả bodies trong hũ — phiên mới = bắt đầu lại 100%
-            // (Tránh tình trạng app preview clear nhưng OBS giữ bodies cũ)
             clearAll();
+            // v1.0.78 fix: clean stuck nhân vật animation (OSIN/Trộm/UFO) + reset busy flags
+            // Trước đây "Hũ Mới" reset counter nhưng giữ nhân vật stuck (từ bug v1.0.74 freeze).
+            if (thiefLayer) thiefLayer.innerHTML = '';
+            if (overlayLayer) {
+                overlayLayer.querySelectorAll('.tt-crack').forEach(el => el.remove());
+            }
+            crackElements.length = 0;
+            crackLevel = 0;
+            // Reset toàn bộ busy flags để effect kế tiếp chạy được
+            osinBusy = false;
+            ufoBusy = false;
+            kickJarBusy = false;
+            throwJarBusy = false;
+            spinJarBusy = false;
+            shapeBusy = false;
+            tiltAnimating = false;
+            spillInProgress = false;
+            jarStolen = false;
+            if (typeof osinKickOutBusy !== 'undefined') osinKickOutBusy = false;
+            if (typeof dragonFireBusy !== 'undefined') dragonFireBusy = false;
+            // Clear trigger queues (pending items không relevant nữa)
+            for (const action in triggerQueues) {
+                triggerQueues[action].items.length = 0;
+            }
             updateGoalBar(); updateLeaderboard(); updateSessionTotals(); updateCrown(); updateTopHangers();
             updateCaughtList(); updatePoliceForcePanel();
         }

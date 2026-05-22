@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>LEVEL QUEST — Prototype</title>
+<script>
+  // Inline early-detection để body transparent NGAY khi parse, không đợi JS chính
+  // Tránh flash trắng trong OBS Browser Source.
+  if (new URLSearchParams(location.search).get('mode') === 'overlay') {
+    document.documentElement.setAttribute('data-overlay', '1');
+  }
+</script>
+<style>
+  html[data-overlay="1"], html[data-overlay="1"] body { background: transparent !important; }
+</style>
+<!-- Vietnamese-friendly fonts (graceful fallback nếu offline) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Be+Vietnam+Pro:wght@700;900&family=Mali:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     LEVEL QUEST — prototype + OBS overlay (?mode=overlay)
+     - KHÔNG ảnh hưởng tới game nào trong public/games/
+     - Lab:        /_prototype/level-quest.html
+     - OBS link:   /_prototype/level-quest.html?mode=overlay
+     ============================================================ */
+
+  :root {
+    --bar-w: 900px;
+    --bar-h-green: 48px;
+    --bar-h-blue:  26px;
+    --share-h:     16px;
+    --gap: 10px;
+    --badge: 200px;
+    --overlap: 88px;
+
+    /* Font sizes (chỉnh được qua panel) */
+    --title-fs: 54px;
+    --label-green-fs: 17px;
+    --label-blue-fs: 12px;
+    --bucket-label-fs: 11px;
+    --level-num-fs: 54;        /* unitless, dùng cho SVG font-size */
+
+    --green: #5fcc28;  --green-edge: #205c0d;
+    --blue: #2a8bff;   --blue-edge: #133f7a;
+    --orange: #ff9a1f;
+    --slot-white: #eef1f5;
+    --slot-empty: #3a414b;   /* xám sáng hơn để phân biệt với shell khi OBS scale nhỏ */
+    --bar-bg: #3a414b;       /* nền thanh trống — không quá đậm */
+    --shell: #0d1116;        /* viền/khung ngoài — vẫn đen sâu để tương phản */
+    --gold: #f5c63a;       /* badge ring — vẫn rực để nổi */
+    --gold-soft: #d4a93a;  /* dùng cho "ĐẠT" — dịu hơn, đỡ chói */
+    --gold-deep: #b8841e;
+    --text: #fff;
+    --shadow: 0 10px 28px rgba(0,0,0,.6);
+
+    /* Mali ExtraBold = chunky bold, hỗ trợ Việt + giữ nguyên hoa/thường người dùng nhập */
+    --title-font: 'Mali', 'Be Vietnam Pro', 'Segoe UI', Tahoma, sans-serif;
+    --label-font: 'Be Vietnam Pro', 'Mali', 'Segoe UI', Tahoma, sans-serif;
+    --num-font:   'Mali', 'Be Vietnam Pro', 'Segoe UI', Tahoma, sans-serif;
+  }
+
+  html,body{margin:0;padding:0;height:100%;background:#fafafa;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#222;}
+
+  .stage{
+    min-height:520px; background:#fff;
+    background-image:
+      linear-gradient(rgba(0,0,0,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:40px 20px;
+  }
+
+  .quest-title{
+    font-family: var(--title-font);
+    font-weight: 900; font-size: var(--title-fs); letter-spacing:.5px; color:#fff;
+    text-shadow:
+      -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000,
+       0   4px 0 #000, 0 0 18px rgba(0,0,0,.3);
+    margin: 0 0 var(--title-mb, -10px);     /* âm = sát badge hơn */
+    transform: translateX(56px);
+    position: relative; z-index: 4;          /* nổi trên badge nếu overlap */
+    line-height: 1;
+  }
+
+  .quest-group{ display:flex; flex-direction:column; align-items:center; transform-origin: center center; }
+  .quest-row{ display:flex; align-items:center; gap:0; filter: drop-shadow(var(--shadow)); }
+
+  /* ===== Floating animation — pure VERTICAL bob (NPC walking / breathing feel) ===== */
+  @keyframes lqFloat{
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-18px); }
+  }
+  body.lq-floating .quest-group{
+    animation: lqFloat var(--float-dur, 2.8s) ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .level-badge{
+    width:var(--badge); height:var(--badge);
+    position:relative; z-index:3;
+    margin-right: calc(var(--overlap) * -1);
+    flex:0 0 auto;
+  }
+  .level-badge svg{ width:100%; height:100%; display:block; }
+  .level-num{
+    font-family: var(--num-font); font-weight:900; fill:#fff;
+    paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 2px;
+  }
+
+  .bar-shell{
+    width:var(--bar-w); background: var(--shell);
+    border-radius:14px;
+    padding: 12px 18px 12px calc(var(--overlap) + 24px);
+    display:flex; flex-direction:column; gap: var(--gap);
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06), 0 2px 0 rgba(0,0,0,.6);
+    position:relative; z-index:1;
+    transition: padding .25s ease;
+  }
+  .bar-row[hidden]{ display:none !important; }
+
+  .bar{
+    position:relative;
+    background: var(--bar-bg); overflow:hidden;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.04);
+    transition: box-shadow .3s ease;
+  }
+  .bar.is-green{ height: var(--bar-h-green); border-radius: 9px; }
+  .bar.is-blue { height: var(--bar-h-blue);  border-radius: 7px; }
+
+  .bar-fill{
+    position:absolute; inset:0 auto 0 0; width:0%; border-radius:inherit;
+    transition: width .55s cubic-bezier(.25,.9,.3,1.1), filter .25s ease;
+  }
+  .bar-fill::before{
+    content:""; position:absolute; left:2px; right:2px; top:1px; height:42%;
+    background: linear-gradient(180deg, rgba(255,255,255,.38), rgba(255,255,255,0));
+    border-radius: inherit; pointer-events:none;
+  }
+  .bar-fill::after{
+    content:""; position:absolute; left:0; right:0; bottom:0; height:30%;
+    background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.35));
+    border-radius: inherit; pointer-events:none;
+  }
+  .bar-fill.green{ background: linear-gradient(180deg, #a3f25c 0%, #7ee336 22%, var(--green) 60%, var(--green-edge) 100%); }
+  .bar-fill.blue { background: linear-gradient(180deg, #6db8ff 0%, #3a96ff 22%, var(--blue)  60%, var(--blue-edge)  100%); }
+
+  .bar-ticks{ position:absolute; inset:0; pointer-events:none; display:flex; z-index:1; }
+  .bar-ticks .tick{
+    flex:1 1 0;
+    border-right: var(--tick-w, 6px) solid rgba(0,0,0,.88);
+    box-shadow: 1px 0 0 rgba(255,255,255,.14), -1px 0 0 rgba(0,0,0,.4) inset;
+  }
+  .bar-ticks .tick:last-child{ border-right:0; box-shadow:none; }
+
+  .bar-label{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family: var(--label-font); font-weight:900;
+    color:#fff; text-shadow: 0 1px 0 rgba(0,0,0,.8), 0 0 4px rgba(0,0,0,.5);
+    letter-spacing:.3px; z-index:2;
+  }
+  .bar.is-green .bar-label{ font-size: var(--label-green-fs); }
+  .bar.is-blue  .bar-label{ font-size: var(--label-blue-fs); }
+
+  /* ===== ĐẠT state — pill xám mờ + chữ trắng, dễ đọc trên mọi nền ===== */
+  .bar.done{
+    box-shadow: 0 0 0 2px rgba(212,169,58,.65), inset 0 2px 3px rgba(0,0,0,.6);
+    animation: barDonePulse 1.4s ease-in-out infinite;
+  }
+  .bar.done .bar-fill{ filter: brightness(1.08) saturate(1.05); }
+  .bar.done .bar-label{
+    color: #fff;   /* fallback nếu không có pill */
+  }
+  /* Pill backdrop khi ĐẠT */
+  .done-pill{
+    display: inline-block;
+    background: rgba(0,0,0,.6);
+    color: #fff;
+    padding: 4px 16px;
+    border-radius: 14px;
+    font-weight: 900;
+    letter-spacing: .5px;
+    text-shadow: 0 1px 0 rgba(0,0,0,.7);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.15), 0 2px 6px rgba(0,0,0,.4);
+  }
+  @keyframes barDonePulse{
+    0%,100%{ box-shadow: 0 0 0 2px rgba(212,169,58,.4), inset 0 2px 3px rgba(0,0,0,.6); }
+    50%    { box-shadow: 0 0 0 2px rgba(212,169,58,.7), 0 0 12px rgba(212,169,58,.35), inset 0 2px 3px rgba(0,0,0,.6); }
+  }
+
+  /* ============ Share row — adaptive: pip OR bucket ============ */
+  .share-row{
+    height: var(--share-h); display:flex; gap:9px;
+    transition: height .25s ease, filter .25s ease;
+  }
+  .share-row.bucket-mode{ height: 24px; gap: 7px; }
+
+  .pill{
+    flex:1 1 0; border-radius: 50px; background: var(--slot-empty);
+    box-shadow: inset 0 2px 3px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.04);
+    transition: background .35s ease, box-shadow .35s ease;
+    position:relative; overflow:hidden;
+  }
+  .pill > .pill-fill{
+    position:absolute; inset:0 auto 0 0; width:0%;
+    border-radius: inherit;
+    background: linear-gradient(180deg, #ffc275 0%, var(--orange) 55%, #c46506 100%);
+    transition: width .4s cubic-bezier(.25,.9,.3,1.1), background .25s ease;
+    z-index:1; pointer-events:none;
+  }
+  .pill > .pill-fill::before{
+    content:""; position:absolute; left:2px; right:2px; top:1px; height:42%;
+    background: linear-gradient(180deg, rgba(255,255,255,.4), transparent);
+    border-radius: 50px;
+  }
+  .pill > .pill-label{
+    position:relative; z-index:3; display:none;
+    font-family: var(--label-font); font-weight:900;
+    font-size: var(--bucket-label-fs);
+    color:#fff; text-shadow: 0 1px 0 rgba(0,0,0,.85), 0 0 3px rgba(0,0,0,.4);
+    letter-spacing:.2px; padding:0 6px; white-space:nowrap;
+  }
+  .pill:not(.bucket).filled::after,
+  .pill:not(.bucket).active::after{
+    content:""; position:absolute; top:1px; left:2px; right:2px; height:40%;
+    background: linear-gradient(180deg, rgba(255,255,255,.55), transparent);
+    border-radius: 50px; pointer-events:none; z-index:2;
+  }
+
+  .pill:not(.bucket).filled{ background: var(--slot-white); box-shadow: 0 0 9px rgba(255,255,255,.45), inset 0 -2px 0 rgba(0,0,0,.18); }
+  .pill:not(.bucket).active{ background: var(--orange); box-shadow: 0 0 12px rgba(255,154,31,.75), inset 0 -2px 0 rgba(0,0,0,.3); }
+
+  .pill.bucket{ display:flex; align-items:center; justify-content:center; }
+  .pill.bucket > .pill-label{ display:block; }
+  .pill.bucket.active{ box-shadow: 0 0 10px rgba(255,154,31,.55), inset 0 2px 3px rgba(0,0,0,.7); }
+  .pill.bucket.filled{ background: var(--slot-white); box-shadow: 0 0 9px rgba(255,255,255,.5), inset 0 -2px 0 rgba(0,0,0,.18); }
+  .pill.bucket.filled > .pill-fill{ background: transparent; }
+  .pill.bucket.filled > .pill-label{ color:#1a1a1a; text-shadow: 0 1px 0 rgba(255,255,255,.3); }
+
+  /* Share row done — cũng dùng gold dịu */
+  .share-row.done .pill{
+    background: var(--gold-soft);
+    box-shadow: 0 0 9px rgba(212,169,58,.65), inset 0 -3px 0 rgba(0,0,0,.25);
+    animation: shareDonePulse 1.4s ease-in-out infinite;
+  }
+  .share-row.done .pill > .pill-fill{ background: transparent; }
+  .share-row.done .pill > .pill-label{ color:#3a2a00; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+  @keyframes shareDonePulse{
+    0%,100%{ filter: brightness(1); }
+    50%    { filter: brightness(1.18) drop-shadow(0 0 4px rgba(212,169,58,.45)); }
+  }
+
+  @keyframes badgePulse { 0%{transform:scale(1);filter:drop-shadow(0 0 0 rgba(245,198,58,0));} 40%{transform:scale(1.22);filter:drop-shadow(0 0 22px rgba(245,198,58,.95));} 100%{transform:scale(1);filter:drop-shadow(0 0 0 rgba(245,198,58,0));} }
+  .level-badge.flash{ animation: badgePulse .75s ease; }
+  @keyframes shellFlash { 0%,100%{box-shadow: inset 0 -3px 0 rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);} 50%{box-shadow: 0 0 32px rgba(245,198,58,.65), inset 0 -3px 0 rgba(0,0,0,.45);} }
+  .bar-shell.flash{ animation: shellFlash .75s ease; }
+
+  /* ============ Countdown timer ============ */
+  .quest-timer{
+    position: fixed; top: 24px; right: 36px;
+    font-family: var(--num-font); font-weight: 900;
+    font-size: var(--timer-fs, 44px);
+    color: var(--timer-color, #ff4040);
+    text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 0 18px rgba(0,0,0,.4);
+    z-index: 5; padding: 4px 16px; border-radius: 8px;
+    background: rgba(0,0,0,.45); backdrop-filter: blur(4px);
+    letter-spacing: 1px;
+    transition: opacity .25s ease, color .25s ease, font-size .25s ease;
+  }
+  .quest-timer.hidden{ display:none; }
+  .quest-timer.warning{ color: #ffd44a; }
+  .quest-timer.danger{ color: #ff2020; animation: timerDanger 1s ease-in-out infinite; }
+  @keyframes timerDanger{ 0%,100%{transform:scale(1);} 50%{transform:scale(1.08);} }
+  .quest-timer.expired{ color: #ff2020; animation: none; opacity:.6; }
+
+  /* ============ OVERLAY MODE (?mode=overlay) ============ */
+  body.overlay-mode{ background: transparent !important; }
+  body.overlay-mode .stage{
+    background: transparent !important;
+    background-image: none !important;
+    min-height: 0;
+    padding: 30px;
+  }
+  body.overlay-mode .panel{ display: none !important; }
+  .conn-indicator{
+    position: fixed; top: 8px; right: 8px;
+    background: rgba(0,0,0,.55); color: #fff;
+    padding: 4px 10px; border-radius: 6px;
+    font: 11px/1.3 "Consolas",monospace; opacity:.55; z-index:9999;
+    display:none;
+  }
+  body.overlay-mode .conn-indicator{ display:block; }
+  body.overlay-mode .conn-indicator.connected{ background: rgba(60,160,60,.6); }
+  body.overlay-mode .conn-indicator.disconnected{ background: rgba(160,60,60,.7); }
+
+  /* ============================================================ */
+  .panel{
+    max-width: 1080px; margin: 20px auto 60px; padding: 18px 22px;
+    background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.06);
+  }
+  .panel h2{margin:0 0 8px;font-size:16px;color:#111;}
+  .panel h3{margin:18px 0 8px;font-size:14px;color:#111;border-top:1px dashed #e5e7eb;padding-top:14px;}
+  .panel p{margin:0 0 14px;color:#555;font-size:13px;line-height:1.5;}
+
+  /* ===== Collapsible sections ===== */
+  details.sec{ margin: 10px 0; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
+  details.sec > summary{
+    cursor:pointer; padding:10px 14px; font-weight:700; font-size:13px; color:#222;
+    background:#f7f8fa; user-select:none; list-style:none;
+    display:flex; align-items:center; gap:8px;
+  }
+  details.sec > summary::-webkit-details-marker{ display:none; }
+  details.sec > summary::before{
+    content:"▸"; display:inline-block; transition: transform .2s ease; color:#888; font-size:11px;
+  }
+  details.sec[open] > summary::before{ transform: rotate(90deg); }
+  details.sec > summary:hover{ background:#eef2f7; }
+  details.sec[open] > summary{ background:#eef2f7; border-bottom:1px solid #e5e7eb; }
+  details.sec > .sec-body{ padding:14px; }
+  details.sec > .sec-body > *:last-child{ margin-bottom:0; }
+
+  .enable-row{
+    display:flex; gap:14px; flex-wrap:wrap;
+    background:#fffaeb; border:1px solid #f4d97a; border-radius:10px;
+    padding:10px 14px; margin-bottom:14px;
+  }
+  .enable-row label{ display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700; font-size:13px; color:#5c4500; user-select:none; }
+  .enable-row input[type=checkbox]{ width:18px; height:18px; cursor:pointer; }
+
+  .obs-box{
+    background:#eef9ff; border:1px solid #8ec7f0; border-radius:10px;
+    padding:12px 14px; margin-bottom:14px;
+    font-size:13px; color:#0a3d6b;
+  }
+  .obs-box b{ color:#003c70; }
+  .obs-box code{
+    display:inline-block; background:#0d1116; color:#7ee336;
+    padding:4px 10px; border-radius:6px; font-family:"Consolas",monospace;
+    font-size:12px; user-select:all; word-break:break-all;
+  }
+  .obs-box .btn-copy{
+    margin-left:6px; padding:4px 10px; cursor:pointer; border:0; border-radius:6px;
+    background:#3aa845; color:#fff; font-weight:700; font-size:12px;
+  }
+
+  .ctrl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:14px;}
+  .ctrl{background:#f7f8fa;border-radius:10px;padding:12px 14px;border:1px solid #ececef;transition:opacity .2s ease;}
+  .ctrl.dim{opacity:.42;}
+  .ctrl label{display:block;font-size:12px;color:#666;margin-bottom:4px;}
+  .ctrl input[type="number"], .ctrl input[type="text"]{width:90px;padding:5px 7px;border:1px solid #d4d4d8;border-radius:6px;font-size:13px;}
+  .ctrl input[type="range"]{width:100%;}
+  .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  button.b{cursor:pointer;border:0;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;color:#fff;}
+  .b.green{background:#3aa845;} .b.blue{background:#2a7ed9;} .b.orange{background:#ec8a1c;}
+  .b.gold{background:#c79a18;} .b.gray{background:#475064;} .b.red{background:#c93d3d;} .b.purple{background:#7a3acf;}
+  button.b:hover{filter:brightness(1.08);}
+  button.b:disabled{opacity:.4;cursor:not-allowed;}
+  .stat-line{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:#333;margin-top:6px;}
+  .stat-line b{color:#000;}
+  .stat-line span.off{opacity:.35;text-decoration:line-through;}
+  .log{
+    margin-top:14px; max-height:160px; overflow:auto;
+    background:#0d1116;color:#9ad36a;border-radius:8px;padding:10px 12px;
+    font-family:"Consolas","Cascadia Code",monospace;font-size:12px;line-height:1.5;
+  }
+  .log .lv{color:#f5c63a;} .log .ok{color:#f5c63a;font-weight:bold;}
+  .log .d{color:#9ad36a;} .log .h{color:#57aaff;} .log .s{color:#ff9a1f;}
+  .log .tk{color:#ff79c6;}
+
+  .kpi-table-wrap{ overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
+  table.kpi-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  table.kpi-table th, table.kpi-table td{ padding:6px 10px; text-align:right; border-bottom:1px solid #f0f0f0; }
+  table.kpi-table th{ background:#f9fafb; color:#444; font-weight:700; position:sticky; top:0; }
+  table.kpi-table th:first-child, table.kpi-table td:first-child{ text-align:center; color:#666; }
+  table.kpi-table td b{ color:#000; }
+  table.kpi-table tr.cur{ background:#fffbe6; }
+  table.kpi-table tr.cur td:first-child{ color:#c79a18; font-weight:900; }
+  table.kpi-table tr.tot{ background:#fdf6e3; border-top:2px solid #c79a18; }
+  table.kpi-table tr.tot td{ font-weight:900; color:#5c4500; padding:8px 10px; }
+  table.kpi-table tr.tot td:first-child{ color:#c79a18; }
+  table.kpi-table td.dia  { color:#2d7a16; }
+  table.kpi-table td.heart{ color:#1d63b8; }
+  table.kpi-table td.share{ color:#b86b14; }
+  td.muted{opacity:.35;text-decoration:line-through;}
+</style>
+</head>
+<body>
+
+  <div class="conn-indicator" id="connInd">connecting…</div>
+
+  <div class="quest-timer hidden" id="questTimer">2:00:00</div>
+
+  <div class="stage">
+   <div class="quest-group" id="questGroup">
+    <h1 class="quest-title" id="title">HP Media</h1>
+
+    <div class="quest-row">
+      <div class="level-badge" id="badge">
+        <svg viewBox="0 0 110 110">
+          <rect x="11" y="11" width="88" height="88" rx="25" ry="25"
+                transform="rotate(45 55 55)"
+                fill="#0d1116" stroke="#000" stroke-width="2" stroke-linejoin="round" opacity=".75"/>
+          <rect x="14" y="14" width="82" height="82" rx="22" ry="22"
+                transform="rotate(45 55 55)"
+                fill="#0d1116" stroke="#f5c63a" stroke-width="8" stroke-linejoin="round"/>
+          <text id="levelNum" class="level-num"
+                x="55" y="55" text-anchor="middle" dominant-baseline="central"
+                font-size="54">0</text>
+        </svg>
+      </div>
+
+      <div class="bar-shell" id="shell">
+        <div class="bar-row" data-kpi="dia">
+          <div class="bar is-green" id="diaBar">
+            <div class="bar-fill green" id="diaFill"></div>
+            <div class="bar-ticks" id="diaTicks"></div>
+            <div class="bar-label" id="diaLabel">0 / 10</div>
+          </div>
+        </div>
+        <div class="bar-row" data-kpi="heart">
+          <div class="bar is-blue" id="heartBar">
+            <div class="bar-fill blue" id="heartFill"></div>
+            <div class="bar-label" id="heartLabel">0 / 100</div>
+          </div>
+        </div>
+        <div class="bar-row" data-kpi="share">
+          <div class="share-row" id="shareRow"></div>
+        </div>
+      </div>
+    </div>
+   </div><!-- /.quest-group -->
+  </div>
+
+  <div class="panel">
+    <h2>Bảng điều khiển thử nghiệm</h2>
+    <p>
+      <b>Quy tắc KPI:</b> Σ Tổng 18 level = <b>30k 💎 / 100k ❤ / 100 🔄</b>.
+      <br>
+      • 💎 <b>Kim Cương</b>: khi đạt ngưỡng level, <b>trừ ngưỡng và giữ số dư</b> carry sang level kế (tránh donate bị lãng phí).
+      <br>
+      • ❤ Tim &amp; 🔄 Share: <b>reset về 0</b> mỗi lần level-up (free nên không tiếc).
+      <br>
+      • Vì Tim/Share reset, mỗi event chỉ +1 level — phải refill Tim/Share để level tiếp.
+    </p>
+
+    <div class="enable-row">
+      <label><input type="checkbox" id="enDia"   checked /> 💎 KPI Kim Cương</label>
+      <label><input type="checkbox" id="enHeart" checked /> ❤ KPI Táp Tim</label>
+      <label><input type="checkbox" id="enShare" checked /> 🔄 KPI Chia Sẻ</label>
+    </div>
+
+    <div class="enable-row" style="background:#e8f5ff; border-color:#7ec0e8;">
+      <label><input type="checkbox" id="enFloating" /> ✨ Hiệu ứng di chuyển nhẹ (NPC walking feel)</label>
+      <span style="display:flex;align-items:center;gap:6px;font-size:13px;color:#0a3d6b;">
+        Tốc độ:
+        <input id="cfgFloatDur" type="number" value="2.8" min="0.8" max="8" step="0.2" style="width:60px;padding:4px;border:1px solid #7ec0e8;border-radius:6px;" />s
+        <span style="font-size:11px;opacity:.75;">(thấp = nhanh, cao = chậm)</span>
+      </span>
+      <span style="font-size:11px;opacity:.75;flex-basis:100%;color:#0a3d6b;">
+        Bật → thanh KPI lay động nhẹ tạo cảm giác NPC đang di chuyển. Tắt → đứng yên.
+      </span>
+    </div>
+
+    <div class="enable-row" style="background:#fff0f0; border-color:#f4a07a;">
+      <span style="display:flex;align-items:center;gap:6px; font-size:13px; color:#5c0a0a; font-weight:700;">
+        ⏱ Đếm lùi:
+        <input id="cfgTimerH" type="number" value="2" min="0" max="23" style="width:50px;padding:4px;border:1px solid #f4a07a;border-radius:6px;" />h
+        <input id="cfgTimerM" type="number" value="0" min="0" max="59" style="width:50px;padding:4px;border:1px solid #f4a07a;border-radius:6px;" />m
+        <input id="cfgTimerS" type="number" value="0" min="0" max="59" style="width:50px;padding:4px;border:1px solid #f4a07a;border-radius:6px;" />s
+      </span>
+      <button class="b orange" id="btnTimerToggle" onclick="toggleQuestTimer()" style="font-size:13px;padding:7px 16px;">▶ BẮT ĐẦU</button>
+      <span style="font-size:11px;opacity:.75;flex-basis:100%;color:#5c0a0a;">
+        Bấm <b>▶ BẮT ĐẦU</b> để khởi động đếm lùi. Hết giờ → khoá nhận KPI. Bấm <b>■ DỪNG</b> để kết thúc quest.
+      </span>
+    </div>
+
+    <div class="obs-box" style="background:#f3eafb; border-color:#c39bf0; color:#3d1c5e;">
+      <b>🎯 Σ Tổng mong muốn qua các level (cho từng NPC):</b>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+        <span>💎 <input id="cfgTotalDia"   type="number" value="30000"  min="1" max="100000000" style="width:90px;padding:5px;border:1px solid #c39bf0;border-radius:6px;"/></span>
+        <span>❤ <input id="cfgTotalHeart" type="number" value="100000" min="1" max="1000000000" style="width:100px;padding:5px;border:1px solid #c39bf0;border-radius:6px;"/></span>
+        <span>🔄 <input id="cfgTotalShare" type="number" value="100"    min="1" max="100000" style="width:70px;padding:5px;border:1px solid #c39bf0;border-radius:6px;"/></span>
+        <span>Max Lv <input id="cfgTotalMaxLv" type="number" value="18" min="1" max="50" style="width:60px;padding:5px;border:1px solid #c39bf0;border-radius:6px;"/></span>
+        <select id="cfgTotalMode" style="padding:5px;border:1px solid #c39bf0;border-radius:6px;font-size:13px;">
+          <option value="curve">Cong (early dễ, late khó)</option>
+          <option value="linear">Đều mỗi level</option>
+        </select>
+        <button class="b purple" onclick="applyTotalsPreset()" style="font-size:13px;">⚡ Chia đều cho 18 level</button>
+      </div>
+      <div style="font-size:12px;opacity:.75;margin-top:8px;">
+        Đổi 3 con số trên cho NPC khó/dễ khác nhau (vd NPC mini: 5k/20k/30 — NPC boss: 100k/500k/500). Bấm <i>"⚡ Chia"</i> để áp dụng.
+      </div>
+    </div>
+
+    <details class="sec">
+      <summary>⚙️ Cấu hình KPI (linear base+step)</summary>
+      <div class="sec-body">
+        <div class="ctrl-grid">
+          <div class="ctrl">
+            <label>Tên Nhân Vật</label>
+            <input id="cfgTitle" type="text" value="HP Media" style="width:140px;" />
+          </div>
+          <div class="ctrl">
+            <label>Max level</label>
+            <input id="cfgMaxLv" type="number" value="18" min="1" max="50" />
+          </div>
+          <div class="ctrl">
+            <label>Tên — offset Y (âm = sát badge hơn)</label>
+            <input id="cfgTitleMb" type="number" value="-10" min="-100" max="60" />
+          </div>
+          <div class="ctrl" data-cfg="dia">
+            <label>💎 KPI ở Lv1</label>
+            <input id="cfgDiaBase" type="number" value="500" min="1" />
+          </div>
+          <div class="ctrl" data-cfg="dia">
+            <label>💎 +mỗi level</label>
+            <input id="cfgDiaStep" type="number" value="1735" min="0" />
+          </div>
+          <div class="ctrl" data-cfg="heart">
+            <label>❤ KPI ở Lv1</label>
+            <input id="cfgHeartBase" type="number" value="2000" min="1" />
+          </div>
+          <div class="ctrl" data-cfg="heart">
+            <label>❤ +mỗi level</label>
+            <input id="cfgHeartStep" type="number" value="5765" min="0" />
+          </div>
+          <div class="ctrl" data-cfg="share">
+            <label>🔄 KPI ở Lv1</label>
+            <input id="cfgShareBase" type="number" value="3" min="1" max="500" />
+          </div>
+          <div class="ctrl" data-cfg="share">
+            <label>🔄 +mỗi level</label>
+            <input id="cfgShareStep" type="number" value="6" min="0" max="50" />
+          </div>
+          <div class="ctrl" data-cfg="share">
+            <label>🔄 Số pill tối đa (auto bucket)</label>
+            <input id="cfgShareBuckets" type="number" value="5" min="2" max="10" />
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="sec">
+      <summary>🔤 Tùy chỉnh font &amp; size</summary>
+      <div class="sec-body">
+        <div class="ctrl-grid">
+          <div class="ctrl">
+            <label>Title font-size (px)</label>
+            <input id="cfgTitleFs" type="number" value="77" min="20" max="120" />
+          </div>
+          <div class="ctrl">
+            <label>Title font</label>
+            <select id="cfgTitleFont" style="width:160px;padding:5px 7px;border:1px solid #d4d4d8;border-radius:6px;font-size:13px;">
+              <option value="'Segoe UI', Tahoma, sans-serif">Segoe UI (system — mặc định)</option>
+              <option value="'Mali', 'Be Vietnam Pro', sans-serif">Mali (chunky bold)</option>
+              <option value="'Be Vietnam Pro', sans-serif">Be Vietnam Pro (clean)</option>
+              <option value="'Bungee', sans-serif">Bungee (TỰ ĐỘNG VIẾT HOA)</option>
+              <option value="'Trebuchet MS', 'Segoe UI', sans-serif">Trebuchet MS (system)</option>
+            </select>
+          </div>
+          <div class="ctrl">
+            <label>💎 KC label font-size (px)</label>
+            <input id="cfgGreenFs" type="number" value="66" min="8" max="120" />
+          </div>
+          <div class="ctrl">
+            <label>❤ Tim label font-size (px)</label>
+            <input id="cfgBlueFs" type="number" value="66" min="6" max="120" />
+          </div>
+          <div class="ctrl">
+            <label>🔄 Bucket label font-size (px)</label>
+            <input id="cfgBucketFs" type="number" value="55" min="6" max="100" />
+          </div>
+          <div class="ctrl">
+            <label>Level number font-size (SVG unit, 20–80)</label>
+            <input id="cfgLevelNumFs" type="number" value="54" min="20" max="80" />
+          </div>
+          <div class="ctrl">
+            <label>🟢 Tick dày (px) — to để OBS scale vẫn rõ</label>
+            <input id="cfgTickW" type="number" value="5" min="1" max="20" />
+          </div>
+          <div class="ctrl">
+            <label>⏱ Timer font-size (px)</label>
+            <input id="cfgTimerFs" type="number" value="44" min="16" max="100" />
+          </div>
+          <div class="ctrl">
+            <label>⏱ Timer màu chữ</label>
+            <input id="cfgTimerColor" type="color" value="#ff4040" style="width:60px; height:32px; padding:0; cursor:pointer;" />
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="row-btns">
+      <button class="b green"  data-act="dia"   onclick="addDiamond(1)">+1 💎</button>
+      <button class="b green"  data-act="dia"   onclick="addDiamond(100)">+100 💎</button>
+      <button class="b green"  data-act="dia"   onclick="addDiamond(500)">+500 💎</button>
+      <button class="b blue"   data-act="heart" onclick="addHearts(50)">+50 ❤</button>
+      <button class="b blue"   data-act="heart" onclick="addHearts(500)">+500 ❤</button>
+      <button class="b orange" data-act="share" onclick="addShare(1)">+1 🔄</button>
+      <button class="b gold"   id="btnAuto" onclick="toggleAuto()">▶ Auto Demo</button>
+      <button class="b gray"   onclick="applyConfig()">💾 LƯU CÀI ĐẶT</button>
+      <button class="b red"    onclick="resetAll()">⟲ Reset state</button>
+      <button class="b gray"   onclick="if(confirm('Xoá cấu hình lưu trong localStorage? Mở lại sẽ về defaults.')){clearCfg();location.reload();}" style="background:#8a3a3a;">🗑 Xoá lưu</button>
+    </div>
+    <div style="font-size:12px; color:#444; margin-top:6px; opacity:.85;">
+      💾 <i>Mọi thay đổi (Tên Nhân Vật, KPI tổng, font, tick…) đều tự lưu vào browser localStorage — mở lại lần sau sẽ giữ nguyên.</i>
+    </div>
+
+    <details class="sec">
+      <summary>📊 Số liệu hiện tại</summary>
+      <div class="sec-body">
+        <div class="stat-line" id="statLine">
+          <span>Level: <b id="sLv">0</b> / <b id="sMaxLv">18</b></span>
+          <span data-stat="dia">💎: <b id="sDia">0</b> / <b id="sDiaKpi">500</b></span>
+          <span data-stat="heart">❤: <b id="sHeart">0</b> / <b id="sHeartKpi">2000</b></span>
+          <span data-stat="share">🔄: <b id="sShare">0</b> / <b id="sShareKpi">3</b></span>
+        </div>
+      </div>
+    </details>
+
+    <details class="sec">
+      <summary>📋 Bảng KPI per-level (Σ Tổng ở dưới cùng)</summary>
+      <div class="sec-body">
+        <div class="kpi-table-wrap">
+          <table class="kpi-table" id="kpiTable">
+            <thead>
+              <tr><th>Lv</th><th>💎 Kim Cương</th><th>❤ Tim</th><th>🔄 Share</th></tr>
+            </thead>
+            <tbody id="kpiTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <details class="sec" open>
+      <summary>📜 Log</summary>
+      <div class="sec-body" style="padding:0;">
+        <div class="log" id="log" style="margin:0;border-radius:0 0 10px 10px;"></div>
+      </div>
+    </details>
+  </div>
+
+<script>
+/* ============================================================
+   Quest engine + OBS overlay
+   ============================================================ */
+
+const IS_OVERLAY = new URLSearchParams(location.search).get('mode') === 'overlay';
+const LS_KEY = 'levelQuest.cfg.v1';
+
+const cfg = {
+  title: "HP Media",
+  maxLevel: 18,
+  useDia: true, useHeart: true, useShare: true,
+  diaKPI: [], heartKPI: [], shareKPI: [],
+  shareBuckets: 5,
+  // Fonts (defaults theo HP Media setup)
+  titleFs: 77, greenFs: 66, blueFs: 66, bucketFs: 55, levelNumFs: 54,
+  titleFont: "'Segoe UI', Tahoma, sans-serif",
+  titleMb: -10,  // margin-bottom — âm = title sát badge hơn
+  tickW: 5,      // độ dày tick chia segment trên bar xanh lá
+  timerDurationSec: 7200, // 2h — duration mặc định, user bấm BẮT ĐẦU mới chạy
+  timerFs: 44,
+  timerColor: '#ff4040',
+  floatingEnabled: false,
+  floatDur: 2.8,  // seconds per bob cycle
+};
+
+const state = { level:0, dia:0, heart:0, share:0, finished:false,
+                 timerActive:false, timerExpiresAt: 0, timerRemain: 0 };
+
+/* ---------- Countdown timer (MANUAL start/stop) ---------- */
+let timerIv = null;
+function fmtClock(sec){
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function startTimer(){
+  stopTimer();
+  if (!state.timerActive || cfg.timerDurationSec <= 0){ hideTimer(); return; }
+  // LAB tính expiresAt, OVERLAY dùng giá trị nhận về từ broadcast
+  if (!IS_OVERLAY){
+    state.timerExpiresAt = Date.now() + cfg.timerDurationSec * 1000;
+  }
+  state.timerRemain = Math.max(0, Math.ceil((state.timerExpiresAt - Date.now())/1000));
+  showTimer();
+  timerIv = setInterval(tickTimer, 250);
+  tickTimer();
+  updateTimerBtn();
+}
+function stopTimer(){
+  if (timerIv){ clearInterval(timerIv); timerIv = null; }
+}
+function tickTimer(){
+  if (!state.timerActive){ hideTimer(); stopTimer(); updateTimerBtn(); return; }
+  const remainMs = state.timerExpiresAt - Date.now();
+  state.timerRemain = Math.max(0, Math.ceil(remainMs/1000));
+  const el = $("questTimer");
+  if (!el) return;
+  el.textContent = fmtClock(state.timerRemain);
+  el.classList.toggle('warning', state.timerRemain > 0 && state.timerRemain <= 60);
+  el.classList.toggle('danger',  state.timerRemain > 0 && state.timerRemain <= 10);
+  if (state.timerRemain <= 0 && !state.finished){
+    state.finished = true;
+    state.timerActive = false;
+    el.classList.add('expired');
+    log('<span class="lv">⏱ HẾT GIỜ — Quest khoá KPI</span>');
+    stopTimer();
+    updateTimerBtn();
+    broadcastState();
+  }
+}
+function showTimer(){ $("questTimer")?.classList.remove('hidden','expired'); }
+function hideTimer(){ $("questTimer")?.classList.add('hidden'); }
+
+/* Toggle Start/Stop — gọi từ nút "▶ BẮT ĐẦU / ■ DỪNG" */
+function toggleQuestTimer(){
+  if (state.timerActive){
+    // STOP
+    state.timerActive = false;
+    state.finished = true;
+    stopTimer();
+    hideTimer();
+    log('<span class="lv">■ DỪNG — Quest kết thúc thủ công</span>');
+    updateTimerBtn();
+    broadcastState();
+    return;
+  }
+  // START
+  const h = clampInt($("cfgTimerH").value, 0, 23);
+  const m = clampInt($("cfgTimerM").value, 0, 59);
+  const s = clampInt($("cfgTimerS").value, 0, 59);
+  const dur = h*3600 + m*60 + s;
+  if (dur <= 0){
+    log('<span class="lv">⚠ Thời lượng = 0, không thể bắt đầu</span>');
+    return;
+  }
+  cfg.timerDurationSec = dur;
+  state.timerActive = true;
+  state.finished = false;
+  startTimer();
+  log(`<span class="lv">▶ BẮT ĐẦU — đếm lùi ${fmtClock(dur)}</span>`);
+  saveCfg();
+  broadcastState();
+}
+function updateTimerBtn(){
+  const btn = $("btnTimerToggle"); if (!btn) return;
+  if (state.timerActive){
+    btn.textContent = '■ DỪNG';
+    btn.classList.remove('orange'); btn.classList.add('red');
+  } else {
+    btn.textContent = '▶ BẮT ĐẦU';
+    btn.classList.remove('red'); btn.classList.add('orange');
+  }
+}
+
+/* ---------- KPI lookups ---------- */
+function kpiDia(lv){   return cfg.diaKPI[Math.min(lv, cfg.diaKPI.length-1)]   || 0; }
+function kpiHeart(lv){ return cfg.heartKPI[Math.min(lv, cfg.heartKPI.length-1)] || 0; }
+function kpiShare(lv){ return cfg.shareKPI[Math.min(lv, cfg.shareKPI.length-1)] || 0; }
+
+/* ---------- Build helpers ---------- */
+function buildLinear(base, step, count){
+  const arr = [];
+  for (let i = 0; i < count; i++) arr.push(Math.max(1, Math.round(base + i*step)));
+  return arr;
+}
+function buildCurveBySum(totalSum, count, ratio){
+  ratio = ratio || 1.2;
+  if (count <= 0) return [];
+  if (Math.abs(ratio - 1) < 0.001){
+    const per = Math.max(1, Math.round(totalSum / count));
+    const arr = Array(count).fill(per);
+    arr[count - 1] = Math.max(1, totalSum - per * (count - 1));
+    return arr;
+  }
+  const raw = []; let sumRaw = 0;
+  for (let i = 0; i < count; i++){ const v = Math.pow(ratio, i); raw.push(v); sumRaw += v; }
+  const scale = totalSum / sumRaw;
+  const arr = raw.map(v => Math.max(1, Math.round(v * scale)));
+  const sumExceptLast = arr.slice(0, -1).reduce((a,b)=>a+b, 0);
+  arr[arr.length - 1] = Math.max(1, totalSum - sumExceptLast);
+  return arr;
+}
+function sum(arr){ return arr.reduce((a,b)=>a+b, 0); }
+
+/* ---------- Persistence ---------- */
+function saveCfg(){
+  try {
+    const dump = {
+      title: cfg.title, maxLevel: cfg.maxLevel,
+      useDia: cfg.useDia, useHeart: cfg.useHeart, useShare: cfg.useShare,
+      diaKPI: cfg.diaKPI, heartKPI: cfg.heartKPI, shareKPI: cfg.shareKPI,
+      shareBuckets: cfg.shareBuckets,
+      titleFs: cfg.titleFs, greenFs: cfg.greenFs, blueFs: cfg.blueFs,
+      bucketFs: cfg.bucketFs, levelNumFs: cfg.levelNumFs,
+      titleFont: cfg.titleFont, titleMb: cfg.titleMb, tickW: cfg.tickW,
+      timerDurationSec: cfg.timerDurationSec,
+      timerFs: cfg.timerFs, timerColor: cfg.timerColor,
+      floatingEnabled: cfg.floatingEnabled, floatDur: cfg.floatDur,
+      // Lưu cả input totals mong muốn để khôi phục đúng cấu hình
+      totDia: parseInt($("cfgTotalDia")?.value)   || 30000,
+      totHeart: parseInt($("cfgTotalHeart")?.value)|| 100000,
+      totShare: parseInt($("cfgTotalShare")?.value)|| 100,
+      totMaxLv: parseInt($("cfgTotalMaxLv")?.value)|| 18,
+      totMode: $("cfgTotalMode")?.value || 'curve',
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(dump));
+    broadcastCfg();   // realtime sync sang overlay (nếu là LAB)
+  } catch (e) { console.warn('saveCfg failed', e); }
+}
+
+function loadCfg(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    Object.assign(cfg, {
+      title: d.title || cfg.title,
+      maxLevel: d.maxLevel || cfg.maxLevel,
+      useDia: d.useDia !== false, useHeart: d.useHeart !== false, useShare: d.useShare !== false,
+      diaKPI: Array.isArray(d.diaKPI) && d.diaKPI.length ? d.diaKPI : cfg.diaKPI,
+      heartKPI: Array.isArray(d.heartKPI) && d.heartKPI.length ? d.heartKPI : cfg.heartKPI,
+      shareKPI: Array.isArray(d.shareKPI) && d.shareKPI.length ? d.shareKPI : cfg.shareKPI,
+      shareBuckets: d.shareBuckets || cfg.shareBuckets,
+      titleFs: d.titleFs || cfg.titleFs, greenFs: d.greenFs || cfg.greenFs,
+      blueFs: d.blueFs || cfg.blueFs, bucketFs: d.bucketFs || cfg.bucketFs,
+      levelNumFs: d.levelNumFs || cfg.levelNumFs,
+      titleFont: d.titleFont || cfg.titleFont,
+      titleMb: (typeof d.titleMb === 'number') ? d.titleMb : cfg.titleMb,
+      tickW: d.tickW || cfg.tickW,
+      timerDurationSec: d.timerDurationSec || cfg.timerDurationSec,
+      timerFs: d.timerFs || cfg.timerFs,
+      timerColor: d.timerColor || cfg.timerColor,
+      floatingEnabled: !!d.floatingEnabled,
+      floatDur: (typeof d.floatDur === 'number') ? d.floatDur : cfg.floatDur,
+    });
+    // Sync UI inputs
+    const set = (id, v) => { const e = $(id); if (e && v !== undefined && v !== null) e.value = v; };
+    set('cfgTitle', cfg.title); set('cfgMaxLv', cfg.maxLevel);
+    set('cfgShareBuckets', cfg.shareBuckets);
+    set('cfgTitleFs', cfg.titleFs); set('cfgGreenFs', cfg.greenFs);
+    set('cfgBlueFs', cfg.blueFs); set('cfgBucketFs', cfg.bucketFs);
+    set('cfgLevelNumFs', cfg.levelNumFs); set('cfgTitleMb', cfg.titleMb);
+    set('cfgTickW', cfg.tickW); set('cfgTitleFont', cfg.titleFont);
+    set('cfgTimerFs', cfg.timerFs); set('cfgTimerColor', cfg.timerColor);
+    set('cfgFloatDur', cfg.floatDur);
+    if ($("enFloating")) $("enFloating").checked = !!cfg.floatingEnabled;
+    set('cfgTotalDia', d.totDia); set('cfgTotalHeart', d.totHeart);
+    set('cfgTotalShare', d.totShare); set('cfgTotalMaxLv', d.totMaxLv);
+    set('cfgTotalMode', d.totMode);
+    // Sync KPI checkboxes
+    if ($("enDia"))   $("enDia").checked   = cfg.useDia;
+    if ($("enHeart")) $("enHeart").checked = cfg.useHeart;
+    if ($("enShare")) $("enShare").checked = cfg.useShare;
+    // Sync linear inputs từ array
+    if (cfg.diaKPI.length){
+      set('cfgDiaBase', cfg.diaKPI[0]);
+      set('cfgDiaStep', cfg.maxLevel>1 ? Math.round((cfg.diaKPI[cfg.maxLevel-1]-cfg.diaKPI[0])/(cfg.maxLevel-1)) : 0);
+    }
+    if (cfg.heartKPI.length){
+      set('cfgHeartBase', cfg.heartKPI[0]);
+      set('cfgHeartStep', cfg.maxLevel>1 ? Math.round((cfg.heartKPI[cfg.maxLevel-1]-cfg.heartKPI[0])/(cfg.maxLevel-1)) : 0);
+    }
+    if (cfg.shareKPI.length){
+      set('cfgShareBase', cfg.shareKPI[0]);
+      set('cfgShareStep', cfg.maxLevel>1 ? Math.round((cfg.shareKPI[cfg.maxLevel-1]-cfg.shareKPI[0])/(cfg.maxLevel-1)) : 0);
+    }
+    return true;
+  } catch (e) { console.warn('loadCfg failed', e); return false; }
+}
+
+function clearCfg(){
+  try { localStorage.removeItem(LS_KEY); log('<span class="lv">🗑 Đã xoá cấu hình lưu</span>'); }
+  catch(e){}
+}
+
+/* ---------- mutators ---------- */
+function addDiamond(n){
+  if (state.finished || !cfg.useDia) return;
+  state.dia += n;
+  log(`<span class="d">+${n} 💎</span> → ${state.dia}/${kpiDia(state.level)}`);
+  afterChange('dia');
+}
+function addHearts(n){
+  if (state.finished || !cfg.useHeart) return;
+  state.heart += n;
+  log(`<span class="h">+${n} ❤</span> → ${state.heart}/${kpiHeart(state.level)}`);
+  afterChange('heart');
+}
+function addShare(n){
+  if (state.finished || !cfg.useShare) return;
+  state.share += n;
+  log(`<span class="s">+${n} 🔄</span> → ${state.share}/${kpiShare(state.level)}`);
+  afterChange('share');
+}
+function afterChange(which){
+  const dKpi = kpiDia(state.level), hKpi = kpiHeart(state.level), sKpi = kpiShare(state.level);
+  if (which==='dia'   && cfg.useDia   && state.dia   >= dKpi)  log(`<span class="ok">✓ 💎 KPI Kim Cương ĐẠT</span>`);
+  if (which==='heart' && cfg.useHeart && state.heart >= hKpi)  log(`<span class="ok">✓ ❤ KPI Tim ĐẠT</span>`);
+  if (which==='share' && cfg.useShare && state.share >= sKpi)  log(`<span class="ok">✓ 🔄 KPI Share ĐẠT</span>`);
+  checkLevelUp();
+  render();
+  broadcastState();
+}
+
+/* ---------- Socket broadcast (LAB → OVERLAY real-time sync) ---------- */
+let _sock = null;
+function broadcastState(){
+  if (IS_OVERLAY || !_sock || !_sock.connected) return;
+  _sock.emit('levelquest:state', {
+    level: state.level, dia: state.dia, heart: state.heart, share: state.share,
+    finished: state.finished,
+    timerActive: state.timerActive, timerExpiresAt: state.timerExpiresAt,
+  });
+}
+function broadcastCfg(){
+  if (IS_OVERLAY || !_sock || !_sock.connected) return;
+  _sock.emit('levelquest:cfg', serializeCfgForSync());
+}
+function serializeCfgForSync(){
+  return {
+    title: cfg.title, maxLevel: cfg.maxLevel,
+    useDia: cfg.useDia, useHeart: cfg.useHeart, useShare: cfg.useShare,
+    diaKPI: cfg.diaKPI, heartKPI: cfg.heartKPI, shareKPI: cfg.shareKPI,
+    shareBuckets: cfg.shareBuckets,
+    titleFs: cfg.titleFs, greenFs: cfg.greenFs, blueFs: cfg.blueFs,
+    bucketFs: cfg.bucketFs, levelNumFs: cfg.levelNumFs,
+    titleFont: cfg.titleFont, titleMb: cfg.titleMb, tickW: cfg.tickW,
+    timerDurationSec: cfg.timerDurationSec,
+    timerFs: cfg.timerFs, timerColor: cfg.timerColor,
+    floatingEnabled: cfg.floatingEnabled, floatDur: cfg.floatDur,
+  };
+}
+function applyRemoteCfg(data){
+  if (!data) return;
+  Object.assign(cfg, data);
+  applyFontSizes();
+  updateVisibility();
+  render();
+  // KHÔNG đụng vào timer — timer được điều khiển qua state broadcast (BẮT ĐẦU/DỪNG)
+  // không bị reset khi LAB sync font/KPI/màu
+}
+function applyRemoteState(data){
+  if (!data || !IS_OVERLAY) return;
+  state.level    = data.level || 0;
+  state.dia      = data.dia || 0;
+  state.heart    = data.heart || 0;
+  state.share    = data.share || 0;
+  state.finished = !!data.finished;
+  // Timer sync: overlay nhận timerExpiresAt từ lab, tự tính remain từ Date.now()
+  const wasActive = state.timerActive;
+  state.timerActive    = !!data.timerActive;
+  state.timerExpiresAt = data.timerExpiresAt || 0;
+  if (state.timerActive && !wasActive){ startTimer(); }
+  else if (!state.timerActive && wasActive){ stopTimer(); hideTimer(); }
+  render();
+}
+
+/* ---------- level-up
+   MODEL: state.level = "current level being filled" (0-indexed)
+          → display badge = state.level + 1 (1-indexed cho người xem)
+          → state.level range [0..maxLevel-1]; KHÔNG vượt maxLevel-1
+   • KC (donate tiền) → SUBTRACT ngưỡng, giữ số dư carry sang level kế
+   • Tim & Share (free) → HARD RESET về 0
+   • LEVEL CUỐI (maxLevel): khi KPI L18 đầy → CAP state ở ngưỡng (bar 100%) + finished
+     KHÔNG carry tiếp, đứng yên frozen.
+   ---------- */
+function checkLevelUp(){
+  if (state.finished) return;
+  while (true) {
+    const dN = kpiDia(state.level), hN = kpiHeart(state.level), sN = kpiShare(state.level);
+    const diaOk   = !cfg.useDia   || state.dia   >= dN;
+    const heartOk = !cfg.useHeart || state.heart >= hN;
+    const shareOk = !cfg.useShare || state.share >= sN;
+    if (!(diaOk && heartOk && shareOk)) break;
+
+    // Level CUỐI — quest hoàn tất, đứng yên ở 100%
+    if (state.level >= cfg.maxLevel - 1) {
+      if (cfg.useDia)   state.dia   = dN;   // cap → bar hiển thị 100%
+      if (cfg.useHeart) state.heart = hN;
+      if (cfg.useShare) state.share = sN;
+      state.finished = true;
+      log(`<span class="lv">★ QUEST COMPLETE — Lv ${cfg.maxLevel} ĐẠT FULL</span>`);
+      flashLevelUp();
+      stopTimer();
+      break;
+    }
+
+    // Level up bình thường
+    if (cfg.useDia)   state.dia   -= dN;   // carry surplus
+    if (cfg.useHeart) state.heart  = 0;
+    if (cfg.useShare) state.share  = 0;
+    state.level++;
+    log(`<span class="lv">▲ LEVEL UP → Lv ${state.level + 1}${cfg.useDia && state.dia>0 ? ` (💎 dư ${fmt(state.dia)} carry)` : ''}</span>`);
+    flashLevelUp();
+  }
+}
+
+/* ---------- render ---------- */
+const $ = id => document.getElementById(id);
+function pct(v, max){ return Math.max(0, Math.min(100, (v/max)*100)); }
+function fmt(n){ return n.toLocaleString('vi-VN'); }
+
+function render(){
+  $("title").textContent = cfg.title;
+  // Badge hiển thị "level đang fill" 1-indexed, capped maxLevel
+  $("levelNum").textContent = Math.min(state.level + 1, cfg.maxLevel);
+
+  const dKpi = kpiDia(state.level), hKpi = kpiHeart(state.level), sKpi = kpiShare(state.level);
+
+  // KC: khi vượt ngưỡng hiện tại → hiển thị "+Over X" với X là số dư carry sang level kế
+  const diaDone = cfg.useDia && state.dia >= dKpi;
+  const diaOver = state.dia - dKpi;
+  $("diaFill").style.width = pct(state.dia, dKpi) + "%";
+  $("diaLabel").innerHTML = diaDone
+    ? `<span class="done-pill">${diaOver > 0 ? `+Over ${fmt(diaOver)}` : '✓ ĐẠT'}</span>`
+    : `${fmt(state.dia)} / ${fmt(dKpi)}`;
+  $("diaBar").classList.toggle('done', diaDone);
+  renderTicks($("diaTicks"), Math.max(1, state.level + 1));
+
+  // Tim: ĐỦ thì coi như xong, ẨN label (visual giống Share — pulse bar nói lên tất cả)
+  const heartDone = cfg.useHeart && state.heart >= hKpi;
+  $("heartFill").style.width = pct(state.heart, hKpi) + "%";
+  $("heartLabel").innerHTML = heartDone
+    ? ''
+    : `${fmt(state.heart)} / ${fmt(hKpi)}`;
+  $("heartBar").classList.toggle('done', heartDone);
+
+  renderShare($("shareRow"), sKpi, state.share);
+
+  if (!IS_OVERLAY){
+    $("sLv").textContent = state.level; $("sMaxLv").textContent = cfg.maxLevel;
+    $("sDia").textContent = fmt(state.dia);     $("sDiaKpi").textContent = fmt(dKpi);
+    $("sHeart").textContent = fmt(state.heart); $("sHeartKpi").textContent = fmt(hKpi);
+    $("sShare").textContent = fmt(state.share); $("sShareKpi").textContent = fmt(sKpi);
+    renderKpiTable();
+  }
+}
+
+function renderTicks(container, n){
+  if (container.childElementCount === n) return;
+  container.innerHTML = "";
+  for (let i=0; i<n; i++){ const d = document.createElement("div"); d.className = "tick"; container.appendChild(d); }
+}
+
+function renderShare(container, total, current){
+  const MAX_PILLS = Math.max(2, Math.min(10, cfg.shareBuckets || 5));
+  const useBucket = total > MAX_PILLS;
+  const pillCount = useBucket ? MAX_PILLS : total;
+  const done = cfg.useShare && current >= total;
+  container.classList.toggle('bucket-mode', useBucket);
+  container.classList.toggle('done', done);
+  while (container.childElementCount < pillCount){
+    const p = document.createElement('div');
+    p.innerHTML = '<div class="pill-fill"></div><div class="pill-label"></div>';
+    container.appendChild(p);
+  }
+  while (container.childElementCount > pillCount){ container.removeChild(container.lastChild); }
+
+  if (useBucket){
+    const sizes = [];
+    for (let i = 0; i < MAX_PILLS; i++) sizes.push(Math.floor(total*(i+1)/MAX_PILLS) - Math.floor(total*i/MAX_PILLS));
+    let rem = Math.min(current, total);
+    for (let i = 0; i < MAX_PILLS; i++){
+      const pill = container.children[i];
+      const size = sizes[i];
+      const filled = Math.min(size, Math.max(0, rem)); rem -= filled;
+      const pillDone = filled >= size;
+      const pillActive = filled > 0 && !pillDone;
+      pill.className = 'pill bucket';
+      if (done || pillDone) pill.classList.add('filled');
+      else if (pillActive)  pill.classList.add('active');
+      const p = (done || pillDone) ? 100 : (filled / size * 100);
+      pill.querySelector('.pill-fill').style.width = p + '%';
+      pill.querySelector('.pill-label').textContent = `${filled}/${size}`;
+    }
+  } else {
+    const eff = Math.min(current, total);
+    for (let i = 0; i < total; i++){
+      const pill = container.children[i];
+      pill.className = 'pill';
+      if (done) pill.classList.add('filled');
+      else if (i < eff - 1)   pill.classList.add('filled');
+      else if (i === eff - 1) pill.classList.add('active');
+      pill.querySelector('.pill-fill').style.width = '0%';
+      pill.querySelector('.pill-label').textContent = '';
+    }
+  }
+}
+
+function renderKpiTable(){
+  const tb = $("kpiTbody"); if (!tb) return;
+  tb.innerHTML = "";
+  let tD=0, tH=0, tS=0;
+  for (let lv = 0; lv < cfg.maxLevel; lv++){
+    const tr = document.createElement("tr");
+    if (lv === state.level) tr.className = "cur";
+    const dClass = cfg.useDia ? "dia" : "dia muted";
+    const hClass = cfg.useHeart ? "heart" : "heart muted";
+    const sClass = cfg.useShare ? "share" : "share muted";
+    const d = kpiDia(lv), h = kpiHeart(lv), s = kpiShare(lv);
+    tD += d; tH += h; tS += s;
+    tr.innerHTML = `<td>Lv ${lv+1}</td><td class="${dClass}"><b>${fmt(d)}</b></td><td class="${hClass}"><b>${fmt(h)}</b></td><td class="${sClass}"><b>${fmt(s)}</b></td>`;
+    tb.appendChild(tr);
+  }
+  const trTot = document.createElement("tr"); trTot.className = "tot";
+  trTot.innerHTML = `<td><b>Σ Tổng</b></td><td class="dia"><b>${fmt(tD)}</b></td><td class="heart"><b>${fmt(tH)}</b></td><td class="share"><b>${fmt(tS)}</b></td>`;
+  tb.appendChild(trTot);
+}
+
+/* ---------- font sizes & layout offsets ---------- */
+function applyFontSizes(){
+  const root = document.documentElement.style;
+  root.setProperty('--title-fs', cfg.titleFs + 'px');
+  root.setProperty('--label-green-fs', cfg.greenFs + 'px');
+  root.setProperty('--label-blue-fs', cfg.blueFs + 'px');
+  root.setProperty('--bucket-label-fs', cfg.bucketFs + 'px');
+  root.setProperty('--title-font', cfg.titleFont);
+  root.setProperty('--title-mb', cfg.titleMb + 'px');
+  root.setProperty('--tick-w', cfg.tickW + 'px');
+  root.setProperty('--timer-fs', cfg.timerFs + 'px');
+  root.setProperty('--timer-color', cfg.timerColor);
+  root.setProperty('--float-dur', cfg.floatDur + 's');
+  document.body.classList.toggle('lq-floating', !!cfg.floatingEnabled);
+  $("levelNum").setAttribute('font-size', cfg.levelNumFs);
+}
+
+/* ---------- effects ---------- */
+function flashLevelUp(){
+  const b = $("badge"), s = $("shell");
+  b.classList.remove("flash"); s.classList.remove("flash");
+  void b.offsetWidth; void s.offsetWidth;
+  b.classList.add("flash"); s.classList.add("flash");
+}
+
+/* ---------- visibility ---------- */
+function updateVisibility(){
+  document.querySelector('[data-kpi="dia"]').hidden   = !cfg.useDia;
+  document.querySelector('[data-kpi="heart"]').hidden = !cfg.useHeart;
+  document.querySelector('[data-kpi="share"]').hidden = !cfg.useShare;
+  if (IS_OVERLAY) return;
+  document.querySelectorAll('[data-cfg]').forEach(el => el.classList.toggle('dim', !cfg['use'+cap(el.dataset.cfg)]));
+  document.querySelectorAll('[data-stat]').forEach(el => el.classList.toggle('off', !cfg['use'+cap(el.dataset.stat)]));
+  document.querySelectorAll('[data-act]').forEach(el => el.disabled = !cfg['use'+cap(el.dataset.act)]);
+  const vis = ['dia','heart','share'].filter(k => cfg['use'+cap(k)]).length;
+  const shell = $("shell");
+  shell.style.paddingTop    = (vis === 1) ? '18px' : '12px';
+  shell.style.paddingBottom = (vis === 1) ? '18px' : '12px';
+}
+function cap(s){ return s[0].toUpperCase()+s.slice(1); }
+
+/* ---------- config ---------- */
+function applyConfig(){
+  cfg.title    = $("cfgTitle").value.trim() || "HP Media";
+  cfg.maxLevel = clampInt($("cfgMaxLv").value, 1, 50);
+  const dB = clampInt($("cfgDiaBase").value, 1, 1e7);
+  const dS = clampInt($("cfgDiaStep").value, 0, 1e7);
+  const hB = clampInt($("cfgHeartBase").value, 1, 1e7);
+  const hS = clampInt($("cfgHeartStep").value, 0, 1e7);
+  const sB = clampInt($("cfgShareBase").value, 1, 500);
+  const sS = clampInt($("cfgShareStep").value, 0, 50);
+  cfg.shareBuckets = clampInt($("cfgShareBuckets").value, 2, 10);
+  cfg.diaKPI   = buildLinear(dB, dS, cfg.maxLevel);
+  cfg.heartKPI = buildLinear(hB, hS, cfg.maxLevel);
+  cfg.shareKPI = buildLinear(sB, sS, cfg.maxLevel);
+  // Fonts
+  cfg.titleFs     = clampInt($("cfgTitleFs").value, 20, 120);
+  cfg.greenFs     = clampInt($("cfgGreenFs").value, 8, 40);
+  cfg.blueFs      = clampInt($("cfgBlueFs").value, 6, 30);
+  cfg.bucketFs    = clampInt($("cfgBucketFs").value, 6, 20);
+  cfg.levelNumFs  = clampInt($("cfgLevelNumFs").value, 20, 80);
+  cfg.titleFont   = $("cfgTitleFont").value;
+  cfg.titleMb     = clampInt($("cfgTitleMb").value, -100, 60);
+  cfg.tickW       = clampInt($("cfgTickW").value, 1, 20);
+  cfg.timerFs     = clampInt($("cfgTimerFs").value, 16, 100);
+  cfg.timerColor  = $("cfgTimerColor").value || '#ff4040';
+  // Floating effect
+  cfg.floatingEnabled = !!$("enFloating")?.checked;
+  cfg.floatDur = Math.max(0.8, Math.min(8, parseFloat($("cfgFloatDur").value) || 2.8));
+  applyFontSizes();
+  saveCfg();
+  log(`<span class="lv">💾 Đã lưu cài đặt</span>`);
+  render();
+}
+function clampInt(v, lo, hi){ v = parseInt(v,10); if(!isFinite(v)) v = lo; return Math.max(lo, Math.min(hi, v)); }
+
+function applyTotalsPreset(){
+  const totDia   = clampInt($("cfgTotalDia").value,   1, 1e8);
+  const totHeart = clampInt($("cfgTotalHeart").value, 1, 1e9);
+  const totShare = clampInt($("cfgTotalShare").value, 1, 1e5);
+  const lv       = clampInt($("cfgTotalMaxLv").value, 1, 50);
+  const mode     = $("cfgTotalMode").value;
+  const ratio    = mode === 'curve' ? 1.2 : 1.0;
+
+  cfg.title    = $("cfgTitle").value.trim() || "HP Media";
+  cfg.maxLevel = lv;
+  cfg.shareBuckets = clampInt($("cfgShareBuckets").value, 2, 10);
+  cfg.diaKPI   = buildCurveBySum(totDia,   lv, ratio);
+  cfg.heartKPI = buildCurveBySum(totHeart, lv, ratio);
+  cfg.shareKPI = buildCurveBySum(totShare, lv, ratio);
+
+  // Sync linear inputs để dễ tham khảo (đại diện thôi)
+  $("cfgMaxLv").value      = lv;
+  $("cfgDiaBase").value    = cfg.diaKPI[0];   $("cfgDiaStep").value   = lv>1 ? Math.round((cfg.diaKPI[lv-1]-cfg.diaKPI[0])/(lv-1)) : 0;
+  $("cfgHeartBase").value  = cfg.heartKPI[0]; $("cfgHeartStep").value = lv>1 ? Math.round((cfg.heartKPI[lv-1]-cfg.heartKPI[0])/(lv-1)) : 0;
+  $("cfgShareBase").value  = cfg.shareKPI[0]; $("cfgShareStep").value = lv>1 ? Math.round((cfg.shareKPI[lv-1]-cfg.shareKPI[0])/(lv-1)) : 0;
+
+  saveCfg();
+  log(`<span class="lv">⚡ Đã chia ${fmt(totDia)} 💎 + ${fmt(totHeart)} ❤ + ${fmt(totShare)} 🔄 cho ${lv} level (${mode}) — đã lưu</span>`);
+  render();
+}
+
+function presetCurve18(){
+  cfg.title = $("cfgTitle").value.trim() || "HP Media";
+  cfg.maxLevel = 18; cfg.shareBuckets = 5;
+  cfg.diaKPI   = buildCurveBySum(30000,  18, 1.2);
+  cfg.heartKPI = buildCurveBySum(100000, 18, 1.2);
+  cfg.shareKPI = buildCurveBySum(100,    18, 1.2);
+  $("cfgMaxLv").value = 18; $("cfgShareBuckets").value = 5;
+  $("cfgDiaBase").value   = cfg.diaKPI[0];   $("cfgDiaStep").value   = Math.round((cfg.diaKPI[17]-cfg.diaKPI[0])/17);
+  $("cfgHeartBase").value = cfg.heartKPI[0]; $("cfgHeartStep").value = Math.round((cfg.heartKPI[17]-cfg.heartKPI[0])/17);
+  $("cfgShareBase").value = cfg.shareKPI[0]; $("cfgShareStep").value = Math.round((cfg.shareKPI[17]-cfg.shareKPI[0])/17);
+  log(`<span class="lv">⭐ Preset cong — Σ ${fmt(sum(cfg.diaKPI))} 💎 / ${fmt(sum(cfg.heartKPI))} ❤ / ${fmt(sum(cfg.shareKPI))} 🔄</span>`);
+  render();
+}
+function presetLinear18(){
+  cfg.title = $("cfgTitle").value.trim() || "HP Media";
+  cfg.maxLevel = 18; cfg.shareBuckets = 5;
+  cfg.diaKPI   = buildCurveBySum(30000,  18, 1.0);
+  cfg.heartKPI = buildCurveBySum(100000, 18, 1.0);
+  cfg.shareKPI = buildCurveBySum(100,    18, 1.0);
+  $("cfgMaxLv").value = 18; $("cfgShareBuckets").value = 5;
+  $("cfgDiaBase").value   = cfg.diaKPI[0];   $("cfgDiaStep").value   = 0;
+  $("cfgHeartBase").value = cfg.heartKPI[0]; $("cfgHeartStep").value = 0;
+  $("cfgShareBase").value = cfg.shareKPI[0]; $("cfgShareStep").value = 0;
+  log(`<span class="lv">📏 Preset đều — mỗi level ~ ${fmt(cfg.diaKPI[0])} 💎 / ${fmt(cfg.heartKPI[0])} ❤ / ${fmt(cfg.shareKPI[0])} 🔄</span>`);
+  render();
+}
+
+function resetAll(){
+  state.level=0; state.dia=0; state.heart=0; state.share=0; state.finished=false;
+  state.timerActive=false; state.timerExpiresAt=0;
+  if (autoTimer){ clearInterval(autoTimer); autoTimer=null; const b=$("btnAuto"); if(b) b.textContent="▶ Auto Demo"; }
+  stopTimer(); hideTimer(); updateTimerBtn();
+  log(`<span class="lv">⟲ Reset state — bấm ▶ BẮT ĐẦU để chạy timer lại</span>`);
+  render();
+  broadcastState();
+}
+
+function bindToggle(id, key){
+  const cb = $(id); if (!cb) return;
+  cb.addEventListener('change', () => {
+    cfg[key] = cb.checked;
+    if (!cfg.useDia && !cfg.useHeart && !cfg.useShare){
+      cfg[key] = true; cb.checked = true;
+      log(`<span class="lv">⚠ Phải bật ít nhất 1 KPI</span>`); return;
+    }
+    log(`<span class="lv">${cb.checked ? '✓ Bật' : '✗ Tắt'} ${labelOf(key)}</span>`);
+    updateVisibility(); checkLevelUp(); render(); saveCfg();
+  });
+}
+function labelOf(k){ return ({useDia:'💎 KC', useHeart:'❤ Tim', useShare:'🔄 Share'})[k] || k; }
+
+/* ---------- auto demo (lab only) ---------- */
+let autoTimer = null;
+function toggleAuto(){
+  const btn = $("btnAuto");
+  if (autoTimer){ clearInterval(autoTimer); autoTimer=null; btn.textContent="▶ Auto Demo"; return; }
+  btn.textContent = "⏸ Stop Auto";
+  autoTimer = setInterval(()=>{
+    if (state.finished){ toggleAuto(); return; }
+    const enabled = [];
+    if (cfg.useDia)   enabled.push('dia');
+    if (cfg.useHeart) enabled.push('heart');
+    if (cfg.useShare) enabled.push('share');
+    if (enabled.length === 0) return;
+    const pick = enabled[Math.floor(Math.random()*enabled.length)];
+    if (pick === 'heart')      addHearts(50 + Math.floor(Math.random()*500));
+    else if (pick === 'dia')   addDiamond(10 + Math.floor(Math.random()*200));
+    else                       addShare(1);
+  }, 280);
+}
+
+function log(html){
+  const el = $("log"); if (!el) { console.log(html.replace(/<[^>]+>/g,'')); return; }
+  const line = document.createElement("div");
+  line.innerHTML = html;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  while (el.childElementCount > 200) el.removeChild(el.firstChild);
+}
+
+function copyObsLink(btn){
+  const url = `${location.protocol}//${location.host}/_prototype/level-quest.html?mode=overlay`;
+  const done = () => {
+    if (btn) { const t = btn.textContent; btn.textContent = '✓ Đã copy'; setTimeout(()=>btn.textContent=t, 1500); }
+    log(`<span class="lv">📋 Copied OBS link</span>`);
+  };
+  const fb = () => {
+    // Fallback: textarea + execCommand (cho iframe / Electron context)
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta); done();
+    } catch(e){ log(`<span class="lv">⚠ Copy fail — URL: ${url}</span>`); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(fb);
+  } else fb();
+}
+
+/* ============================================================
+   Socket connection — LAB và OVERLAY đều connect
+   - LAB:     subscribe TikTok + broadcast cfg/state
+   - OVERLAY: subscribe TikTok + listen cfg/state từ LAB (priority)
+   ============================================================ */
+function bootSocket(){
+  if (IS_OVERLAY){ document.body.classList.add('overlay-mode'); }
+  const s = document.createElement('script');
+  s.src = '/socket.io/socket.io.js';
+  s.onload = initSocket;
+  s.onerror = () => setConn('disconnected', 'socket.io load failed');
+  document.head.appendChild(s);
+}
+
+function setConn(cls, txt){
+  const el = $("connInd"); if (!el) return;
+  el.className = 'conn-indicator ' + cls;
+  el.textContent = txt;
+}
+
+function initSocket(){
+  if (typeof io === 'undefined'){ setConn('disconnected','io undefined'); return; }
+  _sock = io();
+  let lastTotalShares = null;
+  setConn('connecting', 'connecting…');
+
+  _sock.on('connect',    () => {
+    setConn('connected', '● TikTok ready');
+    log('<span class="tk">[TK] socket connected</span>');
+    // LAB: gửi cfg + state hiện tại ngay để overlay sync nếu đã mở
+    if (!IS_OVERLAY){ broadcastCfg(); broadcastState(); }
+  });
+  _sock.on('disconnect', () => { setConn('disconnected', '✕ disconnected'); log('<span class="tk">[TK] socket disconnected</span>'); });
+
+  // === TikTok events: cả LAB và OVERLAY đều subscribe ===
+  _sock.on('gift', (g) => {
+    const coin = Number(g?.coinValue ?? g?.diamondCount) || 0;
+    const rep  = Number(g?.repeatCount) || 1;
+    const total = coin * rep;
+    if (total > 0 && !IS_OVERLAY) addDiamond(total);  // chỉ LAB ghi state, OVERLAY chờ broadcast
+  });
+  _sock.on('like', (d) => {
+    const n = Number(d?.likeCount) || 0;
+    if (n > 0 && !IS_OVERLAY) addHearts(n);
+  });
+  _sock.on('liveStats', (st) => {
+    const cur = Number(st?.totalShares) || 0;
+    if (lastTotalShares === null) { lastTotalShares = cur; return; }
+    const delta = cur - lastTotalShares;
+    if (delta > 0 && !IS_OVERLAY) addShare(delta);
+    lastTotalShares = cur;
+  });
+  _sock.on('status', (st) => {
+    if (st?.connected) setConn('connected', '● Live: @' + (st.username || '?'));
+    else               setConn('disconnected', '○ no TikTok');
+  });
+
+  // === LEVEL QUEST sync (server relay) ===
+  // LAB → broadcast cfg/state; OVERLAY → listen + apply (OVERLAY là client read-only)
+  _sock.on('levelquest:cfg',   applyRemoteCfg);
+  _sock.on('levelquest:state', applyRemoteState);
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+bindToggle('enDia',   'useDia');
+bindToggle('enHeart', 'useHeart');
+bindToggle('enShare', 'useShare');
+
+// Bật/tắt floating immediate qua checkbox
+$("enFloating")?.addEventListener('change', () => {
+  cfg.floatingEnabled = !!$("enFloating").checked;
+  applyFontSizes();
+  saveCfg();
+  log(`<span class="lv">✨ Floating ${cfg.floatingEnabled ? 'ON' : 'OFF'}</span>`);
+});
+$("cfgFloatDur")?.addEventListener('change', () => {
+  cfg.floatDur = Math.max(0.8, Math.min(8, parseFloat($("cfgFloatDur").value) || 2.8));
+  applyFontSizes();
+  saveCfg();
+});
+
+// Boot: ưu tiên load từ localStorage; fallback dùng totals defaults (30k/100k/100/18)
+const restored = loadCfg();
+if (!restored){
+  applyTotalsPreset();   // dùng input defaults
+}
+// Sync UI timer inputs từ cfg sau load (duration only — timer KHÔNG auto-start)
+if ($("cfgTimerH")){ const s = cfg.timerDurationSec || 7200; $("cfgTimerH").value = Math.floor(s/3600); $("cfgTimerM").value = Math.floor((s%3600)/60); $("cfgTimerS").value = s%60; }
+
+applyFontSizes();
+updateVisibility();
+render();
+updateTimerBtn();   // sync nút BẮT ĐẦU/DỪNG (mặc định BẮT ĐẦU vì timer không auto chạy)
+
+// CẢ 2 MODE đều connect socket (LAB ghi state, OVERLAY chỉ nhận broadcast)
+bootSocket();
+
+if (IS_OVERLAY){
+  log("Overlay mode: chờ LAB broadcast hoặc TikTok events…");
+} else {
+  log(restored
+    ? `<span class="lv">📂 Khôi phục cấu hình đã lưu — Nhân vật: <b>${cfg.title}</b></span>`
+    : `Sẵn sàng. Bật/tắt KPI, dùng Auto Demo, hoặc mở OBS link để test live.`);
+}
+</script>
+
+</body>
+</html>

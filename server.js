@@ -111,6 +111,14 @@ const GAMES = {
         icon: '🗳',
         overlayPath: '/overlay/votecomment',
         defaultConfig: makeDefaultVoteCommentConfig()
+    },
+    'level-quest': {
+        id: 'level-quest',
+        name: 'LEVEL QUEST',
+        description: 'Quest bar Liên Quân-style — KPI 💎/❤/🔄 chia 18 level cho từng NPC creator.',
+        icon: '🎯',
+        overlayPath: '/_prototype/level-quest.html?mode=overlay',
+        defaultConfig: { enabled: true }
     }
 };
 
@@ -4083,6 +4091,10 @@ io.on('connection', (socket) => {
     socket.on('creatorCaption:debug', (payload) => {
         io.emit('creatorCaption:debug', { ...(payload || {}), ts: Date.now() });
     });
+
+    // LEVEL QUEST sync — lab broadcasts cfg/state; overlays nhận để cập nhật real-time
+    socket.on('levelquest:cfg',   (data) => { socket.broadcast.emit('levelquest:cfg',   data); });
+    socket.on('levelquest:state', (data) => { socket.broadcast.emit('levelquest:state', data); });
 
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {

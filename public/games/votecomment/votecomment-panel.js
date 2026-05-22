@@ -178,9 +178,13 @@
         // Master enable toggle
         $('#vc-cfg-enabled').addEventListener('change', e => { cfg.enabled = e.target.checked; scheduleSave(); });
         // Copy overlay URL — hardcoded path, không cần input ẩn
+        // v1.0.79 fix: dùng hpCopyText (có fallback execCommand) thay vì navigator.clipboard
+        // trực tiếp → tránh silent fail trên 1 số máy khi clipboard API bị từ chối.
         $('#vc-btn-copy').addEventListener('click', async () => {
             const url = location.origin + '/overlay/votecomment';
-            try { await navigator.clipboard.writeText(url); flashCopy(); } catch (e) {}
+            const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
+            if (ok) flashCopy();
+            else alert('Copy thất bại — link: ' + url);
         });
         $('#vc-btn-reload').addEventListener('click', () => {
             // OBS browser source phải tự refresh — gửi tín hiệu chỉ là gợi ý
