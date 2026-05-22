@@ -129,6 +129,48 @@
                 </div>
             </section>
 
+            <!-- GAME VIEW: THỜI GIAN (timer prototype, iframe sandbox như level-quest) -->
+            <section id="view-timer" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2>⏱ THỜI GIAN</h2>
+                        <div class="game-sub">Đếm lùi / đếm tới · 9 giao diện · Quà tặng ± thời gian (3 chế độ)</div>
+                    </div>
+                    <div class="overlay-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <button class="primary small" id="btn-timer-copy" onclick="timerCopyOverlay(this)">📋 Copy URL Overlay</button>
+                        <button class="ghost small" onclick="window.open('/_prototype/timer.html?mode=overlay','_blank','width=900,height=420')" title="Preview window — gọn hơn để theo dõi">🪟 Mở preview window</button>
+                        <button class="ghost small" onclick="document.getElementById('timer-frame').contentWindow.location.reload()" title="Reload prototype">↻ Reload</button>
+                    </div>
+                    <script>
+                      // Copy URL overlay vào clipboard — không hiển thị URL ra ngoài.
+                      // Fallback execCommand cho Electron / iframe context (clipboard API có thể fail im lặng).
+                      function timerCopyOverlay(btn){
+                        const url = location.origin + '/_prototype/timer.html?mode=overlay';
+                        const done = () => { btn.textContent = '✓ Đã copy'; setTimeout(()=>btn.textContent='📋 Copy URL Overlay', 1500); };
+                        const fail = () => { btn.textContent = '⚠ Copy fail'; setTimeout(()=>btn.textContent='📋 Copy URL Overlay', 1500); };
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          navigator.clipboard.writeText(url).then(done).catch(()=>{
+                            try {
+                              const ta = document.createElement('textarea');
+                              ta.value = url; document.body.appendChild(ta); ta.select();
+                              document.execCommand('copy'); document.body.removeChild(ta); done();
+                            } catch(e){ fail(); }
+                          });
+                        } else {
+                          try {
+                            const ta = document.createElement('textarea');
+                            ta.value = url; document.body.appendChild(ta); ta.select();
+                            document.execCommand('copy'); document.body.removeChild(ta); done();
+                          } catch(e){ fail(); }
+                        }
+                      }
+                    </script>
+                </header>
+                <div style="padding:0; flex:1; min-height:0;">
+                    <iframe id="timer-frame" src="/_prototype/timer.html" style="width:100%; height:calc(100vh - 80px); border:0; display:block; background:#eef2f7;" loading="lazy"></iframe>
+                </div>
+            </section>
+
             <!-- GAME VIEW: Hủ Thủy Tinh -->
             <section id="view-thuytinh" class="view game-view">
                 <header class="game-header">

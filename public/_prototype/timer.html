@@ -1,0 +1,2188 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>THỜI GIAN — Prototype</title>
+<script>
+  // Inline early-detection để body transparent NGAY khi parse — tránh flash trắng trong OBS.
+  // Có 2 overlay mode:
+  //   ?mode=overlay              → main timer overlay (luôn hiện)
+  //   ?mode=overlay&type=trigger → trigger overlay (CHỈ hiện khi quà kích hoạt)
+  (function(){
+    const sp = new URLSearchParams(location.search);
+    if (sp.get('mode') === 'overlay') {
+      document.documentElement.setAttribute('data-overlay', '1');
+      if (sp.get('type') === 'trigger') document.documentElement.setAttribute('data-overlay-trigger', '1');
+    }
+  })();
+</script>
+<style>
+  html[data-overlay="1"], html[data-overlay="1"] body { background: transparent !important; margin:0 !important; padding:0 !important; }
+  /* Overlay mode: ẨN topbar + control cards, chỉ giữ stage preview làm overlay */
+  html[data-overlay="1"] .topbar,
+  html[data-overlay="1"] .layout-left { display:none !important; }
+  html[data-overlay="1"] .layout { display:block !important; padding:0 !important; grid-template-columns: 1fr !important; }
+  html[data-overlay="1"] .layout-right { position:static !important; width:100% !important; padding:0 !important; max-width:none !important; }
+  html[data-overlay="1"] .stage-frame { padding:0 !important; }
+  html[data-overlay="1"] .stage,
+  html[data-overlay="1"] .stage-inner { background:transparent !important; background-image:none !important;
+    box-shadow:none !important; border:0 !important; min-height:100vh; padding:0 !important; }
+  /* Card wrapping stage trong layout-right phải transparent ở overlay (không sẽ thành nền trắng trên OBS) */
+  html[data-overlay="1"] .layout-right > .card { background:transparent !important; border:0 !important; box-shadow:none !important; overflow:visible !important; }
+  html[data-overlay="1"] .layout-right > details.card { display:none !important; }
+  html[data-overlay="1"] .stage-meta { display:none !important; }
+  /* Trigger overlay mode: ẨN HOÀN TOÀN khi không có trigger active. Stage chính cũng ẩn. */
+  html[data-overlay-trigger="1"] .stage { display:none !important; }
+  html[data-overlay-trigger="1"] .trigger-host { display:none; }
+  /* Khi trigger active: fill toàn viewport + căn giữa khung thời gian (không sát viền OBS) */
+  html[data-overlay-trigger="1"] .trigger-host.on {
+    display:flex !important;
+    position:fixed; top:0; left:0; right:0; bottom:0;
+    width:100vw; height:100vh; min-height:100vh;
+    padding:0; margin:0;
+    align-items:center !important; justify-content:center !important;
+  }
+  /* Trong overlay-trigger mode, stage-frame + card wrapper không chiếm chỗ */
+  html[data-overlay-trigger="1"] .stage-frame,
+  html[data-overlay-trigger="1"] .layout-right > .card { padding:0 !important; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Be+Vietnam+Pro:wght@600;800&family=Russo+One&family=Major+Mono+Display&family=Bungee&family=Press+Start+2P&family=Quicksand:wght@600;700&family=Mali:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THỜI GIAN — countdown / countup prototype + OBS overlay
+     - KHÔNG ảnh hưởng tới game nào trong public/games/
+     - Lab:        /_prototype/timer.html
+     - OBS link:   /_prototype/timer.html?mode=overlay
+     - Sync qua socket events: timer:cfg, timer:state (do server.js relay)
+     ============================================================ */
+  :root {
+    --bg: #0f1216;
+    --panel: #161b22;
+    --panel2: #1c2230;
+    --line: #2a3142;
+    --text: #e7ecf3;
+    --muted: #8b94a6;
+    --accent: #ff6b35;
+    --accent2: #ffb347;
+    --ok: #41d68a;
+    --bad: #ff4d6d;
+    --warn: #ffc83d;
+    --info: #4dabff;
+  }
+  html, body { margin:0; padding:0; height:100%; background:#eef2f7; color:#222;
+    font-family: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* ----- Topbar (lab only) ----- */
+  .topbar { position:sticky; top:0; z-index:20; background:#11161e; color:#fff;
+    padding:10px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 2px 12px rgba(0,0,0,.18); }
+  .topbar .ttl { font-weight:800; font-size:16px; letter-spacing:.4px; }
+  .topbar .sub { color:#9aa7bd; font-size:12px; }
+  .topbar .sp { flex:1; }
+  .topbar button { background:#23304a; color:#fff; border:1px solid #34425f; border-radius:7px;
+    padding:7px 11px; font-size:12.5px; cursor:pointer; font-weight:600; }
+  .topbar button:hover { background:#2b3b5e; }
+  .topbar button.primary { background:linear-gradient(180deg,#ff7e3a,#e85a1b); border-color:#c6471a; }
+  .topbar button.primary:hover { filter:brightness(1.05); }
+  .topbar .pill { background:#1b2433; color:#9bb1d6; padding:4px 9px; border-radius:999px; font-size:11.5px;
+    border:1px solid #2b3a55; }
+  .topbar .dot { width:7px; height:7px; border-radius:50%; background:#666; display:inline-block; margin-right:5px; }
+  .topbar .dot.on { background:#41d68a; box-shadow:0 0 6px #41d68a; }
+
+  /* ----- 2-column layout: cards trái (cuộn) + preview phải (sticky) ----- */
+  .layout { display:grid; grid-template-columns: 1fr 460px; gap:14px; padding:14px; align-items:flex-start; }
+  .layout-left { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  .layout-left > .card.full { grid-column: 1 / -1; }
+  .layout-right { position: sticky; top: 8px; align-self: flex-start; }
+  @media (max-width: 1280px) { .layout { grid-template-columns: 1fr; } .layout-right { position:static; } }
+  @media (max-width: 780px) { .layout-left { grid-template-columns: 1fr; } }
+
+  /* ----- Stage (preview) — gọn lại, sticky bên phải ----- */
+  .stage-frame { padding:0; }
+  .stage { background:#fafbfc; border-radius:14px; padding:20px 14px; min-height:240px;
+    background-image: linear-gradient(rgba(0,0,0,.04) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(0,0,0,.04) 1px, transparent 1px);
+    background-size: 18px 18px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid #e2e7ef; position:relative; overflow:hidden; }
+  .stage-inner { display:flex; align-items:center; justify-content:center; transform-origin:center;
+    transition: transform .15s ease; }
+  .stage-meta { padding:8px 10px; font-size:11.5px; color:#6c7689; display:flex; gap:8px; align-items:center;
+    border-top:1px solid #e2e7ef; background:#fafbfc; border-radius:0 0 14px 14px; }
+  .stage-meta .lbl { color:#8b94a6; }
+  .stage-meta .val { font-weight:700; color:#2b3548; }
+  .card { background:#fff; border:1px solid #e2e7ef; border-radius:12px; overflow:hidden;
+    box-shadow:0 1px 2px rgba(20,30,50,.04); }
+  .card > summary { list-style:none; padding:12px 14px; cursor:pointer; user-select:none;
+    background:linear-gradient(180deg,#fafbfc,#f0f3f8); border-bottom:1px solid #e2e7ef;
+    font-weight:700; color:#2b3548; display:flex; align-items:center; gap:8px; }
+  .card > summary::-webkit-details-marker { display:none; }
+  .card > summary::after { content:'▼'; margin-left:auto; color:#8b94a6; font-size:10px; transition:transform .15s; }
+  .card[open] > summary::after { transform:rotate(180deg); }
+  .card .body { padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row label { color:#3a4660; font-size:12.5px; min-width:80px; }
+  .row > .grow { flex:1; }
+  .row input[type=text], .row input[type=number], .row select {
+    border:1px solid #d9dee7; border-radius:7px; padding:6px 8px; font-size:13px; background:#fff; color:#222;
+    font-family: inherit; }
+  .row input[type=number] { width:80px; }
+  .row input[type=color] { width:36px; height:28px; border:1px solid #d9dee7; border-radius:6px; padding:0; background:#fff; cursor:pointer; }
+  .row input[type=range] { flex:1; }
+  .chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background:#eef2f7; color:#2b3548; border:1px solid #d9dee7; border-radius:999px;
+    padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600; }
+  .chip:hover { background:#dfe6f0; }
+  .chip.active { background:#ff6b35; color:#fff; border-color:#e85a1b; }
+  .btn { background:#23304a; color:#fff; border:1px solid #34425f; border-radius:7px;
+    padding:7px 12px; font-size:12.5px; cursor:pointer; font-weight:600; font-family:inherit; }
+  .btn:hover { background:#2b3b5e; }
+  .btn.primary { background:linear-gradient(180deg,#ff7e3a,#e85a1b); border-color:#c6471a; }
+  .btn.green { background:linear-gradient(180deg,#4ee08e,#23a85f); border-color:#1c8a4d; }
+  .btn.red { background:linear-gradient(180deg,#ff5e7a,#e62e54); border-color:#bf2244; }
+  .btn.ghost { background:#fff; color:#2b3548; border:1px solid #d9dee7; }
+  .btn.ghost:hover { background:#f5f7fb; }
+  .btn.sm { padding:4px 8px; font-size:11.5px; }
+  .small-help { font-size:11.5px; color:#8b94a6; line-height:1.4; }
+
+  /* Theme grid */
+  .theme-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+  .theme-card { border:2px solid #d9dee7; border-radius:10px; padding:10px 6px; text-align:center;
+    cursor:pointer; background:#fff; transition:.15s; }
+  .theme-card:hover { border-color:#a8b4c6; transform:translateY(-1px); }
+  .theme-card.active { border-color:#ff6b35; background:#fff5ee; box-shadow:0 4px 14px rgba(255,107,53,.18); }
+  .theme-card .ico { font-size:24px; }
+  .theme-card .nm { font-size:11px; font-weight:700; color:#3a4660; margin-top:4px; }
+
+  /* Mode tabs */
+  .mtabs { display:flex; gap:0; border:1px solid #d9dee7; border-radius:8px; overflow:hidden; }
+  .mtab { flex:1; background:#fff; border:0; padding:8px 6px; font-size:12px; cursor:pointer; font-weight:600;
+    color:#3a4660; border-right:1px solid #d9dee7; font-family:inherit; }
+  .mtab:last-child { border-right:0; }
+  .mtab.active { background:#ff6b35; color:#fff; }
+  .mtab:hover:not(.active) { background:#f5f7fb; }
+
+  /* Gift list */
+  .gift-pick { display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid #e2e7ef; border-radius:8px; background:#fafbfc; }
+  .gift-pick img { width:32px; height:32px; border-radius:6px; background:#eef; object-fit:contain; }
+  .gift-pick .nm { font-size:12px; font-weight:600; flex:1; }
+  .gift-pick .nm .dia { color:#9aa7bd; font-weight:500; font-size:11px; }
+  .gift-row { display:flex; gap:6px; align-items:center; padding:6px 8px; border-bottom:1px solid #f0f2f6; }
+  .gift-row:last-child { border-bottom:0; }
+  .gift-row img { width:26px; height:26px; border-radius:5px; background:#eef; object-fit:contain; }
+  .gift-row .gn { flex:1; font-size:12px; }
+  .gift-row .gn small { color:#9aa7bd; }
+  .gift-row .x { background:transparent; border:0; color:#ff4d6d; cursor:pointer; font-size:14px; }
+
+  /* Log */
+  .logbox { background:#0f1318; color:#cad6e8; font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size:11.5px; line-height:1.55; padding:10px 12px; min-height:120px; max-height:200px; overflow:auto;
+    border-radius:0 0 12px 12px; }
+  .logbox .l { padding:1px 0; }
+  .logbox .l.ok { color:#7ee29a; }
+  .logbox .l.bad { color:#ff7e95; }
+  .logbox .l.info { color:#7cb8ff; }
+  .logbox .l.warn { color:#ffd76b; }
+
+  /* Trigger rows — 1 dòng / trigger
+     Cols: gift(1fr) | duration(82px) | media(1fr) | volume(64px) | loop(36px) | enable(46px) | delete(28px) */
+  .trig-row { display:grid; gap:10px; align-items:center;
+    grid-template-columns: minmax(150px,1fr) 82px minmax(160px,1fr) 64px 36px 46px 28px;
+    padding:10px 12px; border:1px solid #e2e7ef; border-radius:10px; background:#fafbfc; margin-bottom:8px; }
+  .trig-row.disabled { opacity:.55; }
+  .trig-row .trig-gift { display:flex; align-items:center; gap:8px; min-width:0; cursor:pointer;
+    padding:4px 6px; border-radius:6px; transition:background .12s; }
+  .trig-row .trig-gift:hover { background:#eef2f7; }
+  .trig-row .trig-gift img { width:34px; height:34px; border-radius:6px; background:#eef; object-fit:contain; flex-shrink:0; }
+  .trig-row .trig-gift .info { min-width:0; }
+  .trig-row .trig-gift .nm { font-size:12px; font-weight:700; color:#2b3548; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trig-row .trig-gift .dia { font-size:11px; color:#9aa7bd; }
+  .trig-row .trig-gift .placeholder { font-size:12px; color:#9aa7bd; font-style:italic; }
+  .trig-row input[type=number] { width:100%; border:1px solid #d9dee7; border-radius:6px; padding:6px 7px; font-size:12px; }
+  /* Media: chỉ upload — không cho paste URL (bảo mật + gọn) */
+  .trig-row .trig-media { display:flex; gap:6px; align-items:center; min-width:0; padding:4px 8px;
+    border:1px dashed #d9dee7; border-radius:7px; background:#fff; cursor:pointer; transition:.12s; }
+  .trig-row .trig-media:hover { border-color:#a8b4c6; background:#f5f7fb; }
+  .trig-row .trig-media.has-media { border-style:solid; border-color:#23a85f; background:#f3fbf6; }
+  .trig-row .trig-media .ico { font-size:18px; flex-shrink:0; }
+  .trig-row .trig-media .fname { font-size:11.5px; color:#3a4660; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; font-weight:600; }
+  .trig-row .trig-media .placeholder { font-size:11.5px; color:#8b94a6; font-style:italic; }
+  .trig-row .trig-media .mtype { font-size:10px; padding:1px 6px; border-radius:4px; background:#eef2f7; color:#8b94a6; flex-shrink:0; }
+  .trig-row .trig-media .mtype.audio { background:#dfe9ff; color:#3a6cd7; }
+  .trig-row .trig-media .mtype.video { background:#ffe1d4; color:#c75a23; }
+  .trig-row .loop-btn { width:36px; height:32px; border:1px solid #d9dee7; border-radius:7px; background:#fff;
+    cursor:pointer; font-size:14px; padding:0; }
+  .trig-row .loop-btn.on { background:#23a85f; color:#fff; border-color:#1c8a4d; }
+  /* Toggle pill — đứng riêng 1 column 46px, không overlap với input volume nữa */
+  .trig-row .toggle { width:42px; height:24px; border-radius:999px; background:#d9dee7; position:relative;
+    cursor:pointer; border:0; padding:0; transition:.15s; }
+  .trig-row .toggle.on { background:#23a85f; }
+  .trig-row .toggle::after { content:''; position:absolute; top:2px; left:2px; width:20px; height:20px;
+    border-radius:50%; background:#fff; transition:.15s; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .trig-row .toggle.on::after { left:20px; }
+  .trig-row .del { background:transparent; border:0; color:#ff4d6d; cursor:pointer; font-size:16px; padding:0; }
+  .trig-empty { padding:18px; text-align:center; color:#9aa7bd; font-size:12.5px; border:2px dashed #d9dee7; border-radius:10px; }
+  @media (max-width: 880px) {
+    .trig-row { grid-template-columns: minmax(140px,1fr) 80px minmax(140px,1fr); grid-auto-rows:auto; }
+    .trig-row .loop-btn, .trig-row .toggle, .trig-row .del { grid-column: span 1; }
+  }
+
+  /* Active trigger pill — hiển thị trên overlay khi trigger đang chạy.
+     Căn giữa cả chiều dọc + ngang để OBS không bị sát viền */
+  .trigger-host { display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:12px; padding:18px; }
+  .trigger-host.on { display:flex; }
+  .trigger-host .trigby { display:flex; align-items:center; gap:8px; padding:6px 16px; background:rgba(28,28,32,.78); border-radius:999px; color:#fff; font-size:13px; font-weight:700;
+    box-shadow:0 4px 12px rgba(0,0,0,.35); }
+  .trigger-host .trigby img { width:24px; height:24px; border-radius:50%; }
+  .trigger-host audio, .trigger-host video { max-width: 100%; max-height: 220px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+  /* Trong overlay mode trigger, audio thường ẩn — chỉ phát tiếng */
+  html[data-overlay="1"] .trigger-host audio { display:none; }
+
+  /* User activity list */
+  .userlist { max-height: 320px; overflow-y:auto; padding:0; }
+  .ulrow { display:flex; align-items:center; gap:8px; padding:7px 10px; border-bottom:1px solid #f0f2f6; font-size:12px; }
+  .ulrow:last-child { border-bottom:0; }
+  .ulrow img.av { width:28px; height:28px; border-radius:50%; background:#eef; object-fit:cover; flex-shrink:0; }
+  .ulrow img.gift { width:24px; height:24px; border-radius:5px; background:#eef; object-fit:contain; flex-shrink:0; }
+  .ulrow .nick { font-weight:700; color:#2b3548; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ulrow .meta { color:#8b94a6; font-size:11px; }
+  .ulrow .delta { margin-left:auto; font-weight:800; padding:2px 8px; border-radius:6px; font-size:12px; }
+  .ulrow .delta.add { background:#e6f8ee; color:#23a85f; }
+  .ulrow .delta.sub { background:#fdecf0; color:#e62e54; }
+  .ulrow .delta.zero { background:#eef2f7; color:#8b94a6; }
+  .ulrow .ts { font-size:10.5px; color:#9aa7bd; }
+  .userlist .empty { padding:18px; text-align:center; color:#9aa7bd; font-size:12px; }
+
+  /* Modal — picker quà */
+  .pickmask { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:80; display:none; align-items:center; justify-content:center; }
+  .pickmask.on { display:flex; }
+  .pickbox { background:#fff; border-radius:14px; width:min(560px, 92vw); max-height:80vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.4); }
+  .pickbox h3 { margin:0; padding:14px 16px; border-bottom:1px solid #e2e7ef; font-size:15px; }
+  .picklist { padding:8px; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:6px; }
+  .pickitem { padding:8px 6px; border-radius:8px; cursor:pointer; text-align:center; border:1px solid transparent; background:#fafbfc; }
+  .pickitem:hover { background:#eef2f7; border-color:#d9dee7; }
+  .pickitem img { width:40px; height:40px; object-fit:contain; }
+  .pickitem .nm { font-size:11px; margin-top:3px; font-weight:600; }
+  .pickitem .dia { font-size:10px; color:#9aa7bd; }
+  .pickfoot { padding:8px 12px; border-top:1px solid #e2e7ef; display:flex; gap:8px; justify-content:flex-end; background:#fafbfc; }
+  .picksearch { padding:8px 12px; border-bottom:1px solid #e2e7ef; display:flex; gap:6px; }
+  .picksearch input { flex:1; padding:7px 10px; border:1px solid #d9dee7; border-radius:7px; font-size:13px; }
+
+  /* ============================================================
+     TIMER DISPLAY ENGINES (themes)
+     ============================================================ */
+  .tw { display:inline-flex; flex-direction:column; align-items:center; position:relative; }
+  .tw .label { display:inline-block; text-align:center;
+    font-family:'Be Vietnam Pro',system-ui,sans-serif; font-weight:800; color:#fff;
+    background: rgba(28, 28, 32, 0.78);
+    padding: 6px 22px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 6px 18px rgba(0,0,0,.35);
+    margin-bottom:12px; letter-spacing:1px;
+    text-shadow:2px 2px 0 #000,-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000; }
+  /* Title vertical bar-v cũng có nền xám pill (dọc) */
+  .tw.t-bar-v .vside.title { background: rgba(28, 28, 32, 0.78);
+    padding: 14px 8px; border-radius: 28px;
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+
+  /* Digital LED */
+  .tw.t-digital .digits { font-family:'Orbitron','Russo One',monospace; font-weight:900;
+    background: #060912; color: var(--led-color, #ff5050);
+    text-shadow: 0 0 8px var(--led-color, #ff5050), 0 0 18px var(--led-color, #ff5050);
+    padding: 14px 22px; border-radius: 14px; border:3px solid #1a2030;
+    box-shadow: inset 0 0 16px rgba(255,80,80,.25), 0 8px 30px rgba(0,0,0,.5);
+    letter-spacing:6px; line-height:1; }
+
+  /* Circle ring — clean, không drop-shadow để tránh lòi viền vuông */
+  .tw.t-circle { display:inline-block; }
+  .tw.t-circle .ring { position:relative; display:inline-block; line-height:0; }
+  .tw.t-circle svg { display:block; }
+  .tw.t-circle .ring-text { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron','Russo One',monospace; font-weight:900; color:var(--led-color,#fff);
+    text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000; line-height:1; }
+
+  /* Bar horizontal */
+  .tw.t-bar-h .bar-wrap { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .tw.t-bar-h .digits { font-family:'Orbitron',monospace; font-weight:900; color:var(--led-color,#fff);
+    text-shadow:3px 3px 0 #000,-3px -3px 0 #000,3px -3px 0 #000,-3px 3px 0 #000; }
+  .tw.t-bar-h .bar { background:#0d1218; border:3px solid #1c2230; border-radius:18px; overflow:hidden;
+    position:relative; box-shadow: inset 0 4px 10px rgba(0,0,0,.6), 0 6px 20px rgba(0,0,0,.4); }
+  .tw.t-bar-h .bar .fill { height:100%; background:linear-gradient(90deg, var(--led-color,#ff5050), var(--led-color2,#ffa340));
+    transition: width .25s linear; border-radius:14px; box-shadow: 0 0 14px var(--led-color,#ff5050); }
+
+  /* Bar vertical — title bên trái, digits stacked bên phải, vbar ở giữa */
+  .tw.t-bar-v .vbar-row { display:flex; align-items:center; gap:18px; }
+  .tw.t-bar-v .vside { font-family:'Orbitron',monospace; font-weight:900; color:var(--led-color,#fff);
+    text-shadow:3px 3px 0 #000,-3px -3px 0 #000,3px -3px 0 #000,-3px 3px 0 #000; line-height:1; }
+  .tw.t-bar-v .vside.title { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing:2px;
+    font-family:'Be Vietnam Pro','Mali',sans-serif; font-weight:900; }
+  .tw.t-bar-v .vside.digits-stack { display:flex; flex-direction:column; gap:2px; align-items:center; }
+  .tw.t-bar-v .vside.digits-stack span { display:block; }
+  .tw.t-bar-v .vbar { background:#0d1218; border:3px solid #1c2230; border-radius:18px; overflow:hidden;
+    position:relative; box-shadow: inset 0 4px 10px rgba(0,0,0,.6), 0 6px 20px rgba(0,0,0,.4); display:flex; align-items:flex-end; }
+  .tw.t-bar-v .vbar .fill { width:100%; background:linear-gradient(180deg, var(--led-color2,#ffa340), var(--led-color,#ff5050));
+    transition: height .25s linear; box-shadow: 0 0 14px var(--led-color,#ff5050); }
+
+  /* Square / triangle / hexagon — SVG progress polygon */
+  .tw.t-poly { position:relative; display:inline-block; }
+  .tw.t-poly .poly-svg { display:block; }
+  .tw.t-poly .poly-text { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron',monospace; font-weight:900; color:var(--led-color,#fff);
+    text-shadow:3px 3px 0 #000,-3px -3px 0 #000,3px -3px 0 #000,-3px 3px 0 #000; }
+
+  /* Neon — bóng box ngoài giữ rực, text-shadow nhẹ hơn để số rõ nét */
+  .tw.t-neon .neon { padding: 16px 30px; border-radius: 999px;
+    border:3px solid var(--led-color,#ff35e0); background:rgba(20,20,30,.85);
+    box-shadow: 0 0 0 4px rgba(20,20,30,.8), 0 0 22px var(--led-color,#ff35e0), inset 0 0 14px rgba(255,53,224,.35);
+    color: var(--led-color,#ff35e0); font-family:'Bungee','Russo One',monospace; font-weight:900;
+    text-shadow: 0 0 4px var(--led-color,#ff35e0); letter-spacing:4px; }
+
+  /* Flip clock */
+  .tw.t-flip .flipgrp { display:flex; gap:6px; }
+  .tw.t-flip .fpane { background:linear-gradient(180deg,#1a2030 50%, #0d1218 50%);
+    border:2px solid #2a3142; border-radius:10px; padding:8px 12px; min-width:64px; text-align:center;
+    font-family:'Orbitron',monospace; font-weight:900; color: var(--led-color,#fff);
+    box-shadow: inset 0 -10px 16px rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.5);
+    position:relative; }
+  .tw.t-flip .fpane::after { content:''; position:absolute; left:0; right:0; top:50%; height:1px; background:rgba(0,0,0,.6); }
+  .tw.t-flip .flbl { display:block; font-size:10px; color:#8b94a6; margin-top:4px; letter-spacing:1px; }
+
+  /* Pill compact (default fallback) */
+  .tw.t-pill .pill { background:rgba(0,0,0,.7); color:var(--led-color,#fff); padding:10px 22px; border-radius:999px;
+    font-family:'Orbitron',monospace; font-weight:900; border:2px solid rgba(255,255,255,.18);
+    text-shadow:0 0 6px var(--led-color,#fff); }
+
+  /* Mềm mại — pastel rounded */
+  .tw.t-soft .soft { font-family:'Quicksand','Be Vietnam Pro',cursive; font-weight:700;
+    background: linear-gradient(135deg, #ffd6e8 0%, #d4f4ff 50%, #fff4d6 100%);
+    color: var(--led-color, #6b5b95);
+    padding: 18px 36px; border-radius: 28px;
+    box-shadow: 0 12px 40px rgba(180, 100, 200, .3), inset 0 3px 0 rgba(255,255,255,.7), inset 0 -3px 0 rgba(0,0,0,.05);
+    border: 3px solid rgba(255,255,255,.85); letter-spacing: 4px;
+    text-shadow: 1px 2px 0 rgba(255,255,255,.6); }
+
+  /* Màu sắc — rainbow gradient animated */
+  .tw.t-colorful .colorful { font-family:'Bungee','Russo One',sans-serif; font-weight:900;
+    background: linear-gradient(90deg, #ff006e, #fb5607, #ffbe0b, #06d6a0, #3a86ff, #8338ec, #ff006e);
+    background-size: 400% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    padding: 14px 24px; letter-spacing: 4px;
+    animation: rainbowShift 6s linear infinite;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,.35)); }
+  @keyframes rainbowShift { 0%{background-position:0 0;} 100%{background-position:400% 0;} }
+
+  /* Điện tử — cyber green matrix */
+  .tw.t-electronic .electronic { font-family:'Major Mono Display','Orbitron',monospace; font-weight:900;
+    background: #001a0d; color: var(--led-color, #00ffaa);
+    padding: 16px 28px; border: 3px solid #00ff66; border-radius: 8px;
+    text-shadow: 0 0 8px currentColor, 0 0 18px currentColor;
+    box-shadow: 0 0 0 2px #001a0d, 0 0 0 4px #00ff66, 0 0 28px #00ff66, inset 0 0 22px rgba(0,255,170,.35);
+    letter-spacing: 6px; position: relative; overflow: hidden; }
+  .tw.t-electronic .electronic::before { content:''; position:absolute; inset:0;
+    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,255,170,.07) 3px 4px);
+    pointer-events:none; }
+  .tw.t-electronic .electronic::after { content:'◉'; position:absolute; top:6px; right:10px;
+    font-size:.4em; color:#00ff66; animation: elBlink 1.5s steps(2) infinite; }
+  @keyframes elBlink { 50%{opacity:.2;} }
+
+  /* Tình yêu — pink heart pill */
+  .tw.t-love .love { font-family:'Mali','Be Vietnam Pro',cursive; font-weight:800;
+    background: linear-gradient(135deg, #ff4d8d 0%, #ff7eb9 100%);
+    color: #fff; padding: 18px 56px; border-radius: 999px; border: 4px solid #fff;
+    box-shadow: 0 10px 36px rgba(255, 77, 141, .5), inset 0 -5px 0 rgba(0,0,0,.12);
+    text-shadow: 2px 3px 0 #c91d6e, 0 0 12px rgba(255,255,255,.4);
+    letter-spacing: 3px; position: relative; }
+  .tw.t-love .love::before, .tw.t-love .love::after {
+    content:'❤'; position:absolute; top:50%; transform:translateY(-50%);
+    font-size:.55em; color:#fff; filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));
+    animation: loveBeat 1.2s ease-in-out infinite; }
+  .tw.t-love .love::before { left: 12px; }
+  .tw.t-love .love::after { right: 12px; animation-delay: .6s; }
+  @keyframes loveBeat { 0%,100%{transform:translateY(-50%) scale(1);} 50%{transform:translateY(-50%) scale(1.25);} }
+
+  /* Quân đội — camo + dog-tag rectangle */
+  .tw.t-military .military { font-family:'Russo One','Impact',sans-serif; font-weight:900;
+    background: linear-gradient(135deg, #4a5d33 0%, #3a4d22 50%, #2d3a18 100%);
+    color: var(--led-color, #c5d68a);
+    padding: 16px 32px; border: 4px double #6e7d3f; border-radius: 4px;
+    letter-spacing: 5px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.55), inset 0 0 0 2px #1a2410, inset 0 0 36px rgba(0,0,0,.45);
+    text-shadow: 2px 2px 0 #1a2410, 0 0 8px rgba(197,214,138,.3); position: relative; }
+  .tw.t-military .military::before { content:'★'; position:absolute; top:-12px; left:50%; transform:translateX(-50%);
+    background: #c5d68a; color: #2d3a18; width:26px; height:26px; border-radius:50%;
+    font-size:16px; display:flex; align-items:center; justify-content:center; font-weight:900;
+    box-shadow: 0 4px 8px rgba(0,0,0,.4), inset 0 -2px 0 rgba(0,0,0,.15); }
+  .tw.t-military .military::after { content:''; position:absolute; left:8px; right:8px; bottom:6px; height:2px;
+    background: repeating-linear-gradient(90deg, #6e7d3f 0 4px, transparent 4px 8px); opacity:.6; }
+
+  /* Pha lê — frosted glass */
+  .tw.t-crystal .crystal { font-family:'Orbitron','Be Vietnam Pro',sans-serif; font-weight:800;
+    background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(180,220,255,.3));
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    color: var(--led-color, #1d3a6e);
+    padding: 16px 32px; border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.7);
+    box-shadow: 0 12px 36px rgba(50, 80, 140, .25), inset 0 2px 0 rgba(255,255,255,.8), inset 0 -2px 0 rgba(0,0,0,.05);
+    letter-spacing: 4px;
+    text-shadow: 1px 2px 0 rgba(255,255,255,.6), 0 0 8px rgba(180,220,255,.5); }
+
+  /* Lửa — flame gradient */
+  .tw.t-fire .fire { font-family:'Bungee','Russo One',sans-serif; font-weight:900;
+    background: linear-gradient(180deg, #fff700 0%, #ff8c00 35%, #ff2200 75%, #8b0000 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    padding: 14px 28px; letter-spacing: 5px;
+    filter: drop-shadow(0 0 10px rgba(255, 90, 0, .8)) drop-shadow(0 4px 4px rgba(0,0,0,.5));
+    animation: fireFlicker 1.2s ease-in-out infinite; }
+  @keyframes fireFlicker {
+    0%,100% { filter: drop-shadow(0 0 10px rgba(255,90,0,.8)) drop-shadow(0 4px 4px rgba(0,0,0,.5)); }
+    50%     { filter: drop-shadow(0 0 18px rgba(255,160,0,1))  drop-shadow(0 4px 4px rgba(0,0,0,.5)); }
+  }
+
+  /* Băng giá — frosty ice */
+  .tw.t-ice .ice { font-family:'Major Mono Display','Orbitron',monospace; font-weight:900;
+    background: linear-gradient(180deg, #e0f7ff 0%, #a8e1ff 50%, #5dbef0 100%);
+    color: #ffffff;
+    padding: 16px 30px; border-radius: 12px;
+    border: 3px solid #c5ecff;
+    box-shadow: 0 0 0 4px rgba(255,255,255,.6), 0 10px 28px rgba(80, 150, 220, .35),
+                inset 0 2px 0 rgba(255,255,255,.9), inset 0 -3px 0 rgba(80, 150, 220, .3);
+    text-shadow: 2px 2px 0 #4a90c2, 0 0 10px rgba(180,230,255,.9);
+    letter-spacing: 4px; }
+
+  /* Tối giản — minimal black/white */
+  .tw.t-minimal .minimal { font-family:'Orbitron','Be Vietnam Pro',sans-serif; font-weight:700;
+    background: #fff; color: var(--led-color, #111);
+    padding: 14px 30px; border-radius: 4px;
+    border: 2px solid #111;
+    box-shadow: 6px 6px 0 #111;
+    letter-spacing: 6px; text-shadow:none; }
+
+  /* Vũ trụ — galaxy purple with stars */
+  .tw.t-galaxy .galaxy { font-family:'Orbitron','Russo One',sans-serif; font-weight:900;
+    background: radial-gradient(ellipse at 30% 20%, #6a1b9a 0%, #311b92 50%, #0a0a2e 100%);
+    color: var(--led-color, #c7a8ff);
+    padding: 18px 36px; border-radius: 14px;
+    border: 2px solid rgba(199, 168, 255, .4);
+    box-shadow: 0 0 0 2px rgba(106, 27, 154, .5), 0 12px 36px rgba(70, 30, 180, .5),
+                inset 0 0 30px rgba(199, 168, 255, .2);
+    text-shadow: 0 0 8px rgba(199,168,255,.9), 0 0 16px rgba(199,168,255,.6);
+    letter-spacing: 5px; position: relative; overflow: hidden; }
+  .tw.t-galaxy .galaxy::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, #fff 50%, transparent 50%),
+      radial-gradient(1px 1px at 60% 70%, #fff 50%, transparent 50%),
+      radial-gradient(1px 1px at 80% 20%, #fff 50%, transparent 50%),
+      radial-gradient(1px 1px at 40% 80%, #fff 50%, transparent 50%),
+      radial-gradient(1px 1px at 90% 50%, #fff 50%, transparent 50%),
+      radial-gradient(1px 1px at 15% 60%, #fff 50%, transparent 50%);
+    opacity:.85; animation: galaxyTwinkle 3s ease-in-out infinite; }
+  @keyframes galaxyTwinkle { 0%,100%{opacity:.4;} 50%{opacity:.95;} }
+
+  /* Cổ điển — elegant serif with gold frame */
+  .tw.t-classic .classic { font-family: 'Georgia', 'Be Vietnam Pro', serif; font-weight:900;
+    background: linear-gradient(180deg, #fdf6e3 0%, #f0e1b9 100%);
+    color: var(--led-color, #5a3e1b);
+    padding: 18px 44px; border-radius: 6px;
+    border: 4px double #c9a553;
+    box-shadow: 0 0 0 2px #fdf6e3, 0 0 0 5px #8b6914, 0 12px 28px rgba(80, 50, 0, .35),
+                inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 4px rgba(139,105,20,.2);
+    text-shadow: 1px 1px 0 #c9a553, 2px 2px 0 rgba(139,105,20,.5);
+    letter-spacing: 6px; position: relative; }
+  .tw.t-classic .classic::before, .tw.t-classic .classic::after {
+    content:'❦'; position:absolute; top:50%; transform:translateY(-50%);
+    font-size:.55em; color: #8b6914; }
+  .tw.t-classic .classic::before { left: 10px; }
+  .tw.t-classic .classic::after  { right: 10px; }
+
+  /* Game — retro 8-bit arcade */
+  .tw.t-game .gamebox { font-family:'Press Start 2P','Major Mono Display',monospace; font-weight:700;
+    background: #000; color: var(--led-color, #ffec00);
+    padding: 18px 28px; border: 4px solid #ffec00;
+    letter-spacing: 4px; position: relative;
+    box-shadow: 0 0 0 4px #000, 0 0 0 8px #c40000, 0 0 0 12px #000, 0 0 32px rgba(255, 236, 0, .45);
+    text-shadow: 3px 3px 0 #c40000;
+    image-rendering: pixelated; }
+  .tw.t-game .gamebox::before { content:'▶'; position:absolute; left:-32px; top:50%; transform:translateY(-50%);
+    color:#ffec00; font-size:.55em; animation: gameBlink 1s steps(2) infinite;
+    text-shadow: 2px 2px 0 #c40000; }
+  .tw.t-game .gamebox::after { content:'◀'; position:absolute; right:-32px; top:50%; transform:translateY(-50%);
+    color:#ffec00; font-size:.55em; animation: gameBlink 1s steps(2) infinite .5s;
+    text-shadow: -2px 2px 0 #c40000; }
+  @keyframes gameBlink { 50%{opacity:0;} }
+
+  /* States */
+  .tw.warn { animation: tpulseWarn 1s ease-in-out infinite; }
+  .tw.danger { animation: tpulseDanger .5s ease-in-out infinite; }
+  .tw.expired { opacity:.55; filter:saturate(.4); }
+  @keyframes tpulseWarn { 0%,100% { filter:brightness(1); } 50% { filter:brightness(1.25); } }
+  @keyframes tpulseDanger { 0%,100% { transform:scale(1); } 50% { transform:scale(1.04); } }
+
+  /* Choose-side indicator */
+  .side-ind { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
+    background:#23304a; color:#fff; font-size:11px; font-weight:700; margin-left:8px; vertical-align:middle; }
+  .side-ind.add { background:linear-gradient(90deg,#23a85f,#4ee08e); }
+  .side-ind.sub { background:linear-gradient(90deg,#e62e54,#ff5e7a); }
+</style>
+</head>
+<body>
+  <!-- ============== TOPBAR (lab only) ============== -->
+  <div class="topbar">
+    <div class="ttl">⏱ THỜI GIAN</div>
+    <span class="pill"><span class="dot" id="sockDot"></span><span id="sockTxt">Đang kết nối…</span></span>
+    <span class="pill" id="modePill">CHẾ ĐỘ: QUÀ CỐ ĐỊNH</span>
+    <div class="sp"></div>
+    <button class="primary" id="btnStart" title="Bấm để bắt đầu / tạm dừng / tiếp tục">▶ BẮT ĐẦU</button>
+    <button id="btnReset">↺ Reset</button>
+    <button id="btnAddTest">+10s</button>
+    <button id="btnSubTest">−10s</button>
+    <button id="btnSave" title="Lưu mọi cài đặt vào localStorage + đồng bộ overlay">💾 Lưu</button>
+  </div>
+
+  <!-- ============== 2-COLUMN LAYOUT ============== -->
+  <div class="layout">
+
+    <!-- LEFT: Control cards (grid 2-col) -->
+    <div class="layout-left">
+
+    <!-- COL 1: thời gian + giao diện -->
+    <details class="card" open>
+      <summary>⏱ Thời gian & Hướng</summary>
+      <div class="body">
+        <div class="row">
+          <label>Hướng</label>
+          <label><input type="radio" name="direction" value="down" checked> Đếm lùi</label>
+          <label><input type="radio" name="direction" value="up"> Đếm tới</label>
+        </div>
+
+        <div class="row">
+          <label>Thời gian</label>
+          <input id="hI" type="number" min="0" max="99" value="0" /> :
+          <input id="mI" type="number" min="0" max="59" value="1" /> :
+          <input id="sI" type="number" min="0" max="59" value="0" />
+          <span class="small-help">HH : MM : SS</span>
+        </div>
+
+        <div class="row">
+          <label>Preset</label>
+          <div class="chip-row" id="presetChips">
+            <button class="chip" data-sec="30">30s</button>
+            <button class="chip" data-sec="60">60s</button>
+            <button class="chip" data-sec="90">90s</button>
+            <button class="chip" data-sec="120">120s</button>
+            <button class="chip" data-sec="180">3p</button>
+            <button class="chip" data-sec="300">5p</button>
+            <button class="chip" data-sec="600">10p</button>
+            <button class="chip" data-sec="1800">30p</button>
+            <button class="chip" data-sec="3600">1h</button>
+            <button class="chip" data-sec="7200">2h</button>
+            <button class="chip" data-sec="10800">3h</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>Định dạng</label>
+          <select id="fmtSel">
+            <option value="hms">HH : MM : SS</option>
+            <option value="ms">MM : SS</option>
+            <option value="auto" selected>Tự động (rút gọn khi &lt; 1h)</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label>Cận cảnh báo</label>
+          <input id="warnSec" type="number" min="0" max="600" value="60" /> giây
+          <span class="small-help">→ chuyển vàng</span>
+        </div>
+        <div class="row">
+          <label>Cận nguy hiểm</label>
+          <input id="dangerSec" type="number" min="0" max="60" value="10" /> giây
+          <span class="small-help">→ rung đỏ</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="card full" open>
+      <summary>🎨 Giao diện</summary>
+      <div class="body">
+        <div class="theme-grid" id="themeGrid">
+          <div class="theme-card" data-theme="digital"><div class="ico">🔢</div><div class="nm">LED Digital</div></div>
+          <div class="theme-card" data-theme="circle"><div class="ico">⭕</div><div class="nm">Vòng tròn</div></div>
+          <div class="theme-card" data-theme="bar-h"><div class="ico">▬</div><div class="nm">Thanh ngang</div></div>
+          <div class="theme-card" data-theme="bar-v"><div class="ico">▮</div><div class="nm">Thanh dọc</div></div>
+          <div class="theme-card" data-theme="square"><div class="ico">⬜</div><div class="nm">Vuông</div></div>
+          <div class="theme-card" data-theme="neon"><div class="ico">💡</div><div class="nm">Neon Pill</div></div>
+          <div class="theme-card" data-theme="flip"><div class="ico">🔄</div><div class="nm">Flip Clock</div></div>
+          <div class="theme-card" data-theme="soft"><div class="ico">🌸</div><div class="nm">Mềm mại</div></div>
+          <div class="theme-card" data-theme="colorful"><div class="ico">🌈</div><div class="nm">Màu sắc</div></div>
+          <div class="theme-card" data-theme="electronic"><div class="ico">⚡</div><div class="nm">Điện tử</div></div>
+          <div class="theme-card" data-theme="love"><div class="ico">💖</div><div class="nm">Tình yêu</div></div>
+          <div class="theme-card" data-theme="military"><div class="ico">🎖</div><div class="nm">Quân đội</div></div>
+          <div class="theme-card" data-theme="game"><div class="ico">🎮</div><div class="nm">Game</div></div>
+          <div class="theme-card" data-theme="crystal"><div class="ico">💎</div><div class="nm">Pha lê</div></div>
+          <div class="theme-card" data-theme="fire"><div class="ico">🔥</div><div class="nm">Lửa</div></div>
+          <div class="theme-card" data-theme="ice"><div class="ico">❄</div><div class="nm">Băng giá</div></div>
+          <div class="theme-card" data-theme="minimal"><div class="ico">⚪</div><div class="nm">Tối giản</div></div>
+          <div class="theme-card" data-theme="galaxy"><div class="ico">🌌</div><div class="nm">Vũ trụ</div></div>
+          <div class="theme-card" data-theme="classic"><div class="ico">🎭</div><div class="nm">Cổ điển</div></div>
+        </div>
+
+        <div class="row">
+          <label>Cỡ chữ</label>
+          <input id="fsRange" type="range" min="32" max="180" value="84" />
+          <span id="fsVal" class="small-help">84</span>
+        </div>
+        <div class="row">
+          <label>Màu chính</label>
+          <input id="colorMain" type="color" value="#ff5050" />
+          <label>Phụ</label>
+          <input id="colorSec" type="color" value="#ffa340" />
+        </div>
+        <div class="row">
+          <label>Tiêu đề</label>
+          <input id="ttlInp" type="text" placeholder="Tuỳ chọn — vd: HẾT GIỜ KÊU GỌI" class="grow" />
+        </div>
+        <div class="row">
+          <label>Cỡ tiêu đề</label>
+          <input id="ttlFs" type="range" min="14" max="64" value="28" />
+          <span id="ttlFsVal" class="small-help">28</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- Quà → ± thời gian (full width của layout-left) -->
+    <details class="card full" open>
+      <summary>🎁 Quà → Tăng / Giảm thời gian</summary>
+      <div class="body">
+        <div class="mtabs" id="modeTabs">
+          <button class="mtab active" data-mode="fixed">🎁 Quà cố định (mỗi quà = số giây riêng)</button>
+          <button class="mtab" data-mode="ratio">💎 Theo xu (X xu = Y giây)</button>
+          <button class="mtab" data-mode="side">⚔ Chọn phe (1 quà = mở phe)</button>
+        </div>
+
+        <!-- MODE A: Fixed -->
+        <div id="modeFixed">
+          <div class="small-help" style="margin-bottom:8px;">Mỗi quà gán hành động (+ hoặc −) và số giây riêng. Khi người xem tặng quà → cộng / trừ thời gian × số lần combo (repeatCount).</div>
+          <div style="border:1px solid #e2e7ef; border-radius:8px; overflow:hidden;">
+            <div id="fixedList"></div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn primary sm" onclick="openPicker('fixed-add')">+ Thêm quà TĂNG</button>
+            <button class="btn red sm" onclick="openPicker('fixed-sub')">+ Thêm quà GIẢM</button>
+          </div>
+        </div>
+
+        <!-- MODE B: Ratio -->
+        <div id="modeRatio" style="display:none;">
+          <div class="small-help" style="margin-bottom:8px;">Chọn quà cho phe TĂNG và phe GIẢM. Khi tặng → quy đổi theo công thức <b>X xu = Y giây</b>. Số xu dư cộng dồn cho quà sau.</div>
+          <div class="row">
+            <label>Quy đổi</label>
+            <input id="ratioCoins" type="number" min="1" value="1" /> xu =
+            <input id="ratioSecs"  type="number" min="1" value="1" /> giây
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <label style="color:#23a85f;font-weight:700;">⊕ Quà TĂNG</label>
+          </div>
+          <div style="border:1px solid #d8efd8; border-radius:8px; background:#f7fef7;">
+            <div id="ratioAddList"></div>
+          </div>
+          <button class="btn green sm" style="margin-top:6px;" onclick="openPicker('ratio-add')">+ Thêm quà TĂNG</button>
+          <div class="row" style="margin-top:10px;">
+            <label style="color:#e62e54;font-weight:700;">⊖ Quà GIẢM</label>
+          </div>
+          <div style="border:1px solid #f5d8df; border-radius:8px; background:#fff7f8;">
+            <div id="ratioSubList"></div>
+          </div>
+          <button class="btn red sm" style="margin-top:6px;" onclick="openPicker('ratio-sub')">+ Thêm quà GIẢM</button>
+        </div>
+
+        <!-- MODE C: Choose-side -->
+        <div id="modeSide" style="display:none;">
+          <div class="small-help" style="margin-bottom:8px;">Chọn 1 quà kích hoạt phe <b>TĂNG</b>, 1 quà kích hoạt phe <b>GIẢM</b>. Tặng lần đầu = mở phe. Sau đó <b>mọi quà</b> đều cộng xu vào phe đang mở (quy đổi X xu = Y giây, xu dư cộng dồn). Tặng lại đúng quà mở phe = huỷ. Hết giờ tự huỷ.</div>
+          <div class="row">
+            <label>Quy đổi</label>
+            <input id="sideCoins" type="number" min="1" value="1" /> xu =
+            <input id="sideSecs"  type="number" min="1" value="1" /> giây
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <label style="color:#23a85f;font-weight:700;min-width:140px;">⊕ Quà MỞ PHE TĂNG</label>
+            <div id="sideAddSlot" class="grow"></div>
+            <button class="btn green sm" onclick="openPicker('side-add')">Chọn quà</button>
+          </div>
+          <div class="row">
+            <label style="color:#e62e54;font-weight:700;min-width:140px;">⊖ Quà MỞ PHE GIẢM</label>
+            <div id="sideSubSlot" class="grow"></div>
+            <button class="btn red sm" onclick="openPicker('side-sub')">Chọn quà</button>
+          </div>
+          <div class="row" style="margin-top:8px;background:#f0f4fa;padding:8px 10px;border-radius:8px;">
+            <span style="font-size:12.5px;font-weight:700;color:#3a4660;">Phe đang mở:</span>
+            <span id="sideIndicator" class="side-ind">(chưa mở)</span>
+            <span class="grow"></span>
+            <span class="small-help" id="sidePool"></span>
+            <button class="btn ghost sm" id="btnSideClear">Huỷ phe</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Quà kích hoạt countdown + media (overlay riêng) -->
+    <details class="card full" open>
+      <summary>🎁 Quà kích hoạt countdown + media <span style="margin-left:auto; font-weight:500; font-size:11.5px; color:#9aa7bd;">— overlay OBS riêng, ẩn khi không có trigger</span></summary>
+      <div class="body">
+        <div class="row" style="background:#f5f7fb;padding:8px 10px;border-radius:8px;">
+          <label style="min-width:auto;"><input type="checkbox" id="trgEnabled" checked/> Bật tính năng</label>
+          <span class="grow"></span>
+          <button class="btn primary sm" id="btnCopyTrigUrl" title="Copy URL overlay cho OBS — overlay này CHỈ hiện khi có quà kích hoạt">📋 Copy URL Overlay Trigger</button>
+          <button class="btn ghost sm" onclick="window.open('/_prototype/timer.html?mode=overlay&type=trigger','_blank','width=900,height=420')">🪟 Preview</button>
+        </div>
+        <div class="small-help">Mỗi dòng: chọn quà cụ thể → khi user tặng quà đó, overlay (link riêng) tự kích hoạt countdown + phát audio/video. Hết giờ → media auto stop + overlay tự ẩn. Nếu media ngắn hơn duration → auto-loop.</div>
+        <div id="trgList"></div>
+        <button class="btn primary sm" id="btnAddTrigger" style="margin-top:6px;">+ Thêm trigger mới</button>
+      </div>
+    </details>
+
+    <details class="card full">
+      <summary>📜 Log sự kiện</summary>
+      <div class="logbox" id="log"></div>
+    </details>
+
+    </div><!-- /layout-left -->
+
+    <!-- RIGHT: Stage preview sticky + User activity list -->
+    <aside class="layout-right">
+      <div class="card" style="overflow:hidden;">
+        <div class="stage-frame">
+          <div class="stage" id="stage">
+            <div class="stage-inner" id="stageInner"></div>
+          </div>
+          <!-- Trigger countdown overlay (lab: hiện inline khi active; overlay-trigger mode: full viewport) -->
+          <div class="trigger-host" id="triggerHost"></div>
+        </div>
+        <div class="stage-meta">
+          <span class="lbl">Trạng thái:</span><span class="val" id="metaState">Sẵn sàng</span>
+          <span class="lbl">·</span>
+          <span class="lbl">Còn:</span><span class="val" id="metaRemain">—</span>
+          <span class="lbl">·</span>
+          <span class="lbl" id="metaSideWrap" style="display:none;">Phe:</span><span class="val" id="metaSide"></span>
+        </div>
+      </div>
+
+      <details class="card" open style="margin-top:12px;">
+        <summary>👥 User tặng quà ± thời gian</summary>
+        <div class="userlist" id="userList">
+          <div class="empty">Chưa có hoạt động — kết nối TikTok LIVE để theo dõi.</div>
+        </div>
+      </details>
+    </aside>
+
+  </div><!-- /layout -->
+
+  <!-- Hidden file input cho upload media trigger -->
+  <input type="file" id="trgFileInput" accept="audio/*,video/*" style="display:none" />
+
+  <!-- ============== Picker quà (modal) ============== -->
+  <div class="pickmask" id="pickMask">
+    <div class="pickbox">
+      <h3 id="pickTitle">Chọn quà</h3>
+      <div class="picksearch">
+        <input id="pickSearch" type="text" placeholder="Tìm tên quà / kim cương…" />
+      </div>
+      <div class="picklist" id="pickList"></div>
+      <div class="pickfoot">
+        <button class="btn ghost" onclick="closePicker()">Huỷ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Socket.IO (only in lab + overlay; same-origin script tag) -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+  /* ============================================================
+     CONFIG + STATE
+     ============================================================ */
+  const IS_OVERLAY = new URLSearchParams(location.search).get('mode') === 'overlay';
+  const LS_KEY = 'hpTimer.cfg.v1';
+
+  const cfg = {
+    direction: 'down',          // 'down' | 'up'
+    durationSec: 60,            // duration cho countdown (or target cho countup)
+    format: 'auto',             // 'hms' | 'ms' | 'auto'
+    warnSec: 60,
+    dangerSec: 10,
+    theme: 'digital',
+    fontSize: 84,
+    colorMain: '#ff5050',
+    colorSec:  '#ffa340',
+    title: '',
+    titleFs: 28,
+    mode: 'fixed',              // 'fixed' | 'ratio' | 'side'
+    fixed: [],                  // [{giftId, giftName, image, action:'add'|'sub', seconds}]
+    ratio: { coins: 1, secs: 1, addList: [], subList: [] },
+    side:  { coins: 1, secs: 1, addGift: null, subGift: null },
+    // ===== Quà kích hoạt countdown + media (overlay riêng) =====
+    triggers: {
+      enabled: true,
+      list: [
+        // { id, enabled, name, gift:{giftId,giftName,image,diamond},
+        //   durationSec, mediaUrl, mediaName, mediaType:'audio'|'video', volume, loop, cooldownSec }
+      ]
+    },
+  };
+
+  const state = {
+    running: false,
+    expiresAt: 0,               // for countdown: Date.now() + remain ms
+    startedAt: 0,               // for countup: timestamp khi start
+    pausedRemain: 0,            // remaining sec khi paused
+    remainSec: 0,
+    elapsedSec: 0,
+    expired: false,
+    // Choose-side runtime
+    sideActive: null,           // 'add'|'sub'|null
+    sidePool: 0,                // tích luỹ xu trong phe đang mở
+    userHistory: [],            // [{uniqueId,nickname,avatar,giftName,giftImage,repeat,delta,coins,ts}] mới nhất ở đầu
+    // Trigger countdown active (gift kích hoạt overlay riêng)
+    trigger: null,              // null | { triggerId, expiresAt, durationSec, gift, mediaUrl, mediaType, volume, loop }
+    triggerCooldowns: {},       // { triggerId: timestampNextAllowed } để giới hạn cooldown
+  };
+
+  let _tickIv = null;
+  let _sock = null;
+  let _giftSheet = [];
+  let _pickerCtx = null;        // {target:'fixed-add'|'fixed-sub'|'ratio-add'|'ratio-sub'|'side-add'|'side-sub'}
+
+  /* ============================================================
+     UTILS
+     ============================================================ */
+  const $ = (id) => document.getElementById(id);
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (cfg.format === 'hms') return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+    if (cfg.format === 'ms')  return `${pad2(h*60 + m)}:${pad2(s)}`;
+    // auto
+    return (h > 0) ? `${pad2(h)}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+  }
+
+  function log(msg, cls) {
+    const el = $('log'); if (!el) return;
+    const line = document.createElement('div');
+    line.className = 'l' + (cls ? ' ' + cls : '');
+    line.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+    while (el.children.length > 240) el.firstChild.remove();
+  }
+
+  function readDurationFromInputs() {
+    const h = clamp(parseInt($('hI').value) || 0, 0, 99);
+    const m = clamp(parseInt($('mI').value) || 0, 0, 59);
+    const s = clamp(parseInt($('sI').value) || 0, 0, 59);
+    return h * 3600 + m * 60 + s;
+  }
+  function writeDurationToInputs(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    $('hI').value = Math.floor(sec / 3600);
+    $('mI').value = Math.floor((sec % 3600) / 60);
+    $('sI').value = sec % 60;
+  }
+
+  /* ============================================================
+     PERSISTENCE
+     ============================================================ */
+  function saveCfg() {
+    if (IS_OVERLAY) return;
+    try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch (e) {}
+    broadcastCfg();
+  }
+  function loadCfg() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      Object.assign(cfg, saved);
+      // backwards-compat: ensure subkeys exist
+      cfg.fixed = Array.isArray(cfg.fixed) ? cfg.fixed : [];
+      cfg.ratio = Object.assign({ coins:1, secs:1, addList:[], subList:[] }, cfg.ratio || {});
+      cfg.side  = Object.assign({ coins:1, secs:1, addGift:null, subGift:null }, cfg.side || {});
+      cfg.triggers = Object.assign({ enabled:true, list:[] }, cfg.triggers || {});
+      if (!Array.isArray(cfg.triggers.list)) cfg.triggers.list = [];
+    } catch (e) {}
+  }
+
+  /* ============================================================
+     THEME RENDERERS
+     ============================================================ */
+  function setCSSVars(el) {
+    el.style.setProperty('--led-color', cfg.colorMain);
+    el.style.setProperty('--led-color2', cfg.colorSec);
+  }
+  function progress01() {
+    // 0..1 — for countdown: remain/duration; for countup: elapsed/duration
+    if (cfg.direction === 'down') {
+      if (cfg.durationSec <= 0) return 0;
+      return clamp(state.remainSec / cfg.durationSec, 0, 1);
+    } else {
+      if (cfg.durationSec <= 0) return 0;
+      return clamp(state.elapsedSec / cfg.durationSec, 0, 1);
+    }
+  }
+  function displaySec() {
+    return (cfg.direction === 'down') ? state.remainSec : state.elapsedSec;
+  }
+
+  function renderTimerInto(host) {
+    host.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'tw t-' + cfg.theme;
+    setCSSVars(wrap);
+
+    // Apply state classes
+    if (state.expired) wrap.classList.add('expired');
+    else if (cfg.direction === 'down') {
+      if (state.remainSec > 0 && state.remainSec <= cfg.dangerSec) wrap.classList.add('danger');
+      else if (state.remainSec > 0 && state.remainSec <= cfg.warnSec) wrap.classList.add('warn');
+    }
+
+    // Title (optional) — bar-v handles title inline (vertical writing) nên skip default label
+    if (cfg.title && cfg.title.trim() && cfg.theme !== 'bar-v') {
+      const lbl = document.createElement('div');
+      lbl.className = 'label';
+      lbl.style.fontSize = cfg.titleFs + 'px';
+      lbl.textContent = cfg.title;
+      wrap.appendChild(lbl);
+    }
+
+    const txt = fmtTime(displaySec());
+    const fs = cfg.fontSize;
+    const ratio = progress01();
+    // countdown shows shrinking ring; countup shows growing ring
+    // For visual: progress = direction==='down' ? remain/dur : elapsed/dur
+    // We want the bar/ring to "drain" on countdown (fill = remain), "fill" on countup.
+    const fill01 = (cfg.direction === 'down') ? ratio : ratio;
+
+    if (cfg.theme === 'digital') {
+      const d = document.createElement('div');
+      d.className = 'digits';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'circle') {
+      const size = Math.max(140, fs * 2.5);
+      const stroke = Math.max(10, Math.round(fs * 0.18));
+      const r = (size - stroke) / 2;
+      const c = 2 * Math.PI * r;
+      const ring = document.createElement('div');
+      ring.className = 'ring';
+      ring.style.width = size + 'px'; ring.style.height = size + 'px';
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('width', size); svg.setAttribute('height', size);
+      svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+      const bg = document.createElementNS(svgNS, 'circle');
+      bg.setAttribute('cx', size/2); bg.setAttribute('cy', size/2); bg.setAttribute('r', r);
+      bg.setAttribute('fill', 'none'); bg.setAttribute('stroke', 'rgba(0,0,0,.55)');
+      bg.setAttribute('stroke-width', stroke);
+      svg.appendChild(bg);
+      const fg = document.createElementNS(svgNS, 'circle');
+      fg.setAttribute('cx', size/2); fg.setAttribute('cy', size/2); fg.setAttribute('r', r);
+      fg.setAttribute('fill', 'none');
+      fg.setAttribute('stroke', cfg.colorMain);
+      fg.setAttribute('stroke-width', stroke); fg.setAttribute('stroke-linecap', 'round');
+      fg.setAttribute('stroke-dasharray', c);
+      fg.setAttribute('stroke-dashoffset', c * (1 - fill01));
+      fg.setAttribute('transform', `rotate(-90 ${size/2} ${size/2})`);
+      // KHÔNG dùng drop-shadow ở đây vì nó render ra ngoài bbox SVG → tạo viền vuông lờ mờ
+      svg.appendChild(fg);
+      ring.appendChild(svg);
+      const tx = document.createElement('div');
+      tx.className = 'ring-text';
+      tx.style.fontSize = Math.round(fs * 0.5) + 'px';
+      tx.textContent = txt;
+      ring.appendChild(tx);
+      wrap.appendChild(ring);
+    }
+    else if (cfg.theme === 'bar-h') {
+      const w = Math.max(360, fs * 6);
+      const h = Math.max(28, Math.round(fs * 0.45));
+      const bw = document.createElement('div');
+      bw.className = 'bar-wrap';
+      const d = document.createElement('div'); d.className = 'digits';
+      d.style.fontSize = fs + 'px'; d.textContent = txt;
+      bw.appendChild(d);
+      const bar = document.createElement('div'); bar.className = 'bar';
+      bar.style.width = w + 'px'; bar.style.height = h + 'px';
+      const fl = document.createElement('div'); fl.className = 'fill';
+      fl.style.width = (fill01 * 100) + '%';
+      bar.appendChild(fl);
+      bw.appendChild(bar);
+      wrap.appendChild(bw);
+    }
+    else if (cfg.theme === 'bar-v') {
+      // Layout: [title vertical-writing] [vbar] [digits stacked]
+      const w = Math.max(46, Math.round(fs * 0.55));
+      const h = Math.max(240, fs * 3.2);
+      const row = document.createElement('div');
+      row.className = 'vbar-row';
+
+      // LEFT: title vertical (chỉ render khi có title)
+      if (cfg.title && cfg.title.trim()) {
+        const t = document.createElement('div');
+        t.className = 'vside title';
+        t.style.fontSize = cfg.titleFs + 'px';
+        t.style.maxHeight = h + 'px';
+        t.textContent = cfg.title;
+        row.appendChild(t);
+      }
+
+      // CENTER: vertical bar
+      const bar = document.createElement('div'); bar.className = 'vbar';
+      bar.style.width = w + 'px'; bar.style.height = h + 'px';
+      const fl = document.createElement('div'); fl.className = 'fill';
+      fl.style.height = (fill01 * 100) + '%';
+      bar.appendChild(fl);
+      row.appendChild(bar);
+
+      // RIGHT: digits stacked vertically (mỗi ký tự 1 dòng) — BỎ dấu ':' vì line break đã là phân cách
+      const d = document.createElement('div'); d.className = 'vside digits-stack';
+      d.style.fontSize = Math.round(fs * 0.65) + 'px';
+      for (const ch of txt) {
+        if (ch === ':') continue;
+        const sp = document.createElement('span');
+        sp.textContent = ch;
+        d.appendChild(sp);
+      }
+      row.appendChild(d);
+
+      wrap.appendChild(row);
+    }
+    else if (cfg.theme === 'square') {
+      const size = Math.max(180, fs * 3);
+      const sides = 4;
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('class', 'poly-svg');
+      svg.setAttribute('width', size); svg.setAttribute('height', size);
+      svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+      const cx = size/2, cy = size/2, R = size/2 - 12;
+      const rot = -Math.PI/2; // start from top
+      const pts = [];
+      for (let i = 0; i < sides; i++) {
+        const a = rot + (i * 2 * Math.PI / sides);
+        pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
+      }
+      // base path
+      const path = document.createElementNS(svgNS, 'polygon');
+      path.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+      path.setAttribute('fill', 'rgba(0,0,0,.55)');
+      path.setAttribute('stroke', 'rgba(255,255,255,.12)');
+      path.setAttribute('stroke-width', '6');
+      svg.appendChild(path);
+      // progress: use polyline open path, stroke-dasharray drain
+      const segs = [];
+      let totalLen = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i+1) % pts.length];
+        const len = Math.hypot(b[0]-a[0], b[1]-a[1]);
+        segs.push({ a, b, len }); totalLen += len;
+      }
+      const target = totalLen * fill01;
+      let acc = 0;
+      const lineEl = document.createElementNS(svgNS, 'path');
+      const dParts = [];
+      for (const sg of segs) {
+        if (acc + sg.len <= target) {
+          dParts.push(`M ${sg.a[0]} ${sg.a[1]} L ${sg.b[0]} ${sg.b[1]}`);
+          acc += sg.len;
+        } else if (acc < target) {
+          const t = (target - acc) / sg.len;
+          dParts.push(`M ${sg.a[0]} ${sg.a[1]} L ${sg.a[0] + (sg.b[0]-sg.a[0])*t} ${sg.a[1] + (sg.b[1]-sg.a[1])*t}`);
+          acc = target;
+        }
+      }
+      lineEl.setAttribute('d', dParts.join(' '));
+      lineEl.setAttribute('fill', 'none');
+      lineEl.setAttribute('stroke', cfg.colorMain);
+      lineEl.setAttribute('stroke-width', '10');
+      lineEl.setAttribute('stroke-linecap', 'round');
+      lineEl.setAttribute('stroke-linejoin', 'round');
+      lineEl.style.filter = `drop-shadow(0 0 8px ${cfg.colorMain})`;
+      svg.appendChild(lineEl);
+      wrap.classList.add('t-poly');
+      wrap.style.width = size + 'px'; wrap.style.height = size + 'px';
+      wrap.appendChild(svg);
+      const tx = document.createElement('div');
+      tx.className = 'poly-text';
+      tx.style.fontSize = Math.round(fs * 0.55) + 'px';
+      tx.textContent = txt;
+      wrap.appendChild(tx);
+    }
+    else if (cfg.theme === 'neon') {
+      const d = document.createElement('div'); d.className = 'neon';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'soft') {
+      const d = document.createElement('div'); d.className = 'soft';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'colorful') {
+      const d = document.createElement('div'); d.className = 'colorful';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'electronic') {
+      const d = document.createElement('div'); d.className = 'electronic';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'love') {
+      const d = document.createElement('div'); d.className = 'love';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'military') {
+      const d = document.createElement('div'); d.className = 'military';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'game') {
+      const d = document.createElement('div'); d.className = 'gamebox';
+      // Press Start 2P là pixel font → cần fs nhỏ hơn vì chiều cao thật to
+      d.style.fontSize = Math.round(fs * 0.55) + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'crystal') {
+      const d = document.createElement('div'); d.className = 'crystal';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'fire') {
+      const d = document.createElement('div'); d.className = 'fire';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'ice') {
+      const d = document.createElement('div'); d.className = 'ice';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'minimal') {
+      const d = document.createElement('div'); d.className = 'minimal';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'galaxy') {
+      const d = document.createElement('div'); d.className = 'galaxy';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'classic') {
+      const d = document.createElement('div'); d.className = 'classic';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+    else if (cfg.theme === 'flip') {
+      const grp = document.createElement('div'); grp.className = 'flipgrp';
+      const total = Math.max(0, Math.floor(displaySec()));
+      const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+      const parts = (cfg.format === 'hms' || (cfg.format === 'auto' && h > 0))
+                    ? [['HH', pad2(h)], ['MM', pad2(m)], ['SS', pad2(s)]]
+                    : [['MM', pad2(h*60 + m)], ['SS', pad2(s)]];
+      for (const [lbl, val] of parts) {
+        const p = document.createElement('div'); p.className = 'fpane';
+        p.style.fontSize = fs + 'px';
+        p.textContent = val;
+        const l = document.createElement('span'); l.className = 'flbl'; l.textContent = lbl;
+        p.appendChild(l);
+        grp.appendChild(p);
+      }
+      wrap.appendChild(grp);
+    }
+    else {
+      // pill fallback
+      const d = document.createElement('div'); d.className = 'pill';
+      d.style.fontSize = fs + 'px';
+      d.textContent = txt;
+      wrap.appendChild(d);
+    }
+
+    host.appendChild(wrap);
+  }
+
+  function render() {
+    const stage = $('stageInner');
+    if (stage) renderTimerInto(stage);
+    updateModePill();
+    updateSideIndicator();
+    updateMetaPanel();
+  }
+
+  /* ============================================================
+     TIMER ENGINE
+     ============================================================ */
+  function startTimer(durationOverride) {
+    stopTickInterval();
+    state.expired = false;
+    const dur = (typeof durationOverride === 'number') ? durationOverride : readDurationFromInputs();
+    if (dur <= 0 && cfg.direction === 'down') { log('⚠ Thời lượng = 0, không thể bắt đầu', 'warn'); return; }
+    cfg.durationSec = dur;
+    state.running = true;
+    if (cfg.direction === 'down') {
+      state.expiresAt = Date.now() + dur * 1000;
+      state.remainSec = dur;
+      state.elapsedSec = 0;
+    } else {
+      state.startedAt = Date.now();
+      state.elapsedSec = 0;
+      state.remainSec = 0;
+    }
+    saveCfg();
+    broadcastState();
+    tick();
+    _tickIv = setInterval(tick, 250);
+    log(`▶ Bắt đầu — ${cfg.direction === 'down' ? 'đếm lùi' : 'đếm tới'} ${fmtTime(dur)}`, 'info');
+  }
+  function pauseTimer() {
+    if (!state.running) return;
+    stopTickInterval();
+    if (cfg.direction === 'down') {
+      state.pausedRemain = Math.max(0, Math.ceil((state.expiresAt - Date.now())/1000));
+    } else {
+      state.pausedRemain = state.elapsedSec; // re-use field
+    }
+    state.running = false;
+    broadcastState();
+    log('⏸ Tạm dừng', 'info');
+  }
+  function resumeTimer() {
+    if (state.running || state.pausedRemain <= 0) {
+      // No paused state → just start a fresh one
+      startTimer();
+      return;
+    }
+    if (cfg.direction === 'down') {
+      state.expiresAt = Date.now() + state.pausedRemain * 1000;
+    } else {
+      state.startedAt = Date.now() - state.pausedRemain * 1000;
+    }
+    state.pausedRemain = 0;
+    state.running = true;
+    state.expired = false;
+    tick();
+    _tickIv = setInterval(tick, 250);
+    broadcastState();
+    log('▶ Tiếp tục', 'info');
+  }
+  function resetTimer() {
+    stopTickInterval();
+    state.running = false;
+    state.expired = false;
+    state.pausedRemain = 0;
+    state.elapsedSec = 0;
+    state.remainSec = cfg.durationSec;
+    state.sideActive = null; state.sidePool = 0;
+    broadcastState();
+    render();
+    log('↺ Reset', 'info');
+  }
+  function stopTickInterval() { if (_tickIv) { clearInterval(_tickIv); _tickIv = null; } }
+  function tick() {
+    if (!state.running) { render(); return; }
+    if (cfg.direction === 'down') {
+      const rem = Math.max(0, Math.ceil((state.expiresAt - Date.now()) / 1000));
+      state.remainSec = rem;
+      if (rem <= 0 && !state.expired) {
+        state.expired = true; state.running = false;
+        stopTickInterval();
+        log('⏱ HẾT GIỜ', 'warn');
+        // Auto-cancel choose-side mode
+        if (state.sideActive) { state.sideActive = null; state.sidePool = 0; }
+        broadcastState();
+      }
+    } else {
+      const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
+      state.elapsedSec = elapsed;
+      if (cfg.durationSec > 0 && elapsed >= cfg.durationSec && !state.expired) {
+        state.expired = true; state.running = false;
+        stopTickInterval();
+        log('⏱ ĐẠT MỤC TIÊU', 'ok');
+        broadcastState();
+      }
+    }
+    checkTriggerExpiry();
+    renderTrigger();
+    render();
+  }
+
+  function logUserActivity(g, delta, coins) {
+    state.userHistory.unshift({
+      uniqueId: g.uniqueId || '',
+      nickname: g.nickname || g.uniqueId || '(ẩn danh)',
+      avatar: g.profilePictureUrl || g.userImage || g.userImageUrl || '',
+      giftName: g.giftName || g.sheetItem?.name || '',
+      giftImage: g.image || g.sheetItem?.image || g.giftPicture || '',
+      repeat: Number(g.repeatCount) || 1,
+      delta: delta,
+      coins: coins,
+      ts: Date.now()
+    });
+    if (state.userHistory.length > 60) state.userHistory.length = 60;
+    renderUserList();
+  }
+  function renderUserList() {
+    const ul = $('userList'); if (!ul) return;
+    if (!state.userHistory.length) {
+      ul.innerHTML = '<div class="empty">Chưa có hoạt động — kết nối TikTok LIVE để theo dõi.</div>';
+      return;
+    }
+    const html = state.userHistory.slice(0, 40).map(u => {
+      const cls = u.delta > 0 ? 'add' : (u.delta < 0 ? 'sub' : 'zero');
+      const sign = u.delta > 0 ? '+' : '';
+      const txt = u.delta !== 0 ? `${sign}${u.delta}s` : `+${u.coins}💎`;
+      const time = new Date(u.ts).toLocaleTimeString();
+      const av = u.avatar
+        ? `<img class="av" src="${u.avatar}" onerror="this.style.visibility='hidden'"/>`
+        : `<div class="av" style="background:#dde3ec;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;">👤</div>`;
+      const gi = u.giftImage
+        ? `<img class="gift" src="${u.giftImage}" onerror="this.style.visibility='hidden'" title="${u.giftName}"/>`
+        : '';
+      return `<div class="ulrow">
+        ${av}
+        <div style="min-width:0;">
+          <div class="nick" title="${u.nickname}">${u.nickname}</div>
+          <div class="meta">${u.giftName} ×${u.repeat} · ${time}</div>
+        </div>
+        ${gi}
+        <span class="delta ${cls}">${txt}</span>
+      </div>`;
+    }).join('');
+    ul.innerHTML = html;
+  }
+
+  function updateMetaPanel() {
+    const ms = $('metaState'); const mr = $('metaRemain'); const md = $('metaSide'); const mw = $('metaSideWrap');
+    if (ms) ms.textContent = state.expired ? 'Hết giờ' : (state.running ? 'Đang chạy' : (state.pausedRemain > 0 ? 'Tạm dừng' : 'Sẵn sàng'));
+    if (mr) mr.textContent = fmtTime(displaySec());
+    if (md && mw) {
+      if (state.sideActive) {
+        mw.style.display = '';
+        md.textContent = state.sideActive === 'add' ? '⊕ TĂNG' : '⊖ GIẢM';
+        md.style.color = state.sideActive === 'add' ? '#23a85f' : '#e62e54';
+      } else {
+        mw.style.display = 'none'; md.textContent = '';
+      }
+    }
+  }
+
+  function adjustTime(deltaSec, reason) {
+    if (deltaSec === 0) return;
+    if (cfg.direction === 'down') {
+      if (state.running) {
+        state.expiresAt += deltaSec * 1000;
+        const rem = Math.max(0, Math.ceil((state.expiresAt - Date.now()) / 1000));
+        state.remainSec = rem;
+        if (rem > 0 && state.expired) { state.expired = false; }
+      } else if (state.pausedRemain > 0) {
+        state.pausedRemain = Math.max(0, state.pausedRemain + deltaSec);
+      } else {
+        // not running, not paused → adjust duration
+        cfg.durationSec = Math.max(0, cfg.durationSec + deltaSec);
+        writeDurationToInputs(cfg.durationSec);
+        state.remainSec = cfg.durationSec;
+      }
+    } else {
+      // count up: thêm vào duration target / hoặc add elapsed?
+      // Logic: ± thời gian = thay đổi mục tiêu (durationSec)
+      cfg.durationSec = Math.max(0, cfg.durationSec + deltaSec);
+    }
+    log(`${deltaSec > 0 ? '⊕' : '⊖'} ${deltaSec > 0 ? '+' : ''}${deltaSec}s ${reason ? '— '+reason : ''}`, deltaSec > 0 ? 'ok' : 'bad');
+    saveCfg();
+    broadcastState();
+    render();
+  }
+
+  /* ============================================================
+     GIFT HANDLER (incoming socket 'gift')
+     ============================================================ */
+  function onGift(g) {
+    if (!g) return;
+    const gid = String(g.giftId || g.sheetItem?.id || '');
+    const gname = g.giftName || g.sheetItem?.name || '';
+    const repeat = Number(g.repeatCount) || 1;
+    const coinUnit = Number(g.coinValue ?? g.sheetItem?.diamond ?? 1);
+    const totalCoins = coinUnit * repeat;
+
+    // ===== TRIGGER countdown activation (overlay riêng) =====
+    if (cfg.triggers?.enabled && cfg.triggers.list?.length) {
+      for (const tr of cfg.triggers.list) {
+        if (tr.enabled === false || !tr.gift) continue;
+        if (String(tr.gift.giftId) !== gid) continue;
+        const durSec = Math.max(1, Number(tr.durationSec) || 60);
+        const addSec = durSec * repeat;
+        const now = Date.now();
+        // CASE A: trigger này đang active → CỘNG DỒN thời gian, KHÔNG restart media (tránh đè khi LOOP)
+        if (state.trigger && state.trigger.triggerId === tr.id && state.trigger.expiresAt > now) {
+          state.trigger.expiresAt += addSec * 1000;
+          state.trigger.durationSec += addSec;
+          log(`+${addSec}s cộng dồn vào trigger "${gname}" — còn ${Math.ceil((state.trigger.expiresAt-now)/1000)}s`, 'ok');
+          logUserActivity(g, addSec, totalCoins);
+          broadcastTrigger();
+          renderTrigger();
+          break;
+        }
+        // CASE B: trigger KHÁC đang active → bỏ qua
+        if (state.trigger && state.trigger.expiresAt > now) {
+          log(`⏱ Trigger "${gname}" bị bỏ qua — trigger khác đang chạy`, 'warn');
+          break;
+        }
+        // CASE C: cooldown
+        const nextAllowed = state.triggerCooldowns[tr.id] || 0;
+        if (now < nextAllowed) {
+          log(`⏱ Trigger "${gname}" còn cooldown ${Math.ceil((nextAllowed-now)/1000)}s`, 'warn');
+          break;
+        }
+        // CASE D: activate trigger lần đầu
+        state.trigger = {
+          triggerId: tr.id,
+          expiresAt: now + addSec * 1000,
+          durationSec: addSec,
+          gift: tr.gift,
+          mediaUrl: tr.mediaUrl,
+          mediaType: tr.mediaType,
+          volume: Number(tr.volume) || 80,
+          loop: !!tr.loop,
+        };
+        if (tr.cooldownSec > 0) state.triggerCooldowns[tr.id] = now + (tr.cooldownSec + addSec) * 1000;
+        log(`▶ TRIGGER kích hoạt: ${gname} ×${repeat} → countdown ${addSec}s + ${tr.mediaType||'media'}`, 'ok');
+        logUserActivity(g, addSec, totalCoins);
+        broadcastTrigger();
+        renderTrigger();
+        break;
+      }
+    }
+
+
+    if (cfg.mode === 'fixed') {
+      const m = cfg.fixed.find(x => String(x.giftId) === gid);
+      if (!m) return;
+      const delta = (m.action === 'add' ? 1 : -1) * (Number(m.seconds) || 0) * repeat;
+      if (delta) { adjustTime(delta, `${gname} ×${repeat}`); logUserActivity(g, delta, totalCoins); }
+    }
+    else if (cfg.mode === 'ratio') {
+      const inAdd = cfg.ratio.addList.find(x => String(x.giftId) === gid);
+      const inSub = cfg.ratio.subList.find(x => String(x.giftId) === gid);
+      if (!inAdd && !inSub) return;
+      const coins = Math.max(1, Number(cfg.ratio.coins) || 1);
+      const secs  = Math.max(1, Number(cfg.ratio.secs)  || 1);
+      // Pool nhỏ per-side để giữ phần dư
+      const which = inAdd ? 'add' : 'sub';
+      cfg.ratio._pools = cfg.ratio._pools || { add: 0, sub: 0 };
+      cfg.ratio._pools[which] = (cfg.ratio._pools[which] || 0) + totalCoins;
+      const grant = Math.floor(cfg.ratio._pools[which] / coins) * secs;
+      cfg.ratio._pools[which] -= Math.floor(cfg.ratio._pools[which] / coins) * coins;
+      if (grant > 0) {
+        const delta = (which === 'add' ? 1 : -1) * grant;
+        adjustTime(delta, `${gname} ×${repeat} (${totalCoins}💎)`);
+        logUserActivity(g, delta, totalCoins);
+      } else {
+        log(`💎 ${gname} ×${repeat} (+${totalCoins}💎, dồn ${cfg.ratio._pools[which]}/${coins})`, 'info');
+        logUserActivity(g, 0, totalCoins);
+      }
+    }
+    else if (cfg.mode === 'side') {
+      const isAdd = cfg.side.addGift && String(cfg.side.addGift.giftId) === gid;
+      const isSub = cfg.side.subGift && String(cfg.side.subGift.giftId) === gid;
+      const coins = Math.max(1, Number(cfg.side.coins) || 1);
+      const secs  = Math.max(1, Number(cfg.side.secs)  || 1);
+
+      // Toggle / open / close phe
+      if (isAdd && state.sideActive === 'add') {
+        state.sideActive = null; state.sidePool = 0;
+        log('⊖ Huỷ phe TĂNG (tặng lại quà mở phe)', 'warn');
+        broadcastState(); render(); return;
+      }
+      if (isSub && state.sideActive === 'sub') {
+        state.sideActive = null; state.sidePool = 0;
+        log('⊖ Huỷ phe GIẢM (tặng lại quà mở phe)', 'warn');
+        broadcastState(); render(); return;
+      }
+      if (isAdd) {
+        state.sideActive = 'add'; state.sidePool = 0;
+        log(`⊕ Mở phe TĂNG (${gname})`, 'ok');
+        // quà mở phe có cộng xu của chính nó vào pool luôn
+      }
+      if (isSub) {
+        state.sideActive = 'sub'; state.sidePool = 0;
+        log(`⊖ Mở phe GIẢM (${gname})`, 'bad');
+      }
+
+      if (!state.sideActive) return; // chưa có phe → bỏ qua mọi quà khác
+      state.sidePool += totalCoins;
+      const grant = Math.floor(state.sidePool / coins) * secs;
+      const leftover = state.sidePool - Math.floor(state.sidePool / coins) * coins;
+      if (grant > 0) {
+        state.sidePool = leftover;
+        const delta = (state.sideActive === 'add' ? 1 : -1) * grant;
+        adjustTime(delta, `[${state.sideActive==='add'?'PHE+':'PHE-'}] ${gname} ×${repeat} (${totalCoins}💎)`);
+        logUserActivity(g, delta, totalCoins);
+      } else {
+        log(`💎 ${gname} ×${repeat} → dồn pool ${state.sidePool}/${coins} xu`, 'info');
+        logUserActivity(g, 0, totalCoins);
+      }
+      updateSideIndicator();
+    }
+  }
+
+  function updateSideIndicator() {
+    const ind = $('sideIndicator'); if (!ind) return;
+    const pool = $('sidePool');
+    ind.classList.remove('add', 'sub');
+    if (state.sideActive === 'add') { ind.textContent = '⊕ PHE TĂNG'; ind.classList.add('add'); }
+    else if (state.sideActive === 'sub') { ind.textContent = '⊖ PHE GIẢM'; ind.classList.add('sub'); }
+    else { ind.textContent = '(chưa mở)'; }
+    if (pool) {
+      const cm = Math.max(1, Number(cfg.side.coins) || 1);
+      pool.textContent = state.sideActive ? `Pool: ${state.sidePool} / ${cm} xu` : '';
+    }
+  }
+
+  /* ============================================================
+     TRIGGER RENDER (countdown + media overlay)
+     ============================================================ */
+  function renderTrigger() {
+    const host = $('triggerHost'); if (!host) return;
+    if (!state.trigger || state.trigger.expiresAt <= Date.now()) {
+      // Stop & hide
+      host.classList.remove('on');
+      const am = host.querySelector('audio,video');
+      if (am) { try { am.pause(); } catch(_){} }
+      host.innerHTML = '';
+      return;
+    }
+    const tr = state.trigger;
+    const remainMs = Math.max(0, tr.expiresAt - Date.now());
+    const remainSec = Math.ceil(remainMs / 1000);
+    // Rebuild chỉ khi chưa có media (lần đầu activate) — sau đó chỉ update text countdown
+    if (!host.classList.contains('on') || host.dataset.tid !== tr.triggerId) {
+      host.dataset.tid = tr.triggerId;
+      host.classList.add('on');
+      host.innerHTML = `
+        <div class="tw t-digital" style="--led-color:${cfg.colorMain}">
+          <div class="digits" id="trgDigits" style="font-size:${Math.round(cfg.fontSize*0.8)}px">${fmtTime(remainSec)}</div>
+        </div>
+        ${tr.mediaUrl ? renderTriggerMedia(tr) : ''}
+      `;
+      // Set volume + loop trên media element
+      const am = host.querySelector('audio,video');
+      if (am) {
+        am.volume = clamp((tr.volume||80)/100, 0, 1);
+        am.loop = !!tr.loop;
+        am.play().catch(err => log(`⚠ Media autoplay bị block: ${err.message}`, 'warn'));
+      }
+    } else {
+      // Chỉ update digits
+      const d = host.querySelector('#trgDigits');
+      if (d) d.textContent = fmtTime(remainSec);
+    }
+  }
+  function renderTriggerMedia(tr) {
+    // OVERLAY MODE = silent: KHÔNG phát audio (chỉ app/lab phát) để tránh đè nhạc 2 lần
+    //   - audio thuần: skip render hoàn toàn
+    //   - video: render nhưng muted (chỉ hiện hình, không tiếng)
+    if (tr.mediaType === 'video') {
+      const mutedAttr = IS_OVERLAY ? 'muted' : '';
+      return `<video src="${tr.mediaUrl}" autoplay ${mutedAttr} ${tr.loop?'loop':''} playsinline></video>`;
+    }
+    if (IS_OVERLAY) return ''; // overlay không phát audio
+    return `<audio src="${tr.mediaUrl}" autoplay ${tr.loop?'loop':''}></audio>`;
+  }
+  function broadcastTrigger() {
+    if (IS_OVERLAY || !_sock || !_sock.connected) return;
+    _sock.emit('timer:trigger', state.trigger);
+    // Đảm bảo ticker chạy khi có trigger
+    ensureTriggerTicker();
+  }
+  function applyRemoteTrigger(data) {
+    if (!IS_OVERLAY) return;
+    state.trigger = data || null;
+    renderTrigger();
+    ensureTriggerTicker();
+  }
+  function checkTriggerExpiry() {
+    if (!state.trigger) return;
+    if (Date.now() >= state.trigger.expiresAt) {
+      log(`■ Trigger "${state.trigger.gift?.giftName||''}" hết giờ — media stop, overlay ẩn`, 'info');
+      state.trigger = null;
+      renderTrigger();
+      broadcastTrigger();
+    }
+  }
+  let _triggerIv = null;
+  function ensureTriggerTicker() {
+    // Chạy interval 500ms khi có trigger active để countdown + expire độc lập với main timer
+    if (state.trigger && !_triggerIv) {
+      _triggerIv = setInterval(() => {
+        checkTriggerExpiry();
+        if (state.trigger) renderTrigger();
+        else { clearInterval(_triggerIv); _triggerIv = null; }
+      }, 500);
+    } else if (!state.trigger && _triggerIv) {
+      clearInterval(_triggerIv); _triggerIv = null;
+    }
+  }
+
+  function updateModePill() {
+    const p = $('modePill'); if (!p) return;
+    p.textContent = 'CHẾ ĐỘ: ' + (cfg.mode === 'fixed' ? 'QUÀ CỐ ĐỊNH' : cfg.mode === 'ratio' ? 'THEO XU' : 'CHỌN PHE');
+  }
+
+  /* ============================================================
+     SOCKET SYNC (LAB ↔ OVERLAY relay)
+     ============================================================ */
+  function broadcastCfg() {
+    if (IS_OVERLAY || !_sock || !_sock.connected) return;
+    _sock.emit('timer:cfg', cfg);
+  }
+  function broadcastState() {
+    if (IS_OVERLAY || !_sock || !_sock.connected) return;
+    _sock.emit('timer:state', {
+      running: state.running,
+      expiresAt: state.expiresAt,
+      startedAt: state.startedAt,
+      pausedRemain: state.pausedRemain,
+      remainSec: state.remainSec,
+      elapsedSec: state.elapsedSec,
+      expired: state.expired,
+      sideActive: state.sideActive,
+      sidePool: state.sidePool,
+      durationSec: cfg.durationSec,
+    });
+  }
+  function applyRemoteCfg(data) {
+    if (!data) return;
+    Object.assign(cfg, data);
+    cfg.fixed = Array.isArray(cfg.fixed) ? cfg.fixed : [];
+    cfg.ratio = Object.assign({ coins:1, secs:1, addList:[], subList:[] }, cfg.ratio || {});
+    cfg.side  = Object.assign({ coins:1, secs:1, addGift:null, subGift:null }, cfg.side || {});
+    cfg.triggers = Object.assign({ enabled:true, list:[] }, cfg.triggers || {});
+    if (!Array.isArray(cfg.triggers.list)) cfg.triggers.list = [];
+    if (!IS_OVERLAY) { refreshFormFromCfg(); refreshTriggerList?.(); }
+    render();
+  }
+  function applyRemoteState(data) {
+    if (!data || !IS_OVERLAY) return;
+    state.running = !!data.running;
+    state.expiresAt = data.expiresAt || 0;
+    state.startedAt = data.startedAt || 0;
+    state.pausedRemain = data.pausedRemain || 0;
+    state.remainSec = data.remainSec || 0;
+    state.elapsedSec = data.elapsedSec || 0;
+    state.expired = !!data.expired;
+    state.sideActive = data.sideActive || null;
+    state.sidePool = data.sidePool || 0;
+    if (cfg.durationSec !== data.durationSec && data.durationSec) cfg.durationSec = data.durationSec;
+    if (state.running) {
+      if (!_tickIv) _tickIv = setInterval(tick, 250);
+      tick();
+    } else {
+      stopTickInterval();
+      render();
+    }
+  }
+
+  /* ============================================================
+     PICKER (chọn quà từ giftSheet)
+     ============================================================ */
+  function openPicker(target) {
+    _pickerCtx = { target };
+    const mask = $('pickMask'); mask.classList.add('on');
+    $('pickTitle').textContent =
+      target === 'fixed-add' ? 'Thêm quà TĂNG (cố định)' :
+      target === 'fixed-sub' ? 'Thêm quà GIẢM (cố định)' :
+      target === 'ratio-add' ? 'Thêm quà TĂNG (theo xu)' :
+      target === 'ratio-sub' ? 'Thêm quà GIẢM (theo xu)' :
+      target === 'side-add'  ? 'Chọn quà MỞ PHE TĂNG' :
+      target === 'side-sub'  ? 'Chọn quà MỞ PHE GIẢM' :
+      target && target.startsWith('replace-') ? 'Chọn LẠI quà (giữ nguyên cấu hình)' :
+      target && target.startsWith('trigger:') ? 'Chọn quà KÍCH HOẠT countdown + media' : 'Chọn quà';
+    $('pickSearch').value = '';
+    renderPickList('');
+    setTimeout(()=>$('pickSearch').focus(), 30);
+  }
+  function closePicker() { $('pickMask').classList.remove('on'); _pickerCtx = null; }
+  function renderPickList(q) {
+    const list = $('pickList'); list.innerHTML = '';
+    const items = (_giftSheet || []).filter(g => {
+      if (!q) return true;
+      const ql = q.toLowerCase();
+      return (g.name || '').toLowerCase().includes(ql) || String(g.diamond || '').includes(ql);
+    }).slice(0, 200);
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:18px;text-align:center;color:#8b94a6;grid-column:1/-1;';
+      empty.textContent = _giftSheet.length === 0
+        ? 'Danh sách quà chưa tải. Server cần kết nối hpvn.media để lấy giftSheet.'
+        : 'Không tìm thấy quà phù hợp.';
+      list.appendChild(empty); return;
+    }
+    for (const g of items) {
+      const it = document.createElement('div'); it.className = 'pickitem';
+      it.innerHTML = `<img src="${g.image||''}" onerror="this.style.visibility='hidden'"/>
+        <div class="nm">${g.name || g.id}</div>
+        <div class="dia">💎 ${g.diamond || 0}</div>`;
+      it.onclick = () => onPickGift(g);
+      list.appendChild(it);
+    }
+  }
+  $('pickSearch')?.addEventListener('input', (e) => renderPickList(e.target.value.trim()));
+  $('pickMask')?.addEventListener('click', (e) => { if (e.target.id === 'pickMask') closePicker(); });
+
+  function onPickGift(g) {
+    if (!_pickerCtx) { closePicker(); return; }
+    const gift = { giftId: String(g.id), giftName: g.name, image: g.image, diamond: g.diamond };
+    switch (_pickerCtx.target) {
+      case 'fixed-add':
+        if (!cfg.fixed.find(x => x.giftId === gift.giftId && x.action === 'add'))
+          cfg.fixed.push({ ...gift, action: 'add', seconds: 5 });
+        break;
+      case 'fixed-sub':
+        if (!cfg.fixed.find(x => x.giftId === gift.giftId && x.action === 'sub'))
+          cfg.fixed.push({ ...gift, action: 'sub', seconds: 5 });
+        break;
+      case 'ratio-add':
+        if (!cfg.ratio.addList.find(x => x.giftId === gift.giftId))
+          cfg.ratio.addList.push(gift);
+        break;
+      case 'ratio-sub':
+        if (!cfg.ratio.subList.find(x => x.giftId === gift.giftId))
+          cfg.ratio.subList.push(gift);
+        break;
+      case 'side-add': cfg.side.addGift = gift; break;
+      case 'side-sub': cfg.side.subGift = gift; break;
+      default:
+        if (_pickerCtx.target && _pickerCtx.target.startsWith('trigger:')) {
+          const tid = _pickerCtx.target.slice('trigger:'.length);
+          const tr = cfg.triggers.list.find(x => x.id === tid);
+          if (tr) tr.gift = gift;
+        } else if (_pickerCtx.target && _pickerCtx.target.startsWith('replace-fixed:')) {
+          const idx = parseInt(_pickerCtx.target.slice('replace-fixed:'.length));
+          const old = cfg.fixed[idx];
+          if (old) { Object.assign(old, gift); } // giữ action + seconds
+        } else if (_pickerCtx.target && _pickerCtx.target.startsWith('replace-ratio-add:')) {
+          const idx = parseInt(_pickerCtx.target.slice('replace-ratio-add:'.length));
+          if (cfg.ratio.addList[idx]) Object.assign(cfg.ratio.addList[idx], gift);
+        } else if (_pickerCtx.target && _pickerCtx.target.startsWith('replace-ratio-sub:')) {
+          const idx = parseInt(_pickerCtx.target.slice('replace-ratio-sub:'.length));
+          if (cfg.ratio.subList[idx]) Object.assign(cfg.ratio.subList[idx], gift);
+        }
+    }
+    closePicker();
+    refreshGiftLists();
+    refreshTriggerList();
+    saveCfg();
+  }
+
+  /* ============================================================
+     TRIGGERS (Quà kích hoạt countdown + media — overlay riêng)
+     ============================================================ */
+  function refreshTriggerList() {
+    const host = $('trgList'); if (!host) return;
+    host.innerHTML = '';
+    if (!cfg.triggers.list.length) {
+      host.innerHTML = '<div class="trig-empty">Chưa có trigger — bấm "+ Thêm trigger mới" để cấu hình quà kích hoạt countdown.</div>';
+      return;
+    }
+    for (const tr of cfg.triggers.list) {
+      const row = document.createElement('div');
+      row.className = 'trig-row' + (tr.enabled === false ? ' disabled' : '');
+      const giftHTML = tr.gift
+        ? `<img src="${tr.gift.image||''}" onerror="this.style.visibility='hidden'"/>
+           <div class="info">
+             <div class="nm" title="${tr.gift.giftName}">${tr.gift.giftName}</div>
+             <div class="dia">💎 ${tr.gift.diamond||0}</div>
+           </div>`
+        : '<span class="placeholder">+ Chọn quà</span>';
+      // Media block: chỉ upload, không URL input. Hiện tên file đã upload + mtype tag.
+      const fname = tr.mediaName || (tr.mediaUrl ? '(đã upload)' : '');
+      const hasMedia = !!tr.mediaUrl;
+      const mediaHTML = hasMedia
+        ? `<span class="ico">${tr.mediaType === 'video' ? '🎬' : '🎵'}</span>
+           <span class="fname" title="${fname}">${fname}</span>
+           ${tr.mediaType ? `<span class="mtype ${tr.mediaType}">${tr.mediaType}</span>` : ''}`
+        : `<span class="ico">📁</span>
+           <span class="placeholder">Bấm để upload audio/video</span>`;
+      row.innerHTML = `
+        <div class="trig-gift" data-act="pick-gift" title="Chọn quà">${giftHTML}</div>
+        <input type="number" min="1" max="3600" value="${tr.durationSec||60}" title="Thời gian đếm lùi (giây)" data-act="duration" />
+        <div class="trig-media ${hasMedia ? 'has-media' : ''}" data-act="pick-media" title="Bấm để upload audio/video">${mediaHTML}</div>
+        <input type="number" min="0" max="100" value="${tr.volume||80}" title="Volume %" data-act="volume" />
+        <button class="loop-btn ${tr.loop ? 'on' : ''}" data-act="loop" title="${tr.loop ? 'Đang loop' : 'Bấm để bật loop'}">🔁</button>
+        <button class="toggle ${tr.enabled !== false ? 'on' : ''}" data-act="enable" title="Bật/tắt trigger"></button>
+        <button class="del" data-act="del" title="Xoá">✕</button>
+      `;
+
+      const dur   = row.querySelector('[data-act=duration]');
+      const vol   = row.querySelector('[data-act=volume]');
+      const loop  = row.querySelector('[data-act=loop]');
+      const enab  = row.querySelector('[data-act=enable]');
+      const gift  = row.querySelector('[data-act=pick-gift]');
+      const media = row.querySelector('[data-act=pick-media]');
+      const del   = row.querySelector('[data-act=del]');
+
+      dur.addEventListener('change',  () => { tr.durationSec = Math.max(1, parseInt(dur.value)||60); saveCfg(); });
+      vol.addEventListener('change',  () => { tr.volume = clamp(parseInt(vol.value)||80, 0, 100); saveCfg(); });
+      loop.addEventListener('click',  () => { tr.loop = !tr.loop; refreshTriggerList(); saveCfg(); });
+      enab.addEventListener('click',  () => { tr.enabled = !(tr.enabled !== false); refreshTriggerList(); saveCfg(); });
+      gift.addEventListener('click',  () => openPicker('trigger:' + tr.id));
+      media.addEventListener('click', () => triggerUploadFor(tr.id));
+      del.addEventListener('click',   () => {
+        cfg.triggers.list = cfg.triggers.list.filter(x => x.id !== tr.id);
+        refreshTriggerList(); saveCfg();
+      });
+
+      host.appendChild(row);
+    }
+  }
+  function detectMediaType(url) {
+    if (!url) return '';
+    const ext = url.split('?')[0].split('.').pop().toLowerCase();
+    if (['mp3','wav','ogg','m4a','aac','flac'].includes(ext)) return 'audio';
+    if (['mp4','webm','mov','avi','mkv'].includes(ext)) return 'video';
+    return '';
+  }
+  let _pendingUploadTriggerId = null;
+  function triggerUploadFor(triggerId) {
+    _pendingUploadTriggerId = triggerId;
+    $('trgFileInput').click();
+  }
+  async function onTriggerFilePicked(file) {
+    if (!file || !_pendingUploadTriggerId) return;
+    const tr = cfg.triggers.list.find(x => x.id === _pendingUploadTriggerId);
+    if (!tr) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    log(`📤 Upload "${file.name}" cho trigger ${tr.id}…`, 'info');
+    try {
+      const buf = await file.arrayBuffer();
+      const res = await fetch(`/api/games/timer/upload?ext=${ext}`, {
+        method: 'POST',
+        body: buf,
+        headers: { 'Content-Type': 'application/octet-stream' }
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'upload_failed');
+      tr.mediaUrl = data.url;
+      tr.mediaName = file.name;
+      tr.mediaType = file.type.startsWith('video/') ? 'video' : 'audio';
+      log(`✓ Upload OK → ${data.url}`, 'ok');
+      refreshTriggerList(); saveCfg();
+    } catch (e) {
+      log(`✗ Upload fail: ${e.message}`, 'bad');
+    }
+    _pendingUploadTriggerId = null;
+  }
+
+  function refreshGiftLists() {
+    // Fixed list — click vào img/tên để CHỌN LẠI QUÀ (không cần xoá-add lại)
+    const fl = $('fixedList'); if (fl) {
+      fl.innerHTML = '';
+      for (let i = 0; i < cfg.fixed.length; i++) {
+        const x = cfg.fixed[i];
+        const row = document.createElement('div'); row.className = 'gift-row';
+        row.innerHTML = `<img src="${x.image||''}" onerror="this.style.visibility='hidden'" title="Bấm để chọn lại quà" style="cursor:pointer;"/>
+          <div class="gn" title="Bấm để chọn lại quà" style="cursor:pointer;">${x.giftName} <small>💎${x.diamond||0}</small></div>
+          <span style="font-size:11.5px;font-weight:700;color:${x.action==='add'?'#23a85f':'#e62e54'}">${x.action==='add'?'+':'−'}</span>
+          <input type="number" min="0" step="1" value="${x.seconds}" style="width:64px;" />
+          <span style="font-size:11px;color:#9aa7bd;">giây / lần</span>
+          <button class="x" title="Xoá">✕</button>`;
+        const inp = row.querySelector('input');
+        inp.onchange = () => { x.seconds = Math.max(0, parseInt(inp.value) || 0); saveCfg(); };
+        const repick = () => openPicker('replace-fixed:' + i);
+        row.querySelector('img').onclick = repick;
+        row.querySelector('.gn').onclick = repick;
+        row.querySelector('.x').onclick = () => {
+          cfg.fixed.splice(i, 1);
+          refreshGiftLists(); saveCfg();
+        };
+        fl.appendChild(row);
+      }
+      if (!cfg.fixed.length) {
+        fl.innerHTML = '<div style="padding:14px;text-align:center;color:#9aa7bd;font-size:12px;">Chưa có quà — nhấn nút bên dưới để thêm.</div>';
+      }
+    }
+    // Ratio add/sub — click vào quà để chọn lại
+    const ra = $('ratioAddList'), rs = $('ratioSubList');
+    if (ra) {
+      ra.innerHTML = '';
+      for (let i = 0; i < cfg.ratio.addList.length; i++) {
+        const x = cfg.ratio.addList[i];
+        const row = document.createElement('div'); row.className = 'gift-row';
+        row.innerHTML = `<img src="${x.image||''}" onerror="this.style.visibility='hidden'" title="Bấm để chọn lại quà" style="cursor:pointer;"/>
+          <div class="gn" title="Bấm để chọn lại quà" style="cursor:pointer;">${x.giftName} <small>💎${x.diamond||0}</small></div><button class="x">✕</button>`;
+        const repick = () => openPicker('replace-ratio-add:' + i);
+        row.querySelector('img').onclick = repick;
+        row.querySelector('.gn').onclick = repick;
+        row.querySelector('.x').onclick = () => {
+          cfg.ratio.addList.splice(i, 1); refreshGiftLists(); saveCfg();
+        };
+        ra.appendChild(row);
+      }
+      if (!cfg.ratio.addList.length) ra.innerHTML = '<div style="padding:10px;color:#9aa7bd;font-size:11.5px;text-align:center;">Chưa có quà tăng</div>';
+    }
+    if (rs) {
+      rs.innerHTML = '';
+      for (let i = 0; i < cfg.ratio.subList.length; i++) {
+        const x = cfg.ratio.subList[i];
+        const row = document.createElement('div'); row.className = 'gift-row';
+        row.innerHTML = `<img src="${x.image||''}" onerror="this.style.visibility='hidden'" title="Bấm để chọn lại quà" style="cursor:pointer;"/>
+          <div class="gn" title="Bấm để chọn lại quà" style="cursor:pointer;">${x.giftName} <small>💎${x.diamond||0}</small></div><button class="x">✕</button>`;
+        const repick = () => openPicker('replace-ratio-sub:' + i);
+        row.querySelector('img').onclick = repick;
+        row.querySelector('.gn').onclick = repick;
+        row.querySelector('.x').onclick = () => {
+          cfg.ratio.subList.splice(i, 1); refreshGiftLists(); saveCfg();
+        };
+        rs.appendChild(row);
+      }
+      if (!cfg.ratio.subList.length) rs.innerHTML = '<div style="padding:10px;color:#9aa7bd;font-size:11.5px;text-align:center;">Chưa có quà giảm</div>';
+    }
+    // Side slots
+    const sa = $('sideAddSlot'), sb = $('sideSubSlot');
+    if (sa) sa.innerHTML = cfg.side.addGift
+      ? `<div class="gift-pick"><img src="${cfg.side.addGift.image||''}"/><div class="nm">${cfg.side.addGift.giftName} <span class="dia">💎${cfg.side.addGift.diamond||0}</span></div><button class="x" onclick="cfg.side.addGift=null;refreshGiftLists();saveCfg()">✕</button></div>`
+      : '<span class="small-help">Chưa chọn</span>';
+    if (sb) sb.innerHTML = cfg.side.subGift
+      ? `<div class="gift-pick"><img src="${cfg.side.subGift.image||''}"/><div class="nm">${cfg.side.subGift.giftName} <span class="dia">💎${cfg.side.subGift.diamond||0}</span></div><button class="x" onclick="cfg.side.subGift=null;refreshGiftLists();saveCfg()">✕</button></div>`
+      : '<span class="small-help">Chưa chọn</span>';
+  }
+
+  /* ============================================================
+     FORM ↔ CFG sync
+     ============================================================ */
+  function refreshFormFromCfg() {
+    writeDurationToInputs(cfg.durationSec);
+    document.querySelectorAll('input[name=direction]').forEach(r => r.checked = (r.value === cfg.direction));
+    $('fmtSel').value = cfg.format;
+    $('warnSec').value = cfg.warnSec;
+    $('dangerSec').value = cfg.dangerSec;
+    $('fsRange').value = cfg.fontSize; $('fsVal').textContent = cfg.fontSize;
+    $('colorMain').value = cfg.colorMain;
+    $('colorSec').value = cfg.colorSec;
+    $('ttlInp').value = cfg.title;
+    $('ttlFs').value = cfg.titleFs; $('ttlFsVal').textContent = cfg.titleFs;
+    $('ratioCoins').value = cfg.ratio.coins;
+    $('ratioSecs').value  = cfg.ratio.secs;
+    $('sideCoins').value  = cfg.side.coins;
+    $('sideSecs').value   = cfg.side.secs;
+    // Theme buttons
+    document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.dataset.theme === cfg.theme));
+    // Mode tabs
+    document.querySelectorAll('.mtab').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.mode));
+    $('modeFixed').style.display = cfg.mode === 'fixed' ? '' : 'none';
+    $('modeRatio').style.display = cfg.mode === 'ratio' ? '' : 'none';
+    $('modeSide').style.display  = cfg.mode === 'side'  ? '' : 'none';
+    refreshGiftLists();
+  }
+
+  function bindControls() {
+    if (IS_OVERLAY) return;
+    document.querySelectorAll('input[name=direction]').forEach(r => {
+      r.addEventListener('change', () => { cfg.direction = r.value; saveCfg(); render(); });
+    });
+    ['hI','mI','sI'].forEach(id => {
+      $(id).addEventListener('change', () => {
+        cfg.durationSec = readDurationFromInputs();
+        if (!state.running) state.remainSec = cfg.durationSec;
+        saveCfg(); render();
+      });
+    });
+    $('presetChips').addEventListener('click', (e) => {
+      const b = e.target.closest('.chip[data-sec]'); if (!b) return;
+      const sec = parseInt(b.dataset.sec);
+      writeDurationToInputs(sec);
+      cfg.durationSec = sec;
+      if (!state.running) state.remainSec = sec;
+      document.querySelectorAll('#presetChips .chip').forEach(c => c.classList.remove('active'));
+      b.classList.add('active');
+      saveCfg(); render();
+    });
+    $('fmtSel').addEventListener('change', e => { cfg.format = e.target.value; saveCfg(); render(); });
+    $('warnSec').addEventListener('change', e => { cfg.warnSec = clamp(parseInt(e.target.value)||0, 0, 600); saveCfg(); render(); });
+    $('dangerSec').addEventListener('change', e => { cfg.dangerSec = clamp(parseInt(e.target.value)||0, 0, 60); saveCfg(); render(); });
+    $('fsRange').addEventListener('input', e => { cfg.fontSize = parseInt(e.target.value); $('fsVal').textContent = cfg.fontSize; render(); });
+    $('fsRange').addEventListener('change', () => saveCfg());
+    $('colorMain').addEventListener('input', e => { cfg.colorMain = e.target.value; render(); });
+    $('colorMain').addEventListener('change', () => saveCfg());
+    $('colorSec').addEventListener('input', e => { cfg.colorSec = e.target.value; render(); });
+    $('colorSec').addEventListener('change', () => saveCfg());
+    $('ttlInp').addEventListener('input', e => { cfg.title = e.target.value; render(); });
+    $('ttlInp').addEventListener('change', () => saveCfg());
+    $('ttlFs').addEventListener('input', e => { cfg.titleFs = parseInt(e.target.value); $('ttlFsVal').textContent = cfg.titleFs; render(); });
+    $('ttlFs').addEventListener('change', () => saveCfg());
+
+    $('themeGrid').addEventListener('click', (e) => {
+      const c = e.target.closest('.theme-card'); if (!c) return;
+      cfg.theme = c.dataset.theme;
+      document.querySelectorAll('.theme-card').forEach(x => x.classList.toggle('active', x === c));
+      saveCfg(); render();
+    });
+    document.querySelectorAll('.mtab').forEach(b => {
+      b.addEventListener('click', () => {
+        cfg.mode = b.dataset.mode;
+        document.querySelectorAll('.mtab').forEach(x => x.classList.toggle('active', x === b));
+        $('modeFixed').style.display = cfg.mode === 'fixed' ? '' : 'none';
+        $('modeRatio').style.display = cfg.mode === 'ratio' ? '' : 'none';
+        $('modeSide').style.display  = cfg.mode === 'side'  ? '' : 'none';
+        saveCfg(); render();
+      });
+    });
+
+    $('ratioCoins').addEventListener('change', e => { cfg.ratio.coins = Math.max(1, parseInt(e.target.value)||1); saveCfg(); });
+    $('ratioSecs').addEventListener('change',  e => { cfg.ratio.secs  = Math.max(1, parseInt(e.target.value)||1); saveCfg(); });
+    $('sideCoins').addEventListener('change',  e => { cfg.side.coins  = Math.max(1, parseInt(e.target.value)||1); saveCfg(); });
+    $('sideSecs').addEventListener('change',   e => { cfg.side.secs   = Math.max(1, parseInt(e.target.value)||1); saveCfg(); });
+    $('btnSideClear').addEventListener('click', () => {
+      state.sideActive = null; state.sidePool = 0; updateSideIndicator(); broadcastState();
+      log('⊖ Huỷ phe (thủ công)', 'warn');
+    });
+
+    // Top buttons
+    $('btnStart').addEventListener('click', () => {
+      if (state.running) pauseTimer();
+      else if (state.pausedRemain > 0) resumeTimer();
+      else startTimer();
+      updateStartBtn();
+    });
+    $('btnReset').addEventListener('click', () => { resetTimer(); updateStartBtn(); });
+    $('btnAddTest').addEventListener('click', () => adjustTime(+10, 'thử nghiệm'));
+    $('btnSubTest').addEventListener('click', () => adjustTime(-10, 'thử nghiệm'));
+    // 💾 Lưu — buộc persist + broadcast tới overlay
+    // ===== Trigger card controls =====
+    $('trgEnabled').addEventListener('change', e => { cfg.triggers.enabled = e.target.checked; saveCfg(); });
+    $('btnAddTrigger').addEventListener('click', () => {
+      const id = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,4);
+      cfg.triggers.list.push({
+        id, enabled: true, name: 'Trigger ' + (cfg.triggers.list.length + 1),
+        gift: null, durationSec: 60, mediaUrl: '', mediaName: '', mediaType: '', volume: 80, loop: true, cooldownSec: 0
+      });
+      refreshTriggerList(); saveCfg();
+    });
+    $('btnCopyTrigUrl').addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      const url = location.origin + '/_prototype/timer.html?mode=overlay&type=trigger';
+      const done = () => { btn.textContent = '✓ Đã copy'; setTimeout(()=>btn.textContent='📋 Copy URL Overlay Trigger', 1500); };
+      const fail = () => { btn.textContent = '⚠ Copy fail'; setTimeout(()=>btn.textContent='📋 Copy URL Overlay Trigger', 1500); };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(()=>{
+        try { const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta); done(); } catch(_){ fail(); }
+      });
+      else { try { const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta); done(); } catch(_){ fail(); } }
+    });
+    $('trgFileInput').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) onTriggerFilePicked(f);
+      e.target.value = ''; // reset để chọn lại cùng file vẫn fire change
+    });
+
+    $('btnSave').addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch (err) {}
+      broadcastCfg();
+      broadcastState();
+      const old = btn.textContent;
+      btn.textContent = '✓ Đã lưu';
+      btn.disabled = true;
+      log('💾 Đã lưu mọi cài đặt — overlay đã đồng bộ', 'ok');
+      setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1500);
+    });
+  }
+  function updateStartBtn() {
+    const b = $('btnStart'); if (!b) return;
+    if (state.running) { b.textContent = '⏸ Tạm dừng'; b.classList.remove('primary'); }
+    else if (state.pausedRemain > 0) { b.textContent = '▶ Tiếp tục'; b.classList.add('primary'); }
+    else { b.textContent = '▶ BẮT ĐẦU'; b.classList.add('primary'); }
+  }
+
+  /* ============================================================
+     INIT
+     ============================================================ */
+  function init() {
+    loadCfg();
+    refreshFormFromCfg();
+    bindControls();
+    state.remainSec = cfg.durationSec;
+    // Stage trong layout-right hẹp hơn → scale stage-inner cho theme rộng vẫn lọt khung
+    if (!IS_OVERLAY) {
+      const si = $('stageInner'); if (si) si.style.transform = 'scale(0.78)';
+    }
+    render();
+    renderUserList();
+    refreshTriggerList();
+    renderTrigger();
+    updateStartBtn();
+    // Sync trgEnabled checkbox với cfg
+    const trgEn = $('trgEnabled'); if (trgEn) trgEn.checked = cfg.triggers.enabled !== false;
+
+    // Socket
+    if (typeof io !== 'undefined') {
+      _sock = io({ transports: ['websocket','polling'] });
+      _sock.on('connect', () => {
+        $('sockDot')?.classList.add('on');
+        $('sockTxt') && ($('sockTxt').textContent = 'Đã kết nối server');
+        // Overlay subscribes — receives cfg + state echoes from lab
+        if (IS_OVERLAY) _sock.emit('subscribe', 'overlay');
+        // Push current cfg lên server để overlay đang mở kéo về
+        if (!IS_OVERLAY) { broadcastCfg(); broadcastState(); }
+      });
+      _sock.on('disconnect', () => {
+        $('sockDot')?.classList.remove('on');
+        $('sockTxt') && ($('sockTxt').textContent = 'Mất kết nối — đang thử lại…');
+      });
+      _sock.on('timer:cfg',     applyRemoteCfg);
+      _sock.on('timer:state',   applyRemoteState);
+      _sock.on('timer:trigger', applyRemoteTrigger);
+      // Lab also wants to receive cfg from another lab tab (multi-window edit)
+      // → server sẽ relay tới broadcast (loại trừ sender)
+      _sock.on('giftSheet', (gs) => { _giftSheet = gs || []; });
+      _sock.on('gift', (g) => { onGift(g); });
+    }
+  }
+
+  // Expose globals cho onclick inline
+  window.openPicker = openPicker;
+  window.closePicker = closePicker;
+  window.cfg = cfg; window.refreshGiftLists = refreshGiftLists; window.saveCfg = saveCfg;
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  </script>
+</body>
+</html>

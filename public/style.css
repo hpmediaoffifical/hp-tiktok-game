@@ -144,10 +144,13 @@ input, button { font-family: inherit; }
     background: linear-gradient(180deg, #12151c 0%, #0f1218 100%);
     border-right: 1px solid #1d212d;
     padding: 14px 12px;
-    overflow-y: auto;
+    /* Sidebar KHÔNG scroll — chỉ game-list bên trong .side-library scroll → bottom card luôn pinned cuối */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 0;
+    height: 100%;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 8px; }
 .brand-logo {
@@ -167,7 +170,35 @@ input, button { font-family: inherit; }
     flex-direction: column;
     gap: 8px;
 }
-.side-card.side-library { flex: 1; min-height: 220px; }
+/* Library: chiếm phần còn lại sidebar; KHÔNG để overflow đè bottom card.
+   game-list cuộn nội bộ khi danh sách game nhiều hơn không gian. */
+.side-card.side-library {
+    flex: 1 1 0;
+    min-height: 220px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.side-card.side-library .game-list {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* scrollbar slim */
+    scrollbar-width: thin;
+    scrollbar-color: #2a3142 transparent;
+    /* fade-out gradient ở mép trên/dưới để hint user còn scroll */
+    mask-image: linear-gradient(180deg, transparent 0, #000 8px, #000 calc(100% - 8px), transparent 100%);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 8px, #000 calc(100% - 8px), transparent 100%);
+    padding-right: 4px; /* chừa chỗ thanh cuộn không che item */
+}
+.side-card.side-library .game-list::-webkit-scrollbar { width: 6px; }
+.side-card.side-library .game-list::-webkit-scrollbar-track { background: transparent; }
+.side-card.side-library .game-list::-webkit-scrollbar-thumb {
+    background: #2a3142;
+    border-radius: 3px;
+}
+.side-card.side-library .game-list::-webkit-scrollbar-thumb:hover { background: #3a4258; }
 .side-card-title { font-size: 11px; font-weight: 700; color: #c8cee0; text-transform: uppercase; letter-spacing: 0.5px; }
 
 .conn-row {

@@ -119,6 +119,14 @@ const GAMES = {
         icon: '🎯',
         overlayPath: '/_prototype/level-quest.html?mode=overlay',
         defaultConfig: { enabled: true }
+    },
+    'timer': {
+        id: 'timer',
+        name: 'THỜI GIAN',
+        description: 'Đếm lùi / đếm tới với 9 giao diện (LED, vòng tròn, thanh, đa giác, neon, flip). Quà tặng ± thời gian theo 3 chế độ: cố định / theo xu / chọn phe.',
+        icon: '⏱',
+        overlayPath: '/_prototype/timer.html?mode=overlay',
+        defaultConfig: { enabled: true }
     }
 };
 
@@ -3418,6 +3426,40 @@ app.get('/api/games/pktiktok/asset/:fn', (req, res) => {
     res.sendFile(p);
 });
 
+// ====== TIMER (THỜI GIAN) — media assets cho tính năng "Quà kích hoạt countdown" ======
+const TIMER_ASSETS_DIR = path.join(DATA_DIR, 'timer-assets');
+if (!fs.existsSync(TIMER_ASSETS_DIR)) fs.mkdirSync(TIMER_ASSETS_DIR, { recursive: true });
+const TIMER_ALLOWED_EXTS = ['mp4', 'webm', 'mp3', 'wav', 'ogg', 'm4a'];
+
+app.post('/api/games/timer/upload',
+    express.raw({ limit: '30mb', type: () => true }),
+    (req, res) => {
+        const ext = String(req.query.ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        if (!TIMER_ALLOWED_EXTS.includes(ext)) {
+            return res.status(400).json({ ok: false, error: 'invalid_ext' });
+        }
+        if (!req.body || !req.body.length) {
+            return res.status(400).json({ ok: false, error: 'empty_body' });
+        }
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const filename = `${id}.${ext}`;
+        try {
+            fs.writeFileSync(path.join(TIMER_ASSETS_DIR, filename), req.body);
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: 'write_failed: ' + e.message });
+        }
+        res.json({ ok: true, filename, url: `/api/games/timer/asset/${filename}` });
+    }
+);
+
+app.get('/api/games/timer/asset/:fn', (req, res) => {
+    const safe = String(req.params.fn).replace(/[^a-z0-9._-]/gi, '');
+    if (!safe || safe.includes('..')) return res.sendStatus(400);
+    const p = path.join(TIMER_ASSETS_DIR, safe);
+    if (!fs.existsSync(p)) return res.sendStatus(404);
+    res.sendFile(p);
+});
+
 // Trigger 1 event PK TikTok — server đọc config event, build payload, emit cho mọi overlay
 // client (cả OBS browser source). Trả lại payload cho panel để hiển thị log.
 // Path /trigger (KHÔNG /cmd) để tránh đụng generic route /api/games/:id/cmd ở line ~1014.
@@ -4095,6 +4137,11 @@ io.on('connection', (socket) => {
     // LEVEL QUEST sync — lab broadcasts cfg/state; overlays nhận để cập nhật real-time
     socket.on('levelquest:cfg',   (data) => { socket.broadcast.emit('levelquest:cfg',   data); });
     socket.on('levelquest:state', (data) => { socket.broadcast.emit('levelquest:state', data); });
+
+    // TIMER (THỜI GIAN) sync — lab broadcasts cfg/state; overlays + preview nhận realtime
+    socket.on('timer:cfg',     (data) => { socket.broadcast.emit('timer:cfg',     data); });
+    socket.on('timer:state',   (data) => { socket.broadcast.emit('timer:state',   data); });
+    socket.on('timer:trigger', (data) => { socket.broadcast.emit('timer:trigger', data); });
 
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {

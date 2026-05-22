@@ -430,6 +430,7 @@
         else if (gameId === 'votecomment') openVoteComment(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
         else if (gameId === 'level-quest') showView('view-level-quest');
+        else if (gameId === 'timer') showView('view-timer');
     }
 
     function openVoteComment(game) {
