@@ -267,7 +267,7 @@
             drawWinLine();
             drawFooter();
             if (state.phase === 'matchEnd') drawMatchEnd();
-            if (state.phase === 'registration') drawRegistrationBanner();
+            // Banner ghi danh đã merge vào footer status — không vẽ banner riêng (tránh che cột labels).
             if (state.phase === 'roundEnd') drawRoundEnd();
         }
 
@@ -615,7 +615,12 @@
             const turnColor = state.round.turn === 'idol' ? cfg.colors.idol : cfg.colors.user;
             let line = '';
             if (state.phase === 'setup') line = '⏸️ Đang cấu hình ván';
-            else if (state.phase === 'registration') line = '🏁 Đang ghi danh — gửi quà chỉ định';
+            else if (state.phase === 'registration') {
+                const n = state.registration.entries.length;
+                line = n > 0
+                    ? `🏁 Đang ghi danh — ${n} người · gửi quà chỉ định`
+                    : '🏁 Đang ghi danh — gửi quà chỉ định';
+            }
             else if (state.phase === 'picking') line = '🎯 Idol đang chọn đối thủ...';
             else if (state.phase === 'playing') {
                 const who = state.round.turn === 'idol' ? '🩵 Lượt CREATOR' : `🩷 Lượt ${state.opponent?.nickname || 'USER'}`;
