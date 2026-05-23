@@ -235,6 +235,8 @@
             // hiển thị view
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             $('#view-caro')?.classList.add('active');
+            // Re-sync UI mỗi lần mở panel → button states không bị stuck từ lần trước
+            updateUI();
             // fit canvas resize
             requestAnimationFrame(() => game && fitCanvasContainer());
         },
@@ -548,16 +550,12 @@
                 return;
             }
             game.openRegistration();
-            $('#caro-btn-open-reg').disabled = true;
-            $('#caro-btn-close-reg').disabled = false;
-            $('#caro-btn-pick-top').disabled = false;
             logSystem('🏁 Đã mở vòng ghi danh');
             pushState();
+            // updateUI tự được gọi qua game.on('change') trong openRegistration()
         });
         $('#caro-btn-close-reg').addEventListener('click', () => {
             game.closeRegistration();
-            $('#caro-btn-open-reg').disabled = false;
-            $('#caro-btn-close-reg').disabled = true;
             logSystem('⏹ Đóng vòng ghi danh');
             pushState();
         });
@@ -567,7 +565,6 @@
             const top = st.registration.entries[0];
             game.pickOpponent(top.uniqueId);
             opponentSource = 'reg';
-            $('#caro-btn-change-opponent').disabled = false;
             logSystem(`🎯 Chọn đối thủ: ${top.nickname} (${top.totalDiamond}💎)`);
             pushState();
             updateUI();
@@ -594,8 +591,6 @@
             game.openRegistration();
             opponentSource = '';
             $('#caro-end-actions').style.display = 'none';
-            $('#caro-btn-open-reg').disabled = true;
-            $('#caro-btn-close-reg').disabled = false;
             logSystem('📋 Mở vòng ghi danh mới');
             pushState();
         });
@@ -603,10 +598,6 @@
             game.newGame();
             opponentSource = '';
             $('#caro-end-actions').style.display = 'none';
-            $('#caro-btn-open-reg').disabled = false;
-            $('#caro-btn-close-reg').disabled = true;
-            $('#caro-btn-pick-top').disabled = true;
-            $('#caro-btn-change-opponent').disabled = true;
             logSystem('❌ Đóng game');
             pushState();
         });
@@ -625,14 +616,10 @@
             game.newGame();
             opponentSource = '';
             $('#caro-end-actions').style.display = 'none';
-            $('#caro-btn-open-reg').disabled = false;
-            $('#caro-btn-close-reg').disabled = true;
-            $('#caro-btn-pick-top').disabled = true;
-            $('#caro-btn-change-opponent').disabled = true;
             logSystem(`✕ Huỷ đối thủ "${opName}"`);
             flashOk('Đã huỷ — chọn đối thủ mới');
             pushState();
-            updateUI();
+            updateUI();   // button states derived từ phase=setup
         });
         // === FREE-ID — Idol nhập @username để đấu trực tiếp, bỏ qua ghi danh ===
         const freeIdGo = () => {
@@ -642,16 +629,11 @@
             const ok = game.pickOpponentManual(raw, raw);
             if (!ok) { flashWarn('ID không hợp lệ'); return; }
             opponentSource = 'freeid';
-            // Update UI state (giống flow ghi danh)
-            $('#caro-btn-open-reg').disabled = true;
-            $('#caro-btn-close-reg').disabled = true;
-            $('#caro-btn-pick-top').disabled = true;
-            $('#caro-btn-change-opponent').disabled = true;
             logSystem(`🎯 Đấu trực tiếp với "${raw}" (bỏ qua ghi danh)`);
             flashOk(`Đã chọn đối thủ: ${raw}`);
             if (inp) inp.value = '';
             pushState();
-            updateUI();
+            updateUI();   // button states derived từ phase=playing + opponent
         };
         $('#caro-btn-freeid-go')?.addEventListener('click', freeIdGo);
         $('#caro-freeid-input')?.addEventListener('keydown', (e) => {
@@ -932,11 +914,9 @@
         // AUTO-OPEN ghi danh khi phase=setup và có quà đúng
         if (isRegGift && st.phase === 'setup') {
             game.openRegistration();
-            const btnOpen = $('#caro-btn-open-reg'); if (btnOpen) btnOpen.disabled = true;
-            const btnClose = $('#caro-btn-close-reg'); if (btnClose) btnClose.disabled = false;
-            const btnPick = $('#caro-btn-pick-top'); if (btnPick) btnPick.disabled = false;
             logSystem('🏁 Tự mở ghi danh (có quà ghi danh đầu tiên)');
             st = game.getState();
+            // Button states tự sync qua game.on('change') → updateUI()
         }
         if (st.phase !== 'registration' && st.phase !== 'picking') {
             logSystem(`⏸ Bỏ qua (phase=${st.phase}, chưa ở pha ghi danh/picking)`);
@@ -1042,9 +1022,25 @@
             $('#caro-end-actions').style.display = 'block';
         }
 
-        // Disable invalid buttons
-        $('#caro-btn-pick-top').disabled = !st.registration.entries.length || (st.phase !== 'registration' && st.phase !== 'picking');
-        $('#caro-btn-change-opponent').disabled = !st.registration.entries.length;
+        // === ROOT-CAUSE FIX: button states DERIVED từ game state ===
+        // Trước đây tự bật/tắt trong click handlers → stuck khi user reload panel
+        // hoặc đổi flow giữa chừng (vd pick gift sau khi đã Mở ghi danh).
+        // Giờ source-of-truth là game state, updateUI() sync mỗi khi state đổi.
+        const isSetup = st.phase === 'setup';
+        const isReg = st.phase === 'registration';
+        const isPicking = st.phase === 'picking';
+        const isRegOpen = !!st.registration.open;
+        const hasEntries = st.registration.entries.length > 0;
+        const hasOpponent = !!st.opponent;
+        // Mở ghi danh: enabled trong setup HOẶC reg-đã-đóng (cho phép mở lại vòng mới).
+        // Disabled khi đang playing/picking/matchEnd hoặc reg đang mở.
+        $('#caro-btn-open-reg').disabled = !(isSetup || (isReg && !isRegOpen)) || hasOpponent;
+        // Đóng ghi danh: chỉ enabled khi reg đang mở
+        $('#caro-btn-close-reg').disabled = !(isReg && isRegOpen);
+        // Chọn Top 1: cần entries + đang ở reg/picking + chưa có opponent
+        $('#caro-btn-pick-top').disabled = !hasEntries || !(isReg || isPicking) || hasOpponent;
+        // Đổi đối thủ: cần entries để chọn người khác
+        $('#caro-btn-change-opponent').disabled = !hasEntries;
     }
 
     function renderLeaderboard(entries, currentOpponentUid) {
