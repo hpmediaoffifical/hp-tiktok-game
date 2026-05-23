@@ -310,9 +310,11 @@
 
     // ===== Games =====
     const GAME_DEVELOPMENT_NOTICE = 'Đang phát triển, có thể gặp sự cố...';
+    // Whitelist game đã ổn định — không hiển thị cảnh báo "Đang phát triển"
+    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer']);
 
     function renderGameDevelopmentNotice(game) {
-        if (game.id === 'thuytinh') return '';
+        if (STABLE_GAMES.has(game.id)) return '';
         return `<div class="gd game-dev-notice game-dev-${game.id}">${GAME_DEVELOPMENT_NOTICE}</div>`;
     }
 
@@ -3702,6 +3704,9 @@
     document.getElementById('pktiktok-btn-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('vipwelcome-btn-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('live-translate-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('votecomment-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('level-quest-btn-settings')?.addEventListener('click', openSettingsPopup);
+    document.getElementById('timer-btn-settings')?.addEventListener('click', openSettingsPopup);
     document.getElementById('settings-close')?.addEventListener('click', () => {
         if (settingsPopup) settingsPopup.hidden = true;
     });

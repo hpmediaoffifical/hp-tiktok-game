@@ -190,7 +190,9 @@ input, button { font-family: inherit; }
     /* fade-out gradient ở mép trên/dưới để hint user còn scroll */
     mask-image: linear-gradient(180deg, transparent 0, #000 8px, #000 calc(100% - 8px), transparent 100%);
     -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 8px, #000 calc(100% - 8px), transparent 100%);
-    padding-right: 4px; /* chừa chỗ thanh cuộn không che item */
+    padding-right: 4px;     /* chừa chỗ thanh cuộn không che item */
+    padding-top: 8px;       /* item đầu không dính title + không bị mask fade cắt */
+    padding-bottom: 4px;
 }
 .side-card.side-library .game-list::-webkit-scrollbar { width: 6px; }
 .side-card.side-library .game-list::-webkit-scrollbar-track { background: transparent; }
@@ -542,7 +544,7 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 @keyframes pulse { 50% { opacity: 0.4; } }
 
 /* Game list */
-.game-list { display: flex; flex-direction: column; gap: 6px; }
+.game-list { display: flex; flex-direction: column; gap: 8px; }
 .game-item {
     display: flex; align-items: center; gap: 10px;
     padding: 8px 10px;

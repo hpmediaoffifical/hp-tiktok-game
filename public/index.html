@@ -98,6 +98,7 @@
                         <button class="primary small" id="btn-lq-copy" onclick="lqCopyOverlay(this)">📋 Copy URL Overlay</button>
                         <button class="ghost small" onclick="window.open('/_prototype/level-quest.html?mode=overlay','_blank','width=1080,height=400')">🪟 Mở overlay preview</button>
                         <button class="ghost small" onclick="document.getElementById('lq-frame').contentWindow.location.reload()" title="Reload prototype">↻ Reload</button>
+                        <button id="level-quest-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                     <script>
                       // Copy với fallback cho Electron / iframe context (clipboard API có thể fail im lặng)
@@ -140,6 +141,7 @@
                         <button class="primary small" id="btn-timer-copy" onclick="timerCopyOverlay(this)">📋 Copy URL Overlay</button>
                         <button class="ghost small" onclick="window.open('/_prototype/timer.html?mode=overlay','_blank','width=900,height=420')" title="Preview window — gọn hơn để theo dõi">🪟 Mở preview window</button>
                         <button class="ghost small" onclick="document.getElementById('timer-frame').contentWindow.location.reload()" title="Reload prototype">↻ Reload</button>
+                        <button id="timer-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                     <script>
                       // Copy URL overlay vào clipboard — không hiển thị URL ra ngoài.
@@ -955,6 +957,7 @@
                         <button id="vc-btn-popout" class="primary small" title="Mở overlay ra cửa sổ riêng để theo dõi trên PC — vị trí và kích thước tự lưu cho lần sau">🪟 Mở overlay PC</button>
                         <button id="vc-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link OBS</button>
                         <button id="vc-btn-reload" class="ghost small" title="Buộc overlay reload (test layout mới)">🔄 Reload</button>
+                        <button id="votecomment-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
