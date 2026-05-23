@@ -133,7 +133,8 @@
             display: {
                 showHistory: true, showInfo: true,
                 scale: 100, xPercent: 50, yPercent: 50,
-                cellHints: false, cellHintOpacity: 35
+                // Mặc định cellHints BẬT với opacity 55% — đủ rõ trên OBS LIVE sau nén.
+                cellHints: true, cellHintOpacity: 55
             }
         };
     }
@@ -285,14 +286,19 @@
             const lay = boardLayout();
             const yS = lay.yShift || 0;   // Shift cùng pha với board để header dính sát bàn cờ
             ctx.save();
-            // Title
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = '700 56px Inter, "Segoe UI", Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            // Glow
-            ctx.shadowColor = 'rgba(37,244,238,0.55)';
-            ctx.shadowBlur = 14;
+            ctx.lineJoin = 'round';
+            ctx.miterLimit = 2;
+            // === Title — stroke outline đen + fill trắng → sắc nét trên OBS LIVE ===
+            // Không dùng shadowBlur (làm mờ chữ khi nén video). Glow giữ ở mức thấp.
+            ctx.font = '800 60px Inter, "Segoe UI", Arial, sans-serif';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.lineWidth = 6;
+            ctx.strokeText('HP CARO LIVE', STAGE_W / 2, 60 + yS);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = 'rgba(37,244,238,0.65)';
+            ctx.shadowBlur = 4;   // Glow nhẹ — không làm nhòe chữ
             ctx.fillText('HP CARO LIVE', STAGE_W / 2, 60 + yS);
             ctx.shadowBlur = 0;
 
@@ -303,15 +309,14 @@
             const roundIdx = state.round.idx;
 
             // === Tỉ số: căn giữa TOÀN BỘ cụm (CREATOR + score + — + score + USER) ===
-            // Tránh tên user dài đẩy lệch composition.
             const cyY = 130 + yS;
             const userName = state.opponent?.nickname ? truncate(state.opponent.nickname, 12) : 'USER';
             const idolTxt = `🩵 CREATOR  ${idolScore}`;
             const vsTxt = `  —  `;
             const userTxt = `${userScore}  🩷 ${userName}`;
 
-            const fontSide = '800 40px Inter, Arial, sans-serif';
-            const fontVs = '700 28px Inter, Arial, sans-serif';
+            const fontSide = '900 44px Inter, Arial, sans-serif';   // 900 đậm hơn để nét survive nén
+            const fontVs = '800 30px Inter, Arial, sans-serif';
             // Đo độ rộng từng đoạn theo đúng font
             ctx.font = fontSide;
             const idolW = ctx.measureText(idolTxt).width;
@@ -321,31 +326,38 @@
             const totalW = idolW + vsW + userW;
             const startX = Math.floor(STAGE_W / 2 - totalW / 2);
 
-            // CREATOR (left segment)
+            // Vẽ stroke đen TRƯỚC cho cả 3 segment, rồi fill màu sau → outline đồng đều
             ctx.textAlign = 'left';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+            ctx.lineWidth = 5;
+            ctx.font = fontSide;
+            ctx.strokeText(idolTxt, startX, cyY);
+            ctx.strokeText(userTxt, startX + idolW + vsW, cyY);
+            ctx.font = fontVs;
+            ctx.strokeText(vsTxt, startX + idolW, cyY);
+
+            // CREATOR (left segment) — fill cyan
             ctx.font = fontSide;
             ctx.fillStyle = cfg.colors.idol;
-            ctx.shadowColor = cfg.colors.idol;
-            ctx.shadowBlur = 18;
             ctx.fillText(idolTxt, startX, cyY);
-            // VS dash (middle)
-            ctx.shadowBlur = 0;
+            // VS dash (middle) — fill trắng
             ctx.fillStyle = '#FFFFFF';
             ctx.font = fontVs;
             ctx.fillText(vsTxt, startX + idolW, cyY);
-            // USER (right segment)
+            // USER (right segment) — fill pink
             ctx.font = fontSide;
             ctx.fillStyle = cfg.colors.user;
-            ctx.shadowColor = cfg.colors.user;
-            ctx.shadowBlur = 18;
             ctx.fillText(userTxt, startX + idolW + vsW, cyY);
 
-            // Hiệp pill
-            ctx.shadowBlur = 0;
-            ctx.font = '600 24px Inter, Arial, sans-serif';
-            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            // Hiệp pill — bolder + stroke nhẹ cho rõ
+            ctx.font = '700 26px Inter, Arial, sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(`HIỆP ${roundIdx} / BO${bo} · Win ${cfg.board.winLength} · ${cfg.board.cols}×${cfg.board.rows}`, STAGE_W / 2, 170 + yS);
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.lineWidth = 4;
+            const subTxt = `HIỆP ${roundIdx} / BO${bo} · Win ${cfg.board.winLength} · ${cfg.board.cols}×${cfg.board.rows}`;
+            ctx.strokeText(subTxt, STAGE_W / 2, 170 + yS);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            ctx.fillText(subTxt, STAGE_W / 2, 170 + yS);
             ctx.restore();
         }
 
@@ -384,40 +396,61 @@
                 ctx.stroke();
             }
 
-            // === CELL HINTS — toạ độ ở GIỮA mỗi ô (TO + rõ — dễ thấy trên OBS) ===
+            // === CELL HINTS — toạ độ ở GIỮA mỗi ô ===
+            // ROOT FIX độ nét OBS LIVE: stroke OUTLINE đen dày + fill trắng → cạnh chữ
+            // sắc nét survive nén video TikTok 720p bitrate thấp.
             // Vẽ TRƯỚC stones để stones đè lên (không che chữ khi đã đặt quân).
             if (cfg.display.cellHints) {
                 const hintOp = Math.max(0, Math.min(1, (cfg.display.cellHintOpacity ?? 35) / 100));
                 if (hintOp > 0) {
                     ctx.save();
-                    ctx.fillStyle = `rgba(255, 255, 255, ${hintOp})`;
-                    // Tăng size từ 0.18 → 0.32 cellSize để thấy rõ trên LIVE
-                    const hintFontSize = Math.max(14, Math.round(lay.cellSize * 0.32));
-                    ctx.font = `700 ${hintFontSize}px Inter, Arial, sans-serif`;
+                    // Font to + đậm hơn để chống nén
+                    const hintFontSize = Math.max(16, Math.round(lay.cellSize * 0.38));
+                    ctx.font = `800 ${hintFontSize}px Inter, Arial, sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
+                    ctx.lineJoin = 'round';
+                    ctx.miterLimit = 2;
+                    // Outline dày (3-4px) — màu đen đậm theo opacity user set
+                    ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(1, hintOp + 0.35)})`;
+                    ctx.lineWidth = Math.max(2.5, hintFontSize * 0.18);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, hintOp + 0.25)})`;
                     for (let cc = 0; cc < lay.cols; cc++) {
                         for (let rr = 0; rr < lay.rows; rr++) {
-                            // Vị trí TRUNG TÂM của ô
                             const px = lay.ox + cc * lay.cellSize + lay.cellSize / 2;
                             const py = lay.oy + rr * lay.cellSize + lay.cellSize / 2;
-                            ctx.fillText(`${cc + 1}${String.fromCharCode(65 + rr)}`, px, py);
+                            const txt = `${cc + 1}${String.fromCharCode(65 + rr)}`;
+                            ctx.strokeText(txt, px, py);
+                            ctx.fillText(txt, px, py);
                         }
                     }
                     ctx.restore();
                 }
             }
 
-            // Coord labels — TO + RÕ (32px) + glow nhẹ
-            // Font scale theo cellSize để bàn nhỏ vẫn đọc được, bàn lớn không quá to
-            const labelSize = Math.max(22, Math.min(36, Math.round(lay.cellSize * 0.5)));
-            ctx.fillStyle = 'rgba(255,255,255,0.92)';
-            ctx.font = `800 ${labelSize}px Inter, Arial, sans-serif`;
+            // === Coord labels — stroke outline đen + fill trắng cho OBS LIVE ===
+            // Bàn lớn (16x20) → labelSize nhỏ → cần stroke đậm để nét survive nén.
+            const labelSize = Math.max(24, Math.min(40, Math.round(lay.cellSize * 0.55)));
+            ctx.font = `900 ${labelSize}px Inter, Arial, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(37, 244, 238, 0.6)';
-            ctx.shadowBlur = 6;
-            const labelGap = Math.max(28, labelSize * 0.9);
+            ctx.lineJoin = 'round';
+            ctx.miterLimit = 2;
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+            ctx.lineWidth = Math.max(3, labelSize * 0.15);
+            const labelGap = Math.max(30, labelSize * 0.95);
+            // Vẽ stroke trước cho tất cả labels
+            for (let c = 0; c < lay.cols; c++) {
+                const x = lay.ox + c * lay.cellSize + lay.cellSize / 2;
+                ctx.strokeText(colLabel(c), x, lay.oy - labelGap);
+            }
+            for (let r = 0; r < lay.rows; r++) {
+                const y = lay.oy + r * lay.cellSize + lay.cellSize / 2;
+                ctx.strokeText(rowLabel(r), lay.ox - labelGap, y);
+            }
+            // Fill trắng đậm
+            ctx.fillStyle = '#FFFFFF';
             for (let c = 0; c < lay.cols; c++) {
                 const x = lay.ox + c * lay.cellSize + lay.cellSize / 2;
                 ctx.fillText(colLabel(c), x, lay.oy - labelGap);
@@ -426,7 +459,6 @@
                 const y = lay.oy + r * lay.cellSize + lay.cellSize / 2;
                 ctx.fillText(rowLabel(r), lay.ox - labelGap, y);
             }
-            ctx.shadowBlur = 0;
 
             // Hover preview (app side only)
             if (!mirrorMode && hover && state.phase === 'playing' && state.round.turn === 'idol') {
