@@ -781,6 +781,8 @@
         if (!socket) return;
         // Comment listener — parse coord khi đến lượt user
         socket.on('chat', (data) => {
+            // Game bị TẮT trong Thư viện → bỏ qua mọi comment để game không nhận nước cờ
+            if (cfg && cfg.enabled === false) return;
             if (!game) return;
             const st = game.getState();
             if (st.phase !== 'playing') return;
@@ -806,6 +808,8 @@
 
         // Gift listener — registration phase
         socket.on('gift', (g) => {
+            // Game bị TẮT trong Thư viện → bỏ qua mọi quà
+            if (cfg && cfg.enabled === false) return;
             if (!game) return;
             const st = game.getState();
             if (st.phase !== 'registration' && st.phase !== 'picking') return;

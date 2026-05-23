@@ -851,6 +851,7 @@
     // Trigger countdown active (gift kích hoạt overlay riêng)
     trigger: null,              // null | { triggerId, expiresAt, durationSec, gift, mediaUrl, mediaType, volume, loop }
     triggerCooldowns: {},       // { triggerId: timestampNextAllowed } để giới hạn cooldown
+    gameEnabled: true,          // server push qua 'gameConfig' khi user toggle Thư viện ⏻
   };
 
   let _tickIv = null;
@@ -1434,6 +1435,8 @@
      ============================================================ */
   function onGift(g) {
     if (!g) return;
+    // Game bị TẮT trong Thư viện → bỏ qua MỌI quà (không cộng/trừ time, không kích trigger)
+    if (state.gameEnabled === false) return;
     const gid = String(g.giftId || g.sheetItem?.id || '');
     const gname = g.giftName || g.sheetItem?.name || '';
     const repeat = Number(g.repeatCount) || 1;
@@ -2169,6 +2172,29 @@
       _sock.on('timer:cfg',     applyRemoteCfg);
       _sock.on('timer:state',   applyRemoteState);
       _sock.on('timer:trigger', applyRemoteTrigger);
+      // Đồng bộ enabled flag từ Thư viện game (toggle ⏻ trên sidebar)
+      _sock.on('gameConfig', (data) => {
+        if (data && data.gameId === 'timer') {
+          const newEnabled = !data.config || data.config.enabled !== false;
+          if (state.gameEnabled !== newEnabled) {
+            state.gameEnabled = newEnabled;
+            log(newEnabled ? '✓ Game BẬT — nhận quà bình thường' : '⏻ Game TẮT — bỏ qua mọi quà', newEnabled ? 'ok' : 'warn');
+          }
+        }
+      });
+      _sock.on('gameDisabled', (data) => {
+        if (data && data.gameId === 'timer') {
+          state.gameEnabled = false;
+          // Huỷ trigger đang chạy + dừng media nếu user vừa tắt
+          if (state.trigger) {
+            log('⏻ Game TẮT khi trigger đang chạy → dừng + huỷ overlay', 'warn');
+            state.trigger = null; renderTrigger(); broadcastTrigger();
+          }
+        }
+      });
+      _sock.on('gameEnabled', (data) => {
+        if (data && data.gameId === 'timer') state.gameEnabled = true;
+      });
       // Lab also wants to receive cfg from another lab tab (multi-window edit)
       // → server sẽ relay tới broadcast (loại trừ sender)
       _sock.on('giftSheet', (gs) => { _giftSheet = gs || []; });

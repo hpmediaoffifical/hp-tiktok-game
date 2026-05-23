@@ -3322,6 +3322,8 @@ function normalizeVoteText(s) {
 }
 
 function handleVoteCommentChat({ uniqueId, comment }) {
+    // Game bị TẮT trong Thư viện → bỏ qua mọi comment + gift
+    if (appConfig.games?.votecomment?.enabled === false) return;
     if (!voteCommentState.active) return;
     if (!uniqueId || !comment) return;
     const norm = normalizeVoteText(comment);
@@ -3335,6 +3337,8 @@ function handleVoteCommentChat({ uniqueId, comment }) {
 }
 
 function handleVoteCommentGift({ uniqueId, giftId, coinValue, repeatCount }) {
+    // Game bị TẮT trong Thư viện → bỏ qua quà cộng vào vote
+    if (appConfig.games?.votecomment?.enabled === false) return;
     if (!voteCommentState.active) return;
     const xu = (Number(coinValue) || 0) * (Number(repeatCount) || 1);
     if (xu <= 0) return;
