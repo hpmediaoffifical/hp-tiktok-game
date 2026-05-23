@@ -230,8 +230,12 @@
             const boardW = cellSize * cols;
             const boardH = cellSize * rows;
             const ox = Math.floor((STAGE_W - boardW) / 2) + Math.floor(labelMargin / 2);
-            const oy = headerH + labelMargin + Math.floor((availH - boardH) / 2);
-            return { cols, rows, cellSize, ox, oy, boardW, boardH, headerH, footerH };
+            // Center toàn bộ khối nội dung (header + labels + board + footer) theo chiều dọc.
+            // Phần dư chia ĐỀU phía trên + phía dưới → bàn cờ không bị lệch trên/dưới.
+            const totalUsed = headerH + labelMargin + boardH + footerH;
+            const yShift = Math.max(0, Math.floor((STAGE_H - totalUsed) / 2));
+            const oy = headerH + labelMargin + yShift;
+            return { cols, rows, cellSize, ox, oy, boardW, boardH, headerH, footerH, yShift };
         }
 
         function cellToPixel(c, r) {
@@ -279,6 +283,7 @@
 
         function drawHeader() {
             const lay = boardLayout();
+            const yS = lay.yShift || 0;   // Shift cùng pha với board để header dính sát bàn cờ
             ctx.save();
             // Title
             ctx.fillStyle = '#FFFFFF';
@@ -288,46 +293,59 @@
             // Glow
             ctx.shadowColor = 'rgba(37,244,238,0.55)';
             ctx.shadowBlur = 14;
-            ctx.fillText('HP CARO LIVE', STAGE_W / 2, 60);
+            ctx.fillText('HP CARO LIVE', STAGE_W / 2, 60 + yS);
             ctx.shadowBlur = 0;
 
             // Hiệp & tỉ số
             const bo = cfg.match.bestOf;
-            const totalRounds = bo;
             const idolScore = state.match.score.idol;
             const userScore = state.match.score.user;
             const roundIdx = state.round.idx;
 
-            // tỉ số panel
-            const cyY = 130;
-            // Idol score
-            ctx.font = '800 40px Inter, Arial, sans-serif';
+            // === Tỉ số: căn giữa TOÀN BỘ cụm (CREATOR + score + — + score + USER) ===
+            // Tránh tên user dài đẩy lệch composition.
+            const cyY = 130 + yS;
+            const userName = state.opponent?.nickname ? truncate(state.opponent.nickname, 12) : 'USER';
+            const idolTxt = `🩵 CREATOR  ${idolScore}`;
+            const vsTxt = `  —  `;
+            const userTxt = `${userScore}  🩷 ${userName}`;
+
+            const fontSide = '800 40px Inter, Arial, sans-serif';
+            const fontVs = '700 28px Inter, Arial, sans-serif';
+            // Đo độ rộng từng đoạn theo đúng font
+            ctx.font = fontSide;
+            const idolW = ctx.measureText(idolTxt).width;
+            const userW = ctx.measureText(userTxt).width;
+            ctx.font = fontVs;
+            const vsW = ctx.measureText(vsTxt).width;
+            const totalW = idolW + vsW + userW;
+            const startX = Math.floor(STAGE_W / 2 - totalW / 2);
+
+            // CREATOR (left segment)
+            ctx.textAlign = 'left';
+            ctx.font = fontSide;
             ctx.fillStyle = cfg.colors.idol;
-            ctx.textAlign = 'right';
             ctx.shadowColor = cfg.colors.idol;
             ctx.shadowBlur = 18;
-            ctx.fillText(`🩵 IDOL  ${idolScore}`, STAGE_W / 2 - 40, cyY);
-            // VS
-            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(idolTxt, startX, cyY);
+            // VS dash (middle)
             ctx.shadowBlur = 0;
-            ctx.textAlign = 'center';
-            ctx.font = '700 28px Inter, Arial, sans-serif';
-            ctx.fillText('—', STAGE_W / 2, cyY);
-            // User score
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = fontVs;
+            ctx.fillText(vsTxt, startX + idolW, cyY);
+            // USER (right segment)
+            ctx.font = fontSide;
             ctx.fillStyle = cfg.colors.user;
             ctx.shadowColor = cfg.colors.user;
             ctx.shadowBlur = 18;
-            ctx.textAlign = 'left';
-            ctx.font = '800 40px Inter, Arial, sans-serif';
-            const userName = state.opponent?.nickname ? truncate(state.opponent.nickname, 12) : 'USER';
-            ctx.fillText(`${userScore}  🩷 ${userName}`, STAGE_W / 2 + 40, cyY);
+            ctx.fillText(userTxt, startX + idolW + vsW, cyY);
 
             // Hiệp pill
             ctx.shadowBlur = 0;
             ctx.font = '600 24px Inter, Arial, sans-serif';
             ctx.fillStyle = 'rgba(255,255,255,0.7)';
             ctx.textAlign = 'center';
-            ctx.fillText(`HIỆP ${roundIdx} / BO${bo} · Win ${cfg.board.winLength} · ${cfg.board.cols}×${cfg.board.rows}`, STAGE_W / 2, 170);
+            ctx.fillText(`HIỆP ${roundIdx} / BO${bo} · Win ${cfg.board.winLength} · ${cfg.board.cols}×${cfg.board.rows}`, STAGE_W / 2, 170 + yS);
             ctx.restore();
         }
 
@@ -366,24 +384,23 @@
                 ctx.stroke();
             }
 
-            // === CELL HINTS — toạ độ mờ ở GÓC DƯỚI-PHẢI mỗi ô ===
-            // Vẽ TRƯỚC stones để stones đè lên (không che chữ).
-            // Font nhỏ + đặt sub-script ở góc → không gây rối thị giác
+            // === CELL HINTS — toạ độ ở GIỮA mỗi ô (TO + rõ — dễ thấy trên OBS) ===
+            // Vẽ TRƯỚC stones để stones đè lên (không che chữ khi đã đặt quân).
             if (cfg.display.cellHints) {
                 const hintOp = Math.max(0, Math.min(1, (cfg.display.cellHintOpacity ?? 35) / 100));
                 if (hintOp > 0) {
                     ctx.save();
                     ctx.fillStyle = `rgba(255, 255, 255, ${hintOp})`;
-                    const hintFontSize = Math.max(10, Math.round(lay.cellSize * 0.18));
-                    ctx.font = `600 ${hintFontSize}px Inter, Arial, sans-serif`;
-                    ctx.textAlign = 'right';
-                    ctx.textBaseline = 'bottom';
-                    const pad = Math.max(3, Math.round(lay.cellSize * 0.06));
+                    // Tăng size từ 0.18 → 0.32 cellSize để thấy rõ trên LIVE
+                    const hintFontSize = Math.max(14, Math.round(lay.cellSize * 0.32));
+                    ctx.font = `700 ${hintFontSize}px Inter, Arial, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
                     for (let cc = 0; cc < lay.cols; cc++) {
                         for (let rr = 0; rr < lay.rows; rr++) {
-                            // Vị trí góc dưới-phải của ô
-                            const px = lay.ox + (cc + 1) * lay.cellSize - pad;
-                            const py = lay.oy + (rr + 1) * lay.cellSize - pad;
+                            // Vị trí TRUNG TÂM của ô
+                            const px = lay.ox + cc * lay.cellSize + lay.cellSize / 2;
+                            const py = lay.oy + rr * lay.cellSize + lay.cellSize / 2;
                             ctx.fillText(`${cc + 1}${String.fromCharCode(65 + rr)}`, px, py);
                         }
                     }
@@ -569,7 +586,7 @@
             else if (state.phase === 'registration') line = '🏁 Đang ghi danh — gửi quà chỉ định';
             else if (state.phase === 'picking') line = '🎯 Idol đang chọn đối thủ...';
             else if (state.phase === 'playing') {
-                const who = state.round.turn === 'idol' ? '🩵 Lượt IDOL' : `🩷 Lượt ${state.opponent?.nickname || 'USER'}`;
+                const who = state.round.turn === 'idol' ? '🩵 Lượt CREATOR' : `🩷 Lượt ${state.opponent?.nickname || 'USER'}`;
                 // VD động theo bàn cờ (vd bàn 3x3 → 2B, bàn 12x12 → 9F)
                 const exC = Math.min(Math.ceil(cfg.board.cols / 2) + 1, cfg.board.cols);
                 const exR = Math.min(Math.ceil(cfg.board.rows / 2) + 1, cfg.board.rows);
@@ -577,7 +594,7 @@
                 line = `${who} · Bình luận tọa độ (VD: ${example})`;
             }
             else if (state.phase === 'roundEnd') {
-                const winner = state.round.winner === 'idol' ? '🩵 IDOL' : `🩷 ${state.opponent?.nickname || 'USER'}`;
+                const winner = state.round.winner === 'idol' ? '🩵 CREATOR' : `🩷 ${state.opponent?.nickname || 'USER'}`;
                 line = `🏆 ${winner} thắng hiệp ${state.round.idx}`;
             }
 
@@ -603,13 +620,15 @@
         }
 
         function drawRegistrationBanner() {
+            const lay = boardLayout();
+            const yS = lay.yShift || 0;
             ctx.save();
             // Top-right banner đếm số người đăng ký
             const text = `📋 ${state.registration.entries.length} người ghi danh`;
             ctx.font = '700 28px Inter, Arial, sans-serif';
             const w = ctx.measureText(text).width + 32;
             const x = STAGE_W - w - 24;
-            const y = 240;
+            const y = 240 + yS;
             roundRect(ctx, x, y, w, 50, 12);
             ctx.fillStyle = 'rgba(254, 44, 85, 0.85)';
             ctx.shadowColor = '#FE2C55';
@@ -653,10 +672,12 @@
                 else winner = 'idol';
             }
             const color = winner === 'idol' ? cfg.colors.idol : cfg.colors.user;
-            const name = winner === 'idol' ? 'IDOL' : (state.opponent?.nickname || 'USER');
+            const name = winner === 'idol' ? 'CREATOR' : (state.opponent?.nickname || 'USER');
 
-            // Background card ở TOP của canvas (replace header area)
-            const cardX = 30, cardY = 20;
+            // Background card ở TOP của canvas (replace header area) — shift theo yShift
+            const lay = boardLayout();
+            const yS = lay.yShift || 0;
+            const cardX = 30, cardY = 20 + yS;
             const cardW = STAGE_W - 60;
             const cardH = tieBreak ? 290 : 250;
             roundRect(ctx, cardX, cardY, cardW, cardH, 22);
@@ -695,7 +716,7 @@
             ctx.font = '600 28px Inter, Arial, sans-serif';
             ctx.fillStyle = cfg.colors.idol;
             ctx.textAlign = 'right';
-            ctx.fillText(`🩵 IDOL ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
+            ctx.fillText(`🩵 CREATOR ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
             ctx.fillStyle = cfg.colors.user;
             ctx.textAlign = 'left';
             ctx.fillText(`🩷 USER ${moves.user} nước`, STAGE_W / 2 + 16, cardY + 230);
@@ -1025,6 +1046,23 @@
             return true;
         }
 
+        // === FREE-ID — bỏ qua ghi danh, chọn đối thủ theo ID nhập tay ===
+        // Dùng khi Idol muốn đấu với 1 user cụ thể mà không cần họ tặng quà ghi danh.
+        // uniqueId = TikTok @username (so sánh insensitive với chat.uniqueId khi đặt nước).
+        function pickOpponentManual(uniqueId, nickname) {
+            const uid = String(uniqueId || '').trim().replace(/^@+/, '').toLowerCase();
+            if (!uid) return false;
+            state.opponent = {
+                uniqueId: uid,
+                nickname: String(nickname || uid).trim() || uid,
+                profilePic: '',
+                totalDiamond: 0
+            };
+            state.phase = 'playing';
+            startRound(1);
+            return true;
+        }
+
         function startRound(idx) {
             const first = decideFirstTurn(idx);
             state.round = {
@@ -1149,7 +1187,7 @@
             resetCurrentRound,
             drawReplay, drawHalfPoint, drawEndMatch,
             // registration
-            openRegistration, closeRegistration, addGift, pickOpponent,
+            openRegistration, closeRegistration, addGift, pickOpponent, pickOpponentManual,
             // match flow
             startRound, nextRound, resetMatch, newGame,
             // helpers exposed

@@ -4188,6 +4188,172 @@ body.game-caro #caught-popup {
 .caro-actions { display: flex; flex-direction: column; gap: 8px; }
 .caro-actions .block { width: 100%; padding: 10px; font-weight: 600; }
 
+/* Card-tabs Caro: bù khoảng cách dưới hàng tab → phase pill không dính sát */
+#view-caro .caro-card .card-tabs { margin-bottom: 12px; }
+#view-caro .caro-card .tab-pane { padding-top: 4px; }
+
+/* Đối thủ hiện tại — luôn hiển thị xuyên suốt */
+.caro-opponent-card {
+    background: linear-gradient(135deg, rgba(254, 44, 85, 0.12), rgba(254, 44, 85, 0.04));
+    border: 1px solid rgba(254, 44, 85, 0.45);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 0 18px rgba(254, 44, 85, 0.12);
+}
+.caro-opponent-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.caro-opponent-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--caro-pink);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.caro-opponent-source {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-left: auto;
+}
+.caro-opponent-clear {
+    margin-left: 6px;
+    background: rgba(254, 44, 85, 0.15);
+    border: 1px solid rgba(254, 44, 85, 0.4);
+    color: var(--caro-pink);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    transition: background .15s ease, transform .12s ease;
+}
+.caro-opponent-clear:hover {
+    background: rgba(254, 44, 85, 0.35);
+    transform: scale(1.08);
+}
+.caro-opponent-body {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center;
+    gap: 10px;
+}
+.caro-opponent-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(254, 44, 85, 0.6);
+}
+.caro-opponent-info { min-width: 0; }
+.caro-opponent-name {
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.caro-opponent-uid {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.caro-opponent-dia {
+    color: var(--caro-pink);
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+/* Quà ghi danh — gắn trên Match tab, vùng nổi bật */
+.caro-reg-gift-row {
+    background: rgba(37, 244, 238, 0.06);
+    border: 1px solid rgba(37, 244, 238, 0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+}
+.caro-reg-gift-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--caro-cyan);
+    margin-bottom: 6px;
+    letter-spacing: 0.3px;
+}
+
+/* Card chứa free-ID — gắn ở cột phải */
+.caro-freeid-card { padding: 0; }
+.caro-freeid-card .caro-freeid { margin: 0; }
+
+/* Card bình luận — nhãn + body padding chuẩn */
+.caro-comments-card { padding: 12px; }
+.caro-comments-card .card-title { margin-bottom: 6px; }
+
+/* Nhập ID tự do */
+.caro-freeid {
+    background: rgba(255, 209, 102, 0.05);
+    border: 1px dashed rgba(255, 209, 102, 0.35);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.caro-test-gift-btn {
+    margin-top: 8px;
+    width: 100%;
+    padding: 6px;
+    font-size: 11px;
+    opacity: 0.75;
+}
+.caro-test-gift-btn:hover { opacity: 1; }
+.caro-freeid-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #FFD166;
+    margin-bottom: 4px;
+}
+.caro-freeid-hint {
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+.caro-freeid-row {
+    display: flex;
+    gap: 6px;
+}
+.caro-freeid-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+}
+.caro-freeid-row input:focus {
+    border-color: #FFD166;
+    box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.18);
+}
+.caro-freeid-row button { white-space: nowrap; padding: 8px 12px; font-weight: 700; }
+
 /* Leaderboard */
 .caro-leaderboard {
     max-height: 280px;
@@ -4267,7 +4433,7 @@ body.game-caro #caught-popup {
 
 /* Comments stream — cố định cao, cuộn dọc, cmt mới ở TRÊN */
 .caro-comments {
-    height: 380px;             /* cố định, không co giãn */
+    height: 200px;             /* compact — nhường chỗ cho free-ID + log nước đi */
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;

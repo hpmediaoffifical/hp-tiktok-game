@@ -17,6 +17,7 @@
     let initialized = false;
     let cfg = null;
     let pendingSave = null;
+    let opponentSource = '';  // 'reg' (qua ghi danh) hoặc 'freeid' (nhập tay)
     const giftPickers = {};  // { reg: GiftPicker, undo: GiftPicker }
     const $ = (sel, ctx = document) => ctx.querySelector(sel);
     const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
@@ -273,7 +274,7 @@
                 return;
             }
             if (st.round.turn !== 'idol') {
-                flashWarn('Chưa tới lượt Idol');
+                flashWarn('Chưa tới lượt CREATOR');
                 return;
             }
             const result = game.placeStone(ev.cell.c, ev.cell.r, 'idol');
@@ -296,7 +297,7 @@
             updateUI();
         });
         game.on('win', (info) => {
-            logSystem(`🏆 ${info.side === 'idol' ? 'IDOL' : (game.getState().opponent?.nickname || 'USER')} thắng!`);
+            logSystem(`🏆 ${info.side === 'idol' ? 'CREATOR' : (game.getState().opponent?.nickname || 'USER')} thắng!`);
             pushState();
         });
 
@@ -521,7 +522,7 @@
         if (!cfg) return;
         const $h = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
         $h('acc-hint-board', `${cfg.board.cols}×${cfg.board.rows} · Win ${cfg.board.winLength}`);
-        $h('acc-hint-match', `BO${cfg.match.bestOf} · ${cfg.match.idolFirst ? '🩵 Idol' : '🩷 User'} đi`);
+        $h('acc-hint-match', `BO${cfg.match.bestOf} · ${cfg.match.idolFirst ? '🩵 CREATOR' : '🩷 User'} đi`);
         // Reg: tên quà nếu chọn
         const giftId = cfg.registration?.giftId;
         const gift = (window.__giftSheet || []).find(g => String(g.id) === String(giftId));
@@ -565,9 +566,11 @@
             if (!st.registration.entries.length) { flashWarn('Chưa có ai ghi danh'); return; }
             const top = st.registration.entries[0];
             game.pickOpponent(top.uniqueId);
+            opponentSource = 'reg';
             $('#caro-btn-change-opponent').disabled = false;
             logSystem(`🎯 Chọn đối thủ: ${top.nickname} (${top.totalDiamond}💎)`);
             pushState();
+            updateUI();
         });
         $('#caro-btn-change-opponent').addEventListener('click', () => {
             const st = game.getState();
@@ -575,7 +578,9 @@
             // Hiện modal chọn — đơn giản: prompt index
             showOpponentPickerModal(st.registration.entries, (uid) => {
                 game.pickOpponent(uid);
+                opponentSource = 'reg';
                 pushState();
+                updateUI();
             });
         });
         $('#caro-btn-replay').addEventListener('click', () => {
@@ -587,6 +592,7 @@
         $('#caro-btn-newreg').addEventListener('click', () => {
             game.newGame();
             game.openRegistration();
+            opponentSource = '';
             $('#caro-end-actions').style.display = 'none';
             $('#caro-btn-open-reg').disabled = true;
             $('#caro-btn-close-reg').disabled = false;
@@ -595,6 +601,7 @@
         });
         $('#caro-btn-close-game').addEventListener('click', () => {
             game.newGame();
+            opponentSource = '';
             $('#caro-end-actions').style.display = 'none';
             $('#caro-btn-open-reg').disabled = false;
             $('#caro-btn-close-reg').disabled = true;
@@ -603,6 +610,79 @@
             logSystem('❌ Đóng game');
             pushState();
         });
+
+        // === HUỶ ĐỐI THỦ — nút (X) ở card "Đang đấu với" ===
+        // Bỏ opponent, về setup → Idol chọn người khác (free-ID hoặc ghi danh).
+        // Confirm nếu đang playing để tránh huỷ nhầm giữa hiệp.
+        $('#caro-btn-clear-opponent')?.addEventListener('click', () => {
+            const st = game.getState();
+            if (!st.opponent) return;
+            const opName = st.opponent.nickname || st.opponent.uniqueId;
+            if (st.phase === 'playing') {
+                const score = `${st.match.score.idol}–${st.match.score.user}`;
+                if (!window.confirm(`Huỷ "${opName}" giữa trận?\nTỉ số ${score} sẽ mất.`)) return;
+            }
+            game.newGame();
+            opponentSource = '';
+            $('#caro-end-actions').style.display = 'none';
+            $('#caro-btn-open-reg').disabled = false;
+            $('#caro-btn-close-reg').disabled = true;
+            $('#caro-btn-pick-top').disabled = true;
+            $('#caro-btn-change-opponent').disabled = true;
+            logSystem(`✕ Huỷ đối thủ "${opName}"`);
+            flashOk('Đã huỷ — chọn đối thủ mới');
+            pushState();
+            updateUI();
+        });
+        // === FREE-ID — Idol nhập @username để đấu trực tiếp, bỏ qua ghi danh ===
+        const freeIdGo = () => {
+            const inp = $('#caro-freeid-input');
+            const raw = (inp?.value || '').trim();
+            if (!raw) { flashWarn('Nhập @username hoặc tên TikTok của khán giả'); inp?.focus(); return; }
+            const ok = game.pickOpponentManual(raw, raw);
+            if (!ok) { flashWarn('ID không hợp lệ'); return; }
+            opponentSource = 'freeid';
+            // Update UI state (giống flow ghi danh)
+            $('#caro-btn-open-reg').disabled = true;
+            $('#caro-btn-close-reg').disabled = true;
+            $('#caro-btn-pick-top').disabled = true;
+            $('#caro-btn-change-opponent').disabled = true;
+            logSystem(`🎯 Đấu trực tiếp với "${raw}" (bỏ qua ghi danh)`);
+            flashOk(`Đã chọn đối thủ: ${raw}`);
+            if (inp) inp.value = '';
+            pushState();
+            updateUI();
+        };
+        $('#caro-btn-freeid-go')?.addEventListener('click', freeIdGo);
+        $('#caro-freeid-input')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); freeIdGo(); }
+        });
+
+        // === TEST QUÀ GIẢ — debug ghi danh khi không có gifter thật ===
+        // Bắn 1 gift event giả vào chính handler socket.on('gift') để verify flow.
+        // Quà giả dùng đúng giftId đang chọn trong cfg → phải match isRegGift=true.
+        $('#caro-btn-test-gift')?.addEventListener('click', () => {
+            const giftId = cfg?.registration?.giftId;
+            if (!giftId) { flashWarn('Chưa chọn quà ghi danh — chọn trong tab Đối đầu'); return; }
+            const sheet = window.__giftSheet || [];
+            const gift = sheet.find(x => String(x.id) === String(giftId));
+            const giftName = gift?.name || 'Test Gift';
+            const fakeUid = 'test_' + Math.floor(Math.random() * 10000);
+            const fakeRepeat = 1 + Math.floor(Math.random() * 20);
+            const fakeGift = {
+                uniqueId: fakeUid,
+                nickname: `Test ${fakeUid.slice(5)}`,
+                profilePicture: '',
+                giftId: String(giftId),
+                giftName,
+                coinValue: gift?.diamond ?? 1,
+                repeatCount: fakeRepeat,
+                source: 'test'
+            };
+            handleGiftEvent(fakeGift);
+            flashOk(`Test: bắn ${giftName} × ${fakeRepeat} từ ${fakeGift.nickname}`);
+        });
+
         // Reset hiệp hiện tại — KHÔNG đổi tỉ số, không sang round mới.
         // Wire cả nút trong tab Match LẪN nút header (vị trí dễ thấy hơn).
         const resetRoundHandler = () => {
@@ -786,13 +866,21 @@
             if (!game) return;
             const st = game.getState();
             if (st.phase !== 'playing') return;
-            if (st.round.turn !== 'user') return;
             if (!st.opponent) return;
+            // Chỉ xử lý comment từ ĐÚNG opponent
             if ((data.uniqueId || '').toLowerCase() !== (st.opponent.uniqueId || '').toLowerCase()) return;
             const text = data.comment || '';
             const coord = game.parseCoord(text);
             if (!coord) {
                 appendComment(data, text, 'unparsed');
+                return;
+            }
+            // === CẢNH BÁO "CHƯA TỚI LƯỢT" ===
+            // Comment là TỌA ĐỘ HỢP LỆ nhưng đang là lượt CREATOR → reject + báo rõ.
+            if (st.round.turn !== 'user') {
+                appendComment(data, text, 'rejected');
+                flashWarn(`${data.nickname || data.uniqueId}: "${text}" — Bạn chưa đến lượt`);
+                logSystem(`⚠️ ${data.nickname || data.uniqueId} đánh "${text}" nhưng chưa tới lượt`);
                 return;
             }
             const res = game.placeStone(coord.c, coord.r, 'user');
@@ -807,31 +895,76 @@
         });
 
         // Gift listener — registration phase
-        socket.on('gift', (g) => {
-            // Game bị TẮT trong Thư viện → bỏ qua mọi quà
-            if (cfg && cfg.enabled === false) return;
-            if (!game) return;
-            const st = game.getState();
-            if (st.phase !== 'registration' && st.phase !== 'picking') return;
-            const isRegGift = String(g.giftId || '') === String(cfg.registration.giftId || '');
-            if (!isRegGift && st.phase === 'registration') return;
-            // Trong picking phase, chấp nhận mọi gift cộng điểm (user đã trong list)
-            game.addGift({
-                uniqueId: g.uniqueId,
-                nickname: g.nickname,
-                profilePicture: g.profilePicture,
-                coinValue: g.coinValue,
-                repeatCount: g.repeatCount,
-                giftId: g.giftId
-            }, isRegGift);
-            pushState();
-        });
+        socket.on('gift', handleGiftEvent);
 
         // Gift sheet load → fill selects
         socket.on('giftSheet', (list) => {
             window.__giftSheet = list;
             refreshGiftOptions();
         });
+    }
+
+    // ---------- Gift event handler (gọi từ socket VÀ từ nút Test) ----------
+    function handleGiftEvent(g) {
+        const st0 = game ? game.getState() : null;
+        const giftIdIn = String(g.giftId ?? '').trim();
+        const giftIdCfg = String(cfg?.registration?.giftId ?? '').trim();
+        let isRegGift = giftIdIn !== '' && giftIdCfg !== '' && giftIdIn === giftIdCfg;
+        // Fallback: id không khớp NHƯNG tên trùng tên quà đã chọn → vẫn nhận
+        if (!isRegGift && giftIdCfg) {
+            const cfgGift = (window.__giftSheet || []).find(x => String(x.id) === giftIdCfg);
+            const inName = String(g.giftName || '').trim().toLowerCase();
+            const cfgName = String(cfgGift?.name || '').trim().toLowerCase();
+            if (cfgName && inName && cfgName === inName) isRegGift = true;
+        }
+        // === DIAGNOSTIC LOG — luôn ghi mọi gift event tới panel ===
+        console.log('[caro] gift event', {
+            giftId: giftIdIn, expected: giftIdCfg, match: isRegGift,
+            phase: st0?.phase, regOpen: st0?.registration?.open,
+            nickname: g.nickname, giftName: g.giftName,
+            coinValue: g.coinValue, repeat: g.repeatCount, source: g.source
+        });
+        logSystem(`🎁 ${g.nickname || g.uniqueId}: ${g.giftName || g.giftId} (id=${giftIdIn}, cần=${giftIdCfg || 'chưa chọn'}) ${isRegGift ? '✓' : '✗'}`);
+
+        if (cfg && cfg.enabled === false) { logSystem('⛔ Game đang tắt — bỏ qua'); return; }
+        if (!game) return;
+        let st = st0;
+        // AUTO-OPEN ghi danh khi phase=setup và có quà đúng
+        if (isRegGift && st.phase === 'setup') {
+            game.openRegistration();
+            const btnOpen = $('#caro-btn-open-reg'); if (btnOpen) btnOpen.disabled = true;
+            const btnClose = $('#caro-btn-close-reg'); if (btnClose) btnClose.disabled = false;
+            const btnPick = $('#caro-btn-pick-top'); if (btnPick) btnPick.disabled = false;
+            logSystem('🏁 Tự mở ghi danh (có quà ghi danh đầu tiên)');
+            st = game.getState();
+        }
+        if (st.phase !== 'registration' && st.phase !== 'picking') {
+            logSystem(`⏸ Bỏ qua (phase=${st.phase}, chưa ở pha ghi danh/picking)`);
+            return;
+        }
+        if (!isRegGift && st.phase === 'registration') return;
+        const entriesBefore = game.getState().registration.entries.length;
+        game.addGift({
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            profilePicture: g.profilePicture,
+            coinValue: g.coinValue,
+            repeatCount: g.repeatCount,
+            giftId: g.giftId
+        }, isRegGift);
+        const stAfter = game.getState();
+        const entriesAfter = stAfter.registration.entries.length;
+        if (entriesAfter > entriesBefore) {
+            logSystem(`📝 ${g.nickname || g.uniqueId} GHI DANH (${g.giftName || 'quà'} × ${g.repeatCount || 1})`);
+            flashOk(`Ghi danh: ${g.nickname || g.uniqueId}`);
+        } else if (isRegGift) {
+            const diamond = (Number(g.coinValue) || 1) * (Number(g.repeatCount) || 1);
+            logSystem(`➕ ${g.nickname || g.uniqueId} cộng +${diamond}💎`);
+        } else {
+            logSystem(`💎 ${g.nickname || g.uniqueId} tip thêm`);
+        }
+        pushState();
+        updateUI();
     }
 
     function refreshGiftOptions() {
@@ -847,6 +980,34 @@
     }
 
     // ---------- UI updaters ----------
+    function updateOpponentCard(st) {
+        const card = $('#caro-opponent-card');
+        if (!card) return;
+        const op = st.opponent;
+        if (!op) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        const nameEl = $('#caro-opponent-name');
+        const uidEl = $('#caro-opponent-uid');
+        const avEl = $('#caro-opponent-avatar');
+        const diaEl = $('#caro-opponent-dia');
+        const srcEl = $('#caro-opponent-source');
+        if (nameEl) nameEl.textContent = op.nickname || op.uniqueId || '—';
+        if (uidEl) uidEl.textContent = op.uniqueId ? '@' + op.uniqueId : '';
+        if (avEl) {
+            avEl.src = op.profilePic || '/favicon.ico';
+        }
+        if (diaEl) {
+            const d = Number(op.totalDiamond) || 0;
+            diaEl.textContent = d > 0 ? `${d}💎` : '';
+        }
+        if (srcEl) {
+            srcEl.textContent = opponentSource === 'freeid' ? '🆔 Nhập tay' : (opponentSource === 'reg' ? '🎁 Qua ghi danh' : '');
+        }
+    }
+
     function updateUI() {
         if (!game) return;
         const st = game.getState();
@@ -858,9 +1019,12 @@
         };
         $('#caro-phase-pill').innerHTML = 'Đang ở pha: <b>' + (phaseNames[st.phase] || st.phase) + '</b>';
 
+        // Persistent opponent card
+        updateOpponentCard(st);
+
         // Turn label
         const turnLab = st.phase === 'playing'
-            ? (st.round.turn === 'idol' ? '🩵 IDOL' : `🩷 ${st.opponent?.nickname || 'USER'}`)
+            ? (st.round.turn === 'idol' ? '🩵 CREATOR' : `🩷 ${st.opponent?.nickname || 'USER'}`)
             : '—';
         $('#caro-turn-label').textContent = turnLab;
         $('#caro-round-label').textContent = st.round.idx;
@@ -924,7 +1088,7 @@
         if (!host) return;
         const div = document.createElement('div');
         div.className = 'caro-log-line ' + side;
-        const tag = side === 'idol' ? '🩵 IDOL' : '🩷 USER';
+        const tag = side === 'idol' ? '🩵 CREATOR' : '🩷 USER';
         const c = cell.c + 1, r = String.fromCharCode(65 + cell.r);
         div.textContent = `${game.getState().round.moves.length}. ${tag} → ${c}${r}`;
         host.appendChild(div);

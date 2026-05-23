@@ -520,7 +520,7 @@
                 <header class="game-header">
                     <div>
                         <h2 id="caro-title">🎯 Caro Đối Đầu</h2>
-                        <div class="game-sub" id="caro-sub">Idol đấu Caro với khán giả — user bình luận tọa độ (VD "9F") để đánh.</div>
+                        <div class="game-sub" id="caro-sub">CREATOR đấu Caro với khán giả — user bình luận tọa độ (VD "9F") để đánh.</div>
                     </div>
                     <div class="overlay-bar">
                         <input id="caro-overlay-url" type="text" readonly hidden />
@@ -570,7 +570,7 @@
 
                                 <!-- 🏆 MATCH -->
                                 <details class="caro-acc" open>
-                                    <summary>🏆 Match <span class="acc-hint" id="acc-hint-match">BO3 · 🩵 Idol đi</span></summary>
+                                    <summary>🏆 Match <span class="acc-hint" id="acc-hint-match">BO3 · 🩵 CREATOR đi</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
                                             <label>Hiệp đấu</label>
@@ -584,7 +584,7 @@
                                         <div class="cfg-row">
                                             <label>Đi trước</label>
                                             <div class="caro-seg" id="caro-first-seg">
-                                                <button data-v="idol" class="active">🩵 Idol</button>
+                                                <button data-v="idol" class="active">🩵 CREATOR</button>
                                                 <button data-v="user">🩷 User</button>
                                             </div>
                                         </div>
@@ -593,17 +593,6 @@
                                                 <input type="checkbox" id="caro-alternate-first" checked />
                                                 <span>Luân phiên đi trước mỗi hiệp</span>
                                             </label>
-                                        </div>
-                                    </div>
-                                </details>
-
-                                <!-- 🎁 GHI DANH -->
-                                <details class="caro-acc">
-                                    <summary>🎁 Ghi danh <span class="acc-hint" id="acc-hint-reg">Chưa chọn quà</span></summary>
-                                    <div class="caro-acc-body">
-                                        <div class="cfg-row cfg-row-wide">
-                                            <label>Quà ghi danh</label>
-                                            <div id="caro-reg-gift" class="caro-gift-picker" data-target="reg"></div>
                                         </div>
                                     </div>
                                 </details>
@@ -684,6 +673,29 @@
                             <div class="tab-pane" data-caro-pane="match">
                                 <div class="caro-phase-pill" id="caro-phase-pill">Đang ở pha: <b>Setup</b></div>
 
+                                <!-- 🎯 Đối thủ hiện tại — luôn hiển thị xuyên suốt trận đấu -->
+                                <div class="caro-opponent-card" id="caro-opponent-card" style="display:none">
+                                    <div class="caro-opponent-head">
+                                        <span class="caro-opponent-label">🎯 Đang đấu với</span>
+                                        <span class="caro-opponent-source" id="caro-opponent-source"></span>
+                                        <button class="caro-opponent-clear" id="caro-btn-clear-opponent" title="Huỷ đối thủ hiện tại — về setup, chọn người khác">✕</button>
+                                    </div>
+                                    <div class="caro-opponent-body">
+                                        <img class="caro-opponent-avatar" id="caro-opponent-avatar" src="/favicon.ico" alt="" onerror="this.src='/favicon.ico'" />
+                                        <div class="caro-opponent-info">
+                                            <div class="caro-opponent-name" id="caro-opponent-name">—</div>
+                                            <div class="caro-opponent-uid" id="caro-opponent-uid">—</div>
+                                        </div>
+                                        <div class="caro-opponent-dia" id="caro-opponent-dia"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 🎁 Gift ghi danh — gắn trên cùng để Idol thấy ngay -->
+                                <div class="caro-reg-gift-row">
+                                    <label class="caro-reg-gift-label">🎁 Quà ghi danh</label>
+                                    <div id="caro-reg-gift" class="caro-gift-picker" data-target="reg"></div>
+                                </div>
+
                                 <div class="caro-actions">
                                     <button class="primary block" id="caro-btn-open-reg">▶ Mở ghi danh</button>
                                     <button class="ghost block" id="caro-btn-close-reg" disabled>⏹ Đóng ghi danh</button>
@@ -719,7 +731,7 @@
                                 <div class="cfg-row">
                                     <label>Cách hoàn</label>
                                     <div class="caro-seg" id="caro-undo-mode-seg">
-                                        <button data-v="idol" class="active" title="Idol bấm để hoàn">Idol</button>
+                                        <button data-v="idol" class="active" title="CREATOR bấm để hoàn">CREATOR</button>
                                         <button data-v="gift" title="User gửi quà để hoàn">Qua quà</button>
                                         <button data-v="both" title="Cả idol và user đều hoàn được">Cả 2</button>
                                         <button data-v="off" title="Tắt tính năng hoàn">Tắt</button>
@@ -769,9 +781,21 @@
                         </div>
                     </div>
 
-                    <!-- Cột phải: bình luận & log -->
+                    <!-- Cột phải: free-ID + bình luận & log -->
                     <div class="col col-right">
-                        <div class="card">
+                        <!-- 🆔 NHẬP ID TỰ DO — bỏ qua ghi danh, chơi luôn với ID nhập tay -->
+                        <div class="card caro-freeid-card">
+                            <div class="caro-freeid">
+                                <div class="caro-freeid-title">🆔 Nhập ID đấu trực tiếp</div>
+                                <div class="caro-freeid-hint">Nhập @username hoặc tên TikTok của khán giả — bỏ qua ghi danh, vào đấu ngay.</div>
+                                <div class="caro-freeid-row">
+                                    <input type="text" id="caro-freeid-input" placeholder="@username" autocomplete="off" />
+                                    <button class="primary" id="caro-btn-freeid-go">🎯 Đấu</button>
+                                </div>
+                                <button class="ghost small caro-test-gift-btn" id="caro-btn-test-gift" title="Bắn 1 quà giả vào panel — kiểm tra ghi danh có hoạt động không">🧪 Test quà giả (debug ghi danh)</button>
+                            </div>
+                        </div>
+                        <div class="card caro-comments-card">
                             <div class="card-title">💬 Bình luận từ user</div>
                             <div class="caro-comments" id="caro-comments"></div>
                         </div>

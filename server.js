@@ -2019,6 +2019,7 @@ function emitGift(g) {
         coinValue: sheetItem?.diamond ?? g.diamondCount ?? 1,
         ts: Date.now()
     };
+    console.log(`[gift] emit → ${enriched.nickname || enriched.uniqueId} sent "${enriched.giftName || '?'}" (id=${enriched.giftId}, x${enriched.repeatCount || 1}, ${enriched.coinValue || 0}💎)`);
     io.emit('gift', enriched);
     setLiveDashboardGift(enriched);
     // Push to all game overlays
