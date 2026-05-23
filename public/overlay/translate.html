@@ -104,15 +104,44 @@
         const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
         let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsPreset: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi' };
         let voices = [];
+        let voicesReadyResolved = false;
+        let voicesReadyPromise = null;
         let randomGenderNext = Math.random() < 0.5 ? 'male' : 'female';
+
+        // Hàng đợi đọc tuần tự — tránh nhiều giọng đè lên nhau khi flood comment.
+        // pendingQueue chỉ giữ tối đa MAX_PENDING item; vượt thì drop oldest để không tích đọc câu cũ.
+        const MAX_PENDING = 5;
+        const pendingQueue = [];
+        let speaking = false;
 
         function loadVoices() {
             if (!('speechSynthesis' in window)) return;
-            voices = window.speechSynthesis.getVoices() || [];
+            const v = window.speechSynthesis.getVoices() || [];
+            if (v.length) {
+                voices = v;
+                if (!voicesReadyResolved) voicesReadyResolved = true;
+            }
         }
         loadVoices();
         if ('speechSynthesis' in window && window.speechSynthesis.onvoiceschanged !== undefined) {
             window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function ensureVoicesReady() {
+            if (voicesReadyResolved || !('speechSynthesis' in window)) return Promise.resolve();
+            if (voicesReadyPromise) return voicesReadyPromise;
+            voicesReadyPromise = new Promise(resolve => {
+                let elapsed = 0;
+                const tick = setInterval(() => {
+                    loadVoices();
+                    elapsed += 150;
+                    if (voicesReadyResolved || elapsed >= 1500) {
+                        clearInterval(tick);
+                        resolve();
+                    }
+                }, 150);
+            });
+            return voicesReadyPromise;
         }
 
         function initials(name) {
@@ -124,24 +153,33 @@
             return map[lang] || lang || 'vi-VN';
         }
 
+        const FEMALE_HINTS = /female|woman|girl|zira|hazel|susan|heera|samantha|victoria|mai|linh|hoai|hanh|google uk english female/i;
+        const MALE_HINTS = /male|man|boy|david|mark|george|daniel|james|nam|minh|an|google uk english male/i;
+
         function pickVoice(lang, gender) {
             if (!voices.length) loadVoices();
             const speechLang = langForSpeech(lang).toLowerCase();
             const sameLang = voices.filter(v => String(v.lang || '').toLowerCase().startsWith(speechLang.slice(0, 2)));
             if (!sameLang.length) return null;
             const pool = sameLang;
-            const femaleHints = /female|woman|girl|zira|hazel|susan|heera|samantha|victoria|mai|linh|hoai|hanh|google uk english female/i;
-            const maleHints = /male|man|boy|david|mark|george|daniel|james|nam|minh|an|google uk english male/i;
             if (gender === 'random') return pool[Math.floor(Math.random() * pool.length)] || null;
             if (gender === 'randomGender') {
                 const next = randomGenderNext;
                 randomGenderNext = randomGenderNext === 'male' ? 'female' : 'male';
                 return pickVoice(lang, next) || pool[Math.floor(Math.random() * pool.length)] || null;
             }
-            if (gender === 'female') return pool.find(v => femaleHints.test(v.name)) || pool[0] || null;
-            if (gender === 'male') return pool.find(v => maleHints.test(v.name)) || pool.find(v => !femaleHints.test(v.name)) || pool[0] || null;
+            const females = pool.filter(v => FEMALE_HINTS.test(v.name));
+            const males = pool.filter(v => MALE_HINTS.test(v.name));
+            if (gender === 'female') return females[0] || pool[0] || null;
+            if (gender === 'male') return males[0] || pool.find(v => !FEMALE_HINTS.test(v.name)) || pool[0] || null;
             const m = String(gender || '').match(/^variant(\d)$/);
-            if (m) return pool[(parseInt(m[1], 10) - 1) % pool.length] || null;
+            if (m) {
+                // Xen kẽ nữ → nam → còn lại để variant1..variant5 ra giọng khác nhau khi pool đủ.
+                const rest = pool.filter(v => !females.includes(v) && !males.includes(v));
+                const ordered = [...females, ...males, ...rest];
+                const base = ordered.length ? ordered : pool;
+                return base[(parseInt(m[1], 10) - 1) % base.length] || null;
+            }
             return pool.find(v => v.default) || pool[0] || null;
         }
 
@@ -165,34 +203,70 @@
             return ['vi', 'en', 'zh', 'ko', 'ja'].includes(preset) ? preset : (item?.targetLang || config.targetLang || 'vi');
         }
 
-        function speak(text, item) {
+        function enqueueSpeak(text, item) {
             const ttsOn = item?.ttsEnabled == null ? config.ttsEnabled : item.ttsEnabled;
             if (!ttsOn || item?.canSpeak === false) return;
             const mode = item?.ttsReadMode || config.ttsReadMode || (config.readUsername ? 'nameAndComment' : 'commentOnly');
-            let commentText = String(text || '').trim();
+            const commentText = String(text || '').trim();
             const userName = cleanSpokenName(item?.nickname || item?.uniqueId || '');
             let value = commentText;
             if (mode === 'nameOnly') value = userName;
             else if (mode === 'nameAndComment' && userName) value = `${userName}. ${commentText}`;
             if (!value) return;
-            const volume = Math.max(0, Math.min(1, (parseInt(item?.ttsVolume == null ? config.ttsVolume : item.ttsVolume, 10) || 85) / 100));
-            const rate = Math.max(0.5, Math.min(2, parseFloat(item?.ttsRate || config.ttsRate || 1) || 1));
-            const speechLang = presetLang(item);
-            const useRemoteTts = !hasLocalVoice(speechLang);
-            if (useRemoteTts) {
+            pendingQueue.push({ value, item });
+            while (pendingQueue.length > MAX_PENDING) pendingQueue.shift();
+            pumpQueue();
+        }
+
+        async function pumpQueue() {
+            if (speaking) return;
+            speaking = true;
+            try {
+                await ensureVoicesReady();
+                while (pendingQueue.length) {
+                    const next = pendingQueue.shift();
+                    try { await speakOne(next.value, next.item); }
+                    catch (_) { /* tiếp tục item kế */ }
+                }
+            } finally {
+                speaking = false;
+            }
+        }
+
+        function speakOne(value, item) {
+            return new Promise(resolve => {
+                const volume = Math.max(0, Math.min(1, (parseInt(item?.ttsVolume == null ? config.ttsVolume : item.ttsVolume, 10) || 85) / 100));
+                const rate = Math.max(0.5, Math.min(2, parseFloat(item?.ttsRate || config.ttsRate || 1) || 1));
+                const speechLang = presetLang(item);
+                // Ưu tiên browser TTS nếu có local voice cho lang đó để áp dụng được Giọng đọc/Preset.
+                if (hasLocalVoice(speechLang)) {
+                    speakWithBrowser(value, volume, rate, item, speechLang, resolve);
+                    return;
+                }
+                // Fallback remote TTS (Google translate_tts) — không hỗ trợ chọn giọng nam/nữ.
                 const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(speechLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
                 audio.volume = volume;
                 audio.playbackRate = rate;
+                let finished = false;
+                const done = () => { if (finished) return; finished = true; resolve(); };
+                audio.addEventListener('ended', done, { once: true });
+                audio.addEventListener('error', () => {
+                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang, done);
+                    else done();
+                }, { once: true });
+                // Safety: nếu audio không phát/không bắn event trong 12s, thả queue.
+                setTimeout(done, 12000);
                 audio.play().catch(() => {
-                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang);
+                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang, done);
+                    else done();
                 });
-                return;
-            }
-            speakWithBrowser(value, volume, rate, item, speechLang);
+            });
         }
 
-        function speakWithBrowser(value, volume, rate, item, speechLang) {
-            if (!('speechSynthesis' in window)) return;
+        function speakWithBrowser(value, volume, rate, item, speechLang, onDone) {
+            const finish = typeof onDone === 'function' ? onDone : () => {};
+            if (!('speechSynthesis' in window)) return finish();
+            try { window.speechSynthesis.cancel(); } catch (_) {}
             const utter = new SpeechSynthesisUtterance(value.slice(0, 220));
             const lang = speechLang || presetLang(item);
             utter.lang = langForSpeech(lang);
@@ -201,6 +275,12 @@
             utter.rate = Math.max(0.5, Math.min(2, parseFloat(rate || config.ttsRate || 1) || 1));
             utter.pitch = 1;
             utter.volume = volume;
+            let finished = false;
+            const done = () => { if (finished) return; finished = true; finish(); };
+            utter.onend = done;
+            utter.onerror = done;
+            // Safety timeout: Web Speech API thỉnh thoảng nuốt event onend.
+            setTimeout(done, Math.max(6000, value.length * 140));
             window.speechSynthesis.speak(utter);
         }
 
@@ -246,7 +326,7 @@
             el.appendChild(body);
             wrap.appendChild(el);
             trimItems();
-            speak(item.translatedText || item.normalizedText || item.originalText, item);
+            enqueueSpeak(item.translatedText || item.normalizedText || item.originalText, item);
             setTimeout(() => {
                 el.classList.add('leaving');
                 setTimeout(() => el.remove(), 260);
@@ -256,7 +336,7 @@
         socket.on('connect', () => socket.emit('subscribe', 'translateOverlay'));
         socket.on('translate:config', cfg => { config = { ...config, ...(cfg || {}) }; });
         socket.on('translate:comment', addComment);
-        socket.on('translate:testSpeak', item => speak(item?.translatedText || 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.', item || {}));
+        socket.on('translate:testSpeak', item => enqueueSpeak(item?.translatedText || 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.', item || {}));
     })();
     </script>
 </body>
