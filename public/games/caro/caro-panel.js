@@ -139,29 +139,53 @@
         }
     };
 
-    // ============ TTSAnnouncer — đọc các sự kiện game qua Web Speech API ============
+    // ============ TTSAnnouncer — đọc tiếng Việt qua Google TTS proxy (server) ============
+    // Web Speech API không có giọng tiếng Việt mặc định trên Windows.
+    // Server đã có /api/live-translate/tts proxy Google TTS → dùng nó để có giọng VN thật.
+    // Fallback Web Speech nếu Google TTS fail.
     const TTSAnnouncer = {
+        currentAudio: null,
         voices: [],
         ensureVoices() {
             if (!('speechSynthesis' in window)) return [];
             this.voices = window.speechSynthesis.getVoices();
             return this.voices;
         },
-        // Lọc giọng tiếng Việt
         viVoices() {
             this.ensureVoices();
             return this.voices.filter(v => v.lang.toLowerCase().startsWith('vi'));
         },
         speak(text) {
             if (!cfg?.tts?.enabled) return;
+            if (!text || !text.trim()) return;
+            // Stop audio cũ
+            if (this.currentAudio) {
+                try { this.currentAudio.pause(); } catch {}
+                this.currentAudio = null;
+            }
+            // Google TTS via server proxy
+            const lang = cfg.tts?.lang || 'vi';
+            const url = `/api/live-translate/tts?lang=${lang}&text=${encodeURIComponent(text)}`;
+            try {
+                const audio = new Audio(url);
+                audio.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
+                audio.playbackRate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.0));
+                this.currentAudio = audio;
+                audio.play().catch(e => {
+                    console.warn('[tts] Google fail, fallback Web Speech:', e.message);
+                    this._speakWebSpeech(text);
+                });
+            } catch (e) {
+                this._speakWebSpeech(text);
+            }
+        },
+        _speakWebSpeech(text) {
             if (!('speechSynthesis' in window)) return;
-            // Stop nếu đang đọc (tránh queue lên dài)
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = 'vi-VN';
             u.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
             u.rate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.1));
-            // Tìm voice match
             this.ensureVoices();
             const matchedVoice = cfg.tts.voice
                 ? this.voices.find(v => v.name === cfg.tts.voice)
@@ -195,21 +219,35 @@
     const TenseMusic = {
         audio: null,
         active: false,
+        currentUrl: '',
         start(url) {
-            if (this.active) return;
-            if (!url) return;
+            if (!url) {
+                console.warn('[tense-music] no url set');
+                return;
+            }
+            // Đã đang phát URL này → skip
+            if (this.active && this.currentUrl === url && this.audio && !this.audio.paused) return;
+            this.stop();   // Stop nếu URL đổi
             try {
                 this.audio = new Audio(url);
                 this.audio.loop = true;
                 const vol = Math.max(0, Math.min(1, (cfg?.music?.volume ?? 30) / 100));
                 this.audio.volume = vol;
-                this.audio.play().catch(e => console.warn('[tense-music] fail:', e.message));
-                this.active = true;
-            } catch (e) {}
+                this.currentUrl = url;
+                this.audio.play().then(() => {
+                    this.active = true;
+                    console.log('[tense-music] playing:', url);
+                }).catch(e => {
+                    console.warn('[tense-music] play fail (browser autoplay block?):', e.message);
+                    this.active = false;
+                });
+            } catch (e) {
+                console.warn('[tense-music] err:', e.message);
+            }
         },
         stop() {
             if (this.audio) {
-                try { this.audio.pause(); } catch {}
+                try { this.audio.pause(); this.audio.currentTime = 0; } catch {}
                 this.audio = null;
             }
             this.active = false;
@@ -1167,6 +1205,23 @@
             fogCountV.textContent = fogCount.value;
             updateCfg({ fogOfWar: { visibleCount: +fogCount.value } });
         });
+        wireSeg('#caro-fog-mode-seg', (v) => {
+            updateCfg({ fogOfWar: { mode: v } });
+            const giftRow = $('#caro-fog-gift-row');
+            if (giftRow) giftRow.style.display = v === 'gift' ? '' : 'none';
+        });
+        if ($('#caro-fog-gift')) {
+            giftPickers.fog = createGiftPicker($('#caro-fog-gift'), (id) => {
+                updateCfg({ fogOfWar: { giftId: id } });
+            });
+        }
+        // Update fog count max theo board size (board/2)
+        const updateFogMax = () => {
+            const max = Math.floor((cfg.board?.cols || 12) * (cfg.board?.rows || 12) / 2);
+            const fc = $('#caro-fog-count');
+            if (fc) fc.max = max;
+        };
+        updateFogMax();
 
         // === Tường chắn — config wiring ===
         $('#caro-walls-enabled')?.addEventListener('change', (e) => {
@@ -1224,13 +1279,6 @@
         rollTok.addEventListener('input', () => {
             rollTokV.textContent = rollTok.value;
             updateCfg({ rolling: { tokensPerSide: +rollTok.value } });
-        });
-        // === Rolling TỰ DO — unlimited mode ===
-        $('#caro-rolling-unlimited')?.addEventListener('change', (e) => {
-            updateCfg({ rolling: { unlimited: e.target.checked } });
-            // Ẩn/hiện slider số quân khi tự do
-            const tokensRow = $('#caro-rolling-tokens-row');
-            if (tokensRow) tokensRow.style.display = e.target.checked ? 'none' : '';
         });
         // Custom gift picker — registration
         giftPickers.reg = createGiftPicker($('#caro-reg-gift'), (id) => {
@@ -1381,6 +1429,9 @@
             $('#caro-fog-enabled').checked = !!cfg.fogOfWar?.enabled;
             $('#caro-fog-count').value = cfg.fogOfWar?.visibleCount ?? 5;
             $('#caro-fog-count-v').textContent = cfg.fogOfWar?.visibleCount ?? 5;
+            selectSegValue('#caro-fog-mode-seg', cfg.fogOfWar?.mode || 'always');
+            const giftRow = $('#caro-fog-gift-row');
+            if (giftRow) giftRow.style.display = cfg.fogOfWar?.mode === 'gift' ? '' : 'none';
         }
         // Walls config
         if ($('#caro-walls-enabled')) {
@@ -1408,9 +1459,6 @@
         // Rolling mode
         if ($('#caro-rolling-enabled')) {
             $('#caro-rolling-enabled').checked = !!cfg.rolling?.enabled;
-            if ($('#caro-rolling-unlimited')) $('#caro-rolling-unlimited').checked = !!cfg.rolling?.unlimited;
-            const tokensRow = $('#caro-rolling-tokens-row');
-            if (tokensRow) tokensRow.style.display = cfg.rolling?.unlimited ? 'none' : '';
             $('#caro-rolling-tokens').value = cfg.rolling?.tokensPerSide ?? 3;
             $('#caro-rolling-tokens-v').textContent = cfg.rolling?.tokensPerSide ?? 3;
         }
@@ -1441,7 +1489,7 @@
         // Mode
         const modes = [];
         if (cfg.practiceMode) modes.push('🧪 Thử');
-        if (cfg.rolling?.enabled) modes.push(cfg.rolling?.unlimited ? '♾ Tự do' : `♻️ Tích ${cfg.rolling.tokensPerSide}`);
+        if (cfg.rolling?.enabled) modes.push(`♻️ Tích ${cfg.rolling.tokensPerSide}`);
         $h('acc-hint-mode', modes.length ? modes.join(' · ') : '—');
         // Display
         const dispBits = [`Scale ${cfg.display.scale}%`];
@@ -1459,7 +1507,9 @@
             ? `${wallsGift?.name || '⚠️ chưa chọn quà'} · ${cfg.walls?.count || 3} tường`
             : 'Tắt');
         // Fog of war
-        $h('acc-hint-fog', cfg.fogOfWar?.enabled ? `Hiện ${cfg.fogOfWar?.visibleCount || 5} quân` : 'Tắt');
+        $h('acc-hint-fog', cfg.fogOfWar?.enabled
+            ? `${cfg.fogOfWar?.mode === 'gift' ? '🎁 Qua quà' : '🔄 Luôn'} · hiện ${cfg.fogOfWar?.visibleCount || 5}`
+            : 'Tắt');
         // Daily rule
         $h('acc-hint-dailyrule', cfg.dailyRule?.enabled
             ? (cfg.dailyRule?.text ? cfg.dailyRule.text.slice(0, 25) + (cfg.dailyRule.text.length > 25 ? '…' : '') : 'Chưa nhập')
@@ -1988,6 +2038,18 @@
                 logSystem(`💤 ${g.nickname || g.uniqueId} hỏi gợi ý — cooldown ${res.remain}s`);
             }
         }
+        // === Fog gift — kích hoạt sương mù 1 lượt ===
+        const fogGiftId = String(cfg?.fogOfWar?.giftId ?? '').trim();
+        const isFogGift = cfg?.fogOfWar?.enabled && cfg?.fogOfWar?.mode === 'gift'
+            && giftIdIn !== '' && fogGiftId !== '' && giftIdIn === fogGiftId;
+        if (isFogGift && game) {
+            const res = game.fogActivate({ uniqueId: g.uniqueId, nickname: g.nickname });
+            if (res.ok) {
+                logSystem(`🌫 ${g.nickname || g.uniqueId} tặng quà → sương mù 1 lượt (hiện ${res.count} quân)`);
+                flashOk('Sương mù kích hoạt 1 lượt');
+                pushState();
+            }
+        }
         // === Walls — quà chỉ định tăng cơ hội cho user được chọn comment đặt tường ===
         const wallsGiftId = String(cfg?.walls?.giftId ?? '').trim();
         const isWallsGift = cfg?.walls?.enabled && giftIdIn !== '' && wallsGiftId !== '' && giftIdIn === wallsGiftId;
@@ -2092,6 +2154,10 @@
         if (giftPickers.walls) {
             giftPickers.walls.setList(list);
             giftPickers.walls.setValue(cfg?.walls?.giftId || '');
+        }
+        if (giftPickers.fog) {
+            giftPickers.fog.setList(list);
+            giftPickers.fog.setValue(cfg?.fogOfWar?.giftId || '');
         }
     }
 

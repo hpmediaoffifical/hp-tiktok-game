@@ -570,8 +570,10 @@
                                             <label>Quân thắng</label>
                                             <div class="caro-seg" id="caro-winlen-seg">
                                                 <button data-v="3">3</button>
-                                                <button data-v="4">4</button>
                                                 <button data-v="5" class="active">5</button>
+                                                <button data-v="7">7</button>
+                                                <button data-v="9">9</button>
+                                                <button data-v="12">12</button>
                                             </div>
                                         </div>
                                     </div>
@@ -620,12 +622,6 @@
                                             <label class="toggle-row caro-rolling-toggle">
                                                 <input type="checkbox" id="caro-rolling-enabled" />
                                                 <span>♻️ <b>TÍCH ĐIỂM</b> — mỗi bên giữ N quân, đặt thêm thì cũ tự mất</span>
-                                            </label>
-                                        </div>
-                                        <div class="cfg-row">
-                                            <label class="toggle-row" id="caro-rolling-unlimited-row">
-                                                <input type="checkbox" id="caro-rolling-unlimited" />
-                                                <span>♾ <b>TỰ DO</b> — không giới hạn, đánh đến khi thắng/hoà</span>
                                             </label>
                                         </div>
                                         <div class="cfg-row" id="caro-rolling-tokens-row">
@@ -820,22 +816,36 @@
                                     </div>
                                 </details>
 
-                                <!-- 🌫 SƯƠNG MÙ — chỉ hiện N quân gần nhất -->
+                                <!-- 🌫 SƯƠNG MÙ — 2 modes: luôn ẩn HOẶC kích hoạt bằng quà -->
                                 <details class="caro-acc" data-sub="gameplay">
                                     <summary>🌫 Sương mù (fog of war) <span class="acc-hint" id="acc-hint-fog">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
                                             <label class="toggle-row">
                                                 <input type="checkbox" id="caro-fog-enabled" />
-                                                <span>🌫 Bật — chỉ hiện N quân gần nhất, quân cũ ẩn</span>
+                                                <span>🌫 Bật chế độ sương mù</span>
                                             </label>
                                         </div>
                                         <div class="cfg-row">
-                                            <label>Số quân hiện</label>
-                                            <input type="range" id="caro-fog-count" min="2" max="20" step="1" />
+                                            <label>Kiểu kích hoạt</label>
+                                            <div class="caro-seg" id="caro-fog-mode-seg">
+                                                <button data-v="always" class="active" title="Luôn ẩn quân cũ">🔄 Luôn bật</button>
+                                                <button data-v="gift" title="Kích hoạt 1 lượt khi tặng quà">🎁 Qua quà</button>
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide" id="caro-fog-gift-row" style="display:none">
+                                            <label>Quà trigger sương mù 1 lượt</label>
+                                            <div id="caro-fog-gift" class="caro-gift-picker" data-target="fog"></div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Số quân hiện (mặc định)</label>
+                                            <input type="range" id="caro-fog-count" min="2" max="50" step="1" />
                                             <span class="cfg-val" id="caro-fog-count-v">5</span>
                                         </div>
-                                        <div class="caro-music-hint">Test trí nhớ — User và Creator phải nhớ vị trí quân cũ vì không hiện trên bàn nữa.</div>
+                                        <div class="caro-music-hint">
+                                            <b>Luôn bật:</b> mọi nước cờ chỉ hiện N quân gần nhất.<br>
+                                            <b>Qua quà:</b> tặng quà → sương mù che bàn cho 1 lượt kế (giúp đối thủ khó nhớ vị trí).
+                                        </div>
                                     </div>
                                 </details>
 

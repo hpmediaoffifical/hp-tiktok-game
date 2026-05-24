@@ -218,7 +218,8 @@
             // Creator cũng có thể click manual (tổng creator + user-via-gift ≤ count).
             walls: { enabled: false, giftId: '', count: 3 },
             // Sương mù — chỉ hiện N quân gần nhất, quân cũ ẩn/mờ
-            fogOfWar: { enabled: false, visibleCount: 5 },
+            // mode: 'always' (luôn ẩn) | 'gift' (kích hoạt khi tặng quà, áp dụng 1 lượt)
+            fogOfWar: { enabled: false, mode: 'always', visibleCount: 5, giftId: '' },
             // Luật hôm nay — chỉ banner hiển thị, không đụng game logic.
             // Creator tự chọn preset HOẶC nhập custom text.
             dailyRule: { enabled: false, text: '' },
@@ -311,6 +312,12 @@
                 opportunitiesUser: 0,        // số quà đã tặng (= số cơ hội user còn lại để comment)
                 cells: [],                   // [{c,r}] — ô đã có tường
                 target: 0                    // tổng tường cần (= cfg.walls.count)
+            },
+            // Fog activation state — fog mode='gift' kích hoạt 1 lượt
+            fog: {
+                activeForNextMove: false,    // true → áp dụng cho nước kế tiếp
+                triggeredBy: '',             // tên user kích hoạt
+                visibleCountOverride: 0      // số quân hiện cho lượt này (0 = dùng cfg.fogOfWar.visibleCount)
             }
         };
     }
@@ -490,12 +497,11 @@
             const userScore = state.match.score.user;
             const roundIdx = state.round.idx;
 
-            // === Tỉ số: căn giữa TOÀN BỘ cụm (CREATOR + score + — + score + USER) ===
+            // === Tỉ số: TEAM A 0 — 0 TEAM B + ID dưới ===
             const cyY = 130 + yS;
-            const userName = state.opponent?.nickname ? truncate(state.opponent.nickname, 12) : 'USER';
-            const idolTxt = `🩵 CREATOR  ${idolScore}`;
+            const idolTxt = `🩵 TEAM A  ${idolScore}`;
             const vsTxt = `  —  `;
-            const userTxt = `${userScore}  🩷 ${userName}`;
+            const userTxt = `${userScore}  🩷 TEAM B`;
 
             const fontSide = '900 44px Inter, Arial, sans-serif';   // 900 đậm hơn để nét survive nén
             const fontVs = '800 30px Inter, Arial, sans-serif';
@@ -532,14 +538,31 @@
             ctx.fillText(userTxt, startX + idolW + vsW, cyY);
 
             // Hiệp pill — bolder + stroke nhẹ cho rõ
-            ctx.font = '700 26px Inter, Arial, sans-serif';
+            // Tên ID cụ thể dưới TEAM A / TEAM B
+            const creatorId = (typeof window !== 'undefined' && window.__hostInfo?.uniqueId) ? `@${window.__hostInfo.uniqueId}` : '';
+            const opId = state.opponent?.uniqueId ? `@${state.opponent.uniqueId}` : '';
+            if (creatorId || opId) {
+                ctx.font = '600 18px Inter, Arial, sans-serif';
+                ctx.textAlign = 'center';
+                const idLineY = 165 + yS;
+                if (creatorId) {
+                    drawOutlinedText(truncate(creatorId, 16), STAGE_W * 0.3, idLineY,
+                        cfg.colors.idol, 'rgba(0,0,0,0.85)', 1.5);
+                }
+                if (opId) {
+                    drawOutlinedText(truncate(opId, 16), STAGE_W * 0.7, idLineY,
+                        cfg.colors.user, 'rgba(0,0,0,0.85)', 1.5);
+                }
+            }
+            // Sub-line: HIỆP info
+            ctx.font = '700 22px Inter, Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
             ctx.lineWidth = 4;
             const subTxt = `HIỆP ${roundIdx} / BO${bo} · Win ${cfg.board.winLength} · ${cfg.board.cols}×${cfg.board.rows}`;
-            ctx.strokeText(subTxt, STAGE_W / 2, 170 + yS);
+            ctx.strokeText(subTxt, STAGE_W / 2, 195 + yS);
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-            ctx.fillText(subTxt, STAGE_W / 2, 170 + yS);
+            ctx.fillText(subTxt, STAGE_W / 2, 195 + yS);
             // Daily rule banner (nếu enabled + có text)
             if (cfg.dailyRule?.enabled && cfg.dailyRule?.text) {
                 ctx.font = '800 22px Inter, Arial, sans-serif';
@@ -765,10 +788,21 @@
             const userName = state.opponent?.nickname || state.opponent?.uniqueId || 'USER';
 
             // === FOG OF WAR — chỉ vẽ N nước gần nhất ===
+            // mode 'always': enabled luôn → áp dụng visibleCount
+            // mode 'gift': chỉ active 1 lượt khi state.fog.activeForNextMove (kích hoạt qua quà)
             const fogEnabled = !!cfg.fogOfWar?.enabled;
-            const fogVisibleCount = Math.max(1, cfg.fogOfWar?.visibleCount || 5);
+            const fogMode = cfg.fogOfWar?.mode || 'always';
+            let fogActive = false;
+            let fogVisibleCount = Math.max(1, cfg.fogOfWar?.visibleCount || 5);
+            if (fogEnabled) {
+                if (fogMode === 'always') fogActive = true;
+                else if (fogMode === 'gift' && state.fog?.activeForNextMove) {
+                    fogActive = true;
+                    if (state.fog.visibleCountOverride > 0) fogVisibleCount = state.fog.visibleCountOverride;
+                }
+            }
             const totalMoves = state.round.moves.length;
-            const fogStartIdx = fogEnabled ? Math.max(0, totalMoves - fogVisibleCount) : 0;
+            const fogStartIdx = fogActive ? Math.max(0, totalMoves - fogVisibleCount) : 0;
 
             for (let i = 0; i < state.round.moves.length; i++) {
                 // Skip nước cũ nếu fog enabled (giữ index để các tính toán khác vẫn đúng)
@@ -951,7 +985,7 @@
             }
             else if (state.phase === 'picking') line = '🎯 Idol đang chọn đối thủ...';
             else if (state.phase === 'playing') {
-                const who = state.round.turn === 'idol' ? '🩵 Lượt CREATOR' : `🩷 Lượt ${state.opponent?.nickname || 'USER'}`;
+                const who = state.round.turn === 'idol' ? '🩵 Lượt TEAM A' : '🩷 Lượt TEAM B';
                 // VD động theo bàn cờ (vd bàn 3x3 → 2B, bàn 12x12 → 9F)
                 const exC = Math.min(Math.ceil(cfg.board.cols / 2) + 1, cfg.board.cols);
                 const exR = Math.min(Math.ceil(cfg.board.rows / 2) + 1, cfg.board.rows);
@@ -959,7 +993,7 @@
                 line = `${who} · Bình luận tọa độ (VD: ${example})`;
             }
             else if (state.phase === 'roundEnd') {
-                const winner = state.round.winner === 'idol' ? '🩵 CREATOR' : `🩷 ${state.opponent?.nickname || 'USER'}`;
+                const winner = state.round.winner === 'idol' ? '🩵 TEAM A' : '🩷 TEAM B';
                 line = `🏆 ${winner} thắng hiệp ${state.round.idx}`;
             }
 
@@ -1067,11 +1101,14 @@
             ctx.shadowBlur = 10;
             drawOutlinedText(yes ? 'CÓ!' : 'KHÔNG', cx, cardY + 100, '#FFFFFF', 'rgba(0,0,0,0.85)', 2);
             ctx.shadowBlur = 0;
-            // Sub-label
+            // Sub-label — hiện tên bên đang gần thắng nếu yes
             ctx.font = '700 18px Inter, Arial, sans-serif';
-            drawOutlinedText(
-                yes ? 'NGUY HIỂM — Block ngay!' : 'AN TOÀN — chơi tiếp',
-                cx, cardY + 155, accent, 'rgba(0,0,0,0.8)', 1.5);
+            let subLabel = 'AN TOÀN — chơi tiếp';
+            if (yes) {
+                const sideName = state.hint.threatSide === 'idol' ? '🩵 TEAM A' : '🩷 TEAM B';
+                subLabel = `${sideName} sắp thắng — Block ngay!`;
+            }
+            drawOutlinedText(subLabel, cx, cardY + 155, accent, 'rgba(0,0,0,0.8)', 1.5);
             // Triggered by
             if (triggeredBy) {
                 ctx.font = '600 14px Inter, Arial, sans-serif';
@@ -1112,7 +1149,7 @@
                 else winner = 'idol';
             }
             const color = winner === 'idol' ? cfg.colors.idol : cfg.colors.user;
-            const name = winner === 'idol' ? 'CREATOR' : (state.opponent?.nickname || 'USER');
+            const name = winner === 'idol' ? 'TEAM A' : 'TEAM B';
 
             // Background card ở TOP của canvas (replace header area) — shift theo yShift
             const lay = boardLayout();
@@ -1156,10 +1193,10 @@
             ctx.font = '600 28px Inter, Arial, sans-serif';
             ctx.fillStyle = cfg.colors.idol;
             ctx.textAlign = 'right';
-            ctx.fillText(`🩵 CREATOR ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
+            ctx.fillText(`🩵 TEAM A ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
             ctx.fillStyle = cfg.colors.user;
             ctx.textAlign = 'left';
-            ctx.fillText(`🩷 USER ${moves.user} nước`, STAGE_W / 2 + 16, cardY + 230);
+            ctx.fillText(`🩷 TEAM B ${moves.user} nước`, STAGE_W / 2 + 16, cardY + 230);
 
             // Tie-break note (nếu có)
             if (tieBreak) {
@@ -1172,7 +1209,7 @@
             if (state.round.surrenderedBy === 'idol' && winner === 'user') {
                 ctx.font = '900 28px Inter, Arial, sans-serif';
                 ctx.textAlign = 'center';
-                drawOutlinedText('🏳️ HONOR VICTORY · CREATOR đầu hàng',
+                drawOutlinedText('🏳️ HONOR VICTORY · TEAM A đầu hàng',
                     STAGE_W / 2, cardY + 270, '#FFD166', 'rgba(0,0,0,0.85)', 2);
             }
             ctx.restore();
@@ -1252,8 +1289,7 @@
 
             // === ROLLING MODE: nếu quá tokensPerSide, xoá quân CŨ NHẤT của bên này ===
             // Vô hiệu draw-detection (bàn không bao giờ đầy vì quân cũ tự mất).
-            // KHI cfg.rolling.unlimited === true → bỏ qua xoá, chơi đến khi thắng/hoà bình thường.
-            if (cfg.rolling?.enabled && !cfg.rolling?.unlimited) {
+            if (cfg.rolling?.enabled) {
                 const limit = Math.max(1, cfg.rolling.tokensPerSide || 3);
                 const sideMoves = state.round.moves.filter(m => m.side === side);
                 while (sideMoves.length > limit) {
@@ -1293,11 +1329,9 @@
             }
 
             // === DRAW detection — bàn đầy không ai thắng ===
-            // Rolling mode CỐ ĐỊNH KHÔNG bao giờ draw (quân cũ tự mất → bàn không đầy).
-            // Rolling TỰ DO (unlimited) thì VẪN có draw — quân tích đầy bàn.
+            // Rolling mode KHÔNG bao giờ draw (quân cũ tự mất → bàn không đầy)
             const totalCells = cfg.board.cols * cfg.board.rows;
-            const rollingActive = cfg.rolling?.enabled && !cfg.rolling?.unlimited;
-            if (!rollingActive && state.round.moves.length >= totalCells - state.walls.cells.length) {
+            if (!cfg.rolling?.enabled && state.round.moves.length >= totalCells - state.walls.cells.length) {
                 state.round.drawn = true;
                 state.phase = 'draw';   // chờ Idol quyết định
                 // Vẫn commit moveCount vào totalMoves (đã chơi → tính)
@@ -1321,6 +1355,13 @@
                 state.userUndo.active = false;
                 state.userUndo.lastMove = null;
                 state.userUndo.expireAt = 0;
+            }
+
+            // === Clear fog gift-mode AFTER lượt vừa đi (fog chỉ áp dụng 1 lượt) ===
+            if (cfg.fogOfWar?.mode === 'gift' && state.fog?.activeForNextMove) {
+                state.fog.activeForNextMove = false;
+                state.fog.visibleCountOverride = 0;
+                state.fog.triggeredBy = '';
             }
 
             // Switch turn
@@ -1528,13 +1569,15 @@
             state.hint.userCooldown[uid] = now;
             // Detect threat
             const effWin = Math.max(3, Math.min(cfg.board.winLength, Math.min(cfg.board.cols, cfg.board.rows)));
-            const result = checkCreatorThreat(state.round.moves, cfg.board.cols, cfg.board.rows, effWin);
+            // Check BOTH sides — popup hiển thị CÓ nếu bên nào gần thắng (idol HOẶC user)
+            const result = checkAnyThreat(state.round.moves, cfg.board.cols, cfg.board.rows, effWin);
             // Show banner
             const showMs = (cfg.hint?.showSeconds || 3) * 1000;
             state.hint.active = true;
             state.hint.yes = !!result.yes;
             state.hint.pattern = result.pattern;
             state.hint.line = result.line;
+            state.hint.threatSide = result.side || null;   // 'idol' | 'user' bên đang gần thắng
             state.hint.triggeredBy = userInfo?.nickname || uid;
             state.hint.expireAt = now + showMs;
             render();
@@ -1683,6 +1726,22 @@
         // Helper: kiểm tra ô có wall không (placeStone dùng)
         function _isWalled(c, r) {
             return state.walls?.cells?.some(w => w.c === c && w.r === r);
+        }
+
+        // === FOG — kích hoạt sương mù 1 lượt qua quà ===
+        function fogActivate(userInfo, visibleCount) {
+            if (!cfg.fogOfWar?.enabled || cfg.fogOfWar?.mode !== 'gift') return { ok: false, reason: 'not_gift_mode' };
+            if (state.phase !== 'playing') return { ok: false, reason: 'not_playing' };
+            const maxAllowed = Math.floor((cfg.board.cols * cfg.board.rows) / 2);
+            const count = visibleCount
+                ? Math.max(1, Math.min(maxAllowed, visibleCount))
+                : (cfg.fogOfWar.visibleCount || 5);
+            state.fog.activeForNextMove = true;
+            state.fog.visibleCountOverride = count;
+            state.fog.triggeredBy = userInfo?.nickname || userInfo?.uniqueId || '';
+            render();
+            fire('change');
+            return { ok: true, count };
         }
 
         // Auto-update profilePic của opponent từ chat events (Free-ID flow)
@@ -1860,6 +1919,8 @@
             _setOpponentAvatar,
             // Walls
             wallStart, wallAddGiftOpportunity, wallPlace,
+            // Fog gift activation
+            fogActivate,
             // Surrender
             surrender,
             // Match analyzer
