@@ -310,6 +310,12 @@
             if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
             return ctx;
         }
+        // v1.0.93 — suspend/resume cho phép tắt mọi âm Web Audio đang phát khi game OFF.
+        // Trước đây toggle TẮT trong Thư viện vẫn nghe UFO hum, fanfare schedule, sweep đuôi…
+        // vì các node đã .start() rồi, gain chỉ ramp về 0 sau X giây. Suspend AudioContext =
+        // pause toàn bộ clock → mọi node câm tức thì. Khi BẬT lại → resume() để âm sống tiếp.
+        function suspend() { const a = ctx; if (a && a.state === 'running') try { a.suspend(); } catch (e) {} }
+        function resume()  { const a = ctx; if (a && a.state === 'suspended') try { a.resume();  } catch (e) {} }
         function getNoiseBuffer() {
             const a = ensureCtx(); if (!a) return null;
             if (noiseBuf) return noiseBuf;
@@ -395,6 +401,7 @@
         }
 
         return {
+            suspend, resume,
             plop: () => tone(360, 0.07, 'sine', 0.18),
             ting: () => tone(1240, 0.08, 'triangle', 0.14),
             big: () => { tone(180, 0.1, 'sawtooth', 0.18); setTimeout(() => tone(280, 0.15, 'square', 0.12), 80); },
@@ -5348,6 +5355,10 @@
                 stopRandomEvents();
                 stopThiefAuto();
                 if (historyTimer) { clearInterval(historyTimer); historyTimer = null; }
+                // v1.0.93 — câm Web Audio ngay tức thì (UFO hum, sweep đuôi, fanfare đã schedule…)
+                audio.suspend();
+            } else {
+                audio.resume();
             }
             positionJar();
             // Cập nhật TẤT CẢ panel để pick up vị trí + scale mới từ config

@@ -621,6 +621,7 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 /* Hero */
 .hero { padding: 32px 28px; overflow-y: auto; flex: 1; }
 .hero h1 { font-size: 24px; margin: 0 0 6px; }
+.hero-h2 { font-size: 20px; margin: 36px 0 6px; color: #e3e7f1; }
 .hero-sub { color: #8b93a8; font-size: 14px; margin: 0 0 22px; }
 .home-grid {
     display: grid;
@@ -640,6 +641,113 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .home-card .gn { font-size: 16px; font-weight: 700; margin-top: 8px; }
 .home-card .gd { font-size: 12px; color: #8b93a8; margin-top: 4px; }
 .home-card .game-dev-notice { margin-top: 8px; }
+
+/* 🚀 Khởi động nhanh — quick launch card grid trên Home */
+.quick-launch {
+    background: linear-gradient(135deg, #1a1f2e 0%, #1f1525 100%);
+    border: 1px solid #2a3046;
+    border-radius: 16px;
+    padding: 22px 24px 24px;
+    margin-bottom: 28px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.quick-launch-head h1 {
+    font-size: 22px;
+    margin: 0 0 6px;
+    background: linear-gradient(90deg, #ff6b3d, #ff3d7f);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    display: inline-block;
+}
+.quick-launch-head .hero-sub { margin-bottom: 18px; font-size: 13px; }
+.quick-launch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+.ql-card {
+    background: #1a1e2a;
+    border: 1px solid #262c3c;
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color .15s ease, transform .1s ease, box-shadow .15s ease;
+    position: relative;
+}
+.ql-card:hover { border-color: #3a4359; transform: translateY(-1px); }
+.ql-card.is-on { border-color: #23a85f; box-shadow: 0 0 0 1px #23a85f33, 0 4px 12px rgba(35, 168, 95, 0.15); }
+.ql-card.is-off { opacity: 0.85; }
+.ql-card-head { display: flex; align-items: center; gap: 10px; }
+.ql-card-ico { font-size: 28px; line-height: 1; flex-shrink: 0; }
+.ql-card-meta { flex: 1; min-width: 0; }
+.ql-card-name { font-size: 14px; font-weight: 700; color: #e3e7f1; line-height: 1.25; }
+.ql-card-state {
+    font-size: 11px;
+    margin-top: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.ql-card-state.on { color: #34d77a; }
+.ql-card-state.off { color: #8b93a8; }
+.ql-card-state .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+}
+.ql-card-actions { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+.ql-btn {
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s ease, transform .05s ease;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+.ql-btn:active { transform: scale(0.97); }
+.ql-btn-start { background: #23a85f; color: #fff; }
+.ql-btn-start:hover { background: #2bbf6e; }
+.ql-btn-start:disabled { background: #1f3a2a; color: #6b7785; cursor: not-allowed; }
+.ql-btn-stop { background: #c63d3d; color: #fff; }
+.ql-btn-stop:hover { background: #d94747; }
+.ql-btn-stop:disabled { background: #3a2026; color: #6b7785; cursor: not-allowed; }
+.ql-btn-open {
+    background: #262c3c;
+    color: #c8cee0;
+    padding: 8px;
+    min-width: 34px;
+}
+.ql-btn-open:hover { background: #2f3650; }
+
+/* 🚀 FAB nổi góc dưới-phải — luôn hiện trên mọi view (kể cả khi đang chơi game) */
+.quick-launch-fab {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    z-index: 9700;
+    background: linear-gradient(135deg, #ff6b3d, #ff3d7f);
+    color: #fff;
+    font-size: 26px;
+    box-shadow: 0 8px 24px rgba(255, 61, 127, 0.4), 0 0 0 3px rgba(255, 107, 61, 0.18);
+    transition: transform .12s ease, box-shadow .15s ease;
+    display: flex; align-items: center; justify-content: center;
+}
+.quick-launch-fab:hover { transform: scale(1.08); box-shadow: 0 10px 30px rgba(255, 61, 127, 0.55), 0 0 0 4px rgba(255, 107, 61, 0.25); }
+.quick-launch-fab:active { transform: scale(0.95); }
 
 /* Game view */
 .game-view { padding: 14px; gap: 12px; overflow: hidden; }

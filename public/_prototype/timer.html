@@ -2154,6 +2154,29 @@
     // Sync trgEnabled checkbox với cfg
     const trgEn = $('trgEnabled'); if (trgEn) trgEn.checked = cfg.triggers.enabled !== false;
 
+    // 🚀 Bridge từ cửa sổ Khởi động nhanh — app chính postMessage vào iframe.
+    //   start = bắt đầu / tiếp tục (resume từ paused)
+    //   stop  = pause (giữ pausedRemain để resume sau)
+    //   reset = chạy lại từ đầu (xóa pausedRemain, reset duration từ inputs)
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || d.type !== 'quickLaunch') return;
+      if (d.action === 'start') {
+        if (state.running) return;
+        if (state.pausedRemain > 0) resumeTimer();
+        else startTimer();
+        updateStartBtn();
+      } else if (d.action === 'stop') {
+        if (state.running) { pauseTimer(); updateStartBtn(); }
+      } else if (d.action === 'reset') {
+        // Reset về duration mới từ inputs, rồi auto-start ngay → user không cần bấm Bắt đầu lại
+        resetTimer();
+        // Đọc lại duration từ inputs sau resetTimer (cfg.durationSec đã được cập nhật)
+        startTimer();
+        updateStartBtn();
+      }
+    });
+
     // Socket
     if (typeof io !== 'undefined') {
       _sock = io({ transports: ['websocket','polling'] });

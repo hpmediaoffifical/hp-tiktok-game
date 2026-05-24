@@ -14,6 +14,7 @@ const APP_NAME = 'HP Action LIVE';
 let mainWindow = null;
 let splashWindow = null;
 let soundfxWindow = null;
+let quickLaunchWindow = null;
 let tray = null;
 let serverStarted = false;
 let isQuitting = false;
@@ -184,6 +185,11 @@ function createMainWindow() {
         // /soundfx → mở cửa sổ soundboard nổi riêng (always-on-top, resize)
         if (url === `${APP_URL}/soundfx` || url.startsWith(`${APP_URL}/soundfx`)) {
             openSoundfxWindow();
+            return { action: 'deny' };
+        }
+        // /quick-launch → cửa sổ điều khiển nhanh tách rời (always-on-top)
+        if (url === `${APP_URL}/quick-launch` || url.startsWith(`${APP_URL}/quick-launch`)) {
+            openQuickLaunchWindow();
             return { action: 'deny' };
         }
         if (url.startsWith(APP_URL)) {
@@ -511,6 +517,101 @@ ipcMain.on('sfx:setBounds', (e, b) => {
 });
 // Main app mở SoundFX qua IPC
 ipcMain.on('open-soundfx', () => openSoundfxWindow());
+
+// ============================================================
+// 🚀 Quick Launch — cửa sổ điều khiển nhanh tách rời, always-on-top
+// ============================================================
+// Nhỏ gọn, pin-able, lưu bounds + alwaysOnTop qua phiên (file disk dưới userData).
+// User minimize main window → vẫn dùng được cửa sổ này để chạy nhanh nút Bắt đầu/Tắt.
+function getQuickLaunchPrefsPath() {
+    try { return path.join(app.getPath('userData'), 'data', 'quick-launch.json'); }
+    catch { return null; }
+}
+function loadQuickLaunchPrefs() {
+    try {
+        const p = getQuickLaunchPrefsPath();
+        if (!p || !fs.existsSync(p)) return {};
+        return JSON.parse(fs.readFileSync(p, 'utf8')) || {};
+    } catch { return {}; }
+}
+let qlSaveTimer = null;
+function saveQuickLaunchPrefs(patch) {
+    // Debounce 250ms — move/resize emit liên tục, tránh ghi disk dồn dập
+    if (qlSaveTimer) clearTimeout(qlSaveTimer);
+    qlSaveTimer = setTimeout(() => {
+        try {
+            const p = getQuickLaunchPrefsPath();
+            if (!p) return;
+            const dir = path.dirname(p);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            const cur = loadQuickLaunchPrefs();
+            const next = { ...cur, ...patch };
+            fs.writeFileSync(p, JSON.stringify(next, null, 2), 'utf8');
+        } catch (e) { /* swallow */ }
+    }, 250);
+}
+function openQuickLaunchWindow() {
+    if (quickLaunchWindow && !quickLaunchWindow.isDestroyed()) {
+        quickLaunchWindow.show(); quickLaunchWindow.focus(); return;
+    }
+    const prefs = loadQuickLaunchPrefs();
+    const opts = {
+        width: Math.max(320, parseInt(prefs.w, 10) || 380),
+        height: Math.max(360, parseInt(prefs.h, 10) || 560),
+        minWidth: 320,
+        minHeight: 360,
+        resizable: true,
+        maximizable: false,
+        fullscreenable: false,
+        title: 'HP — Khởi động nhanh',
+        icon: getIcon(),
+        backgroundColor: '#0b0d12',
+        alwaysOnTop: prefs.alwaysOnTop !== false,   // mặc định Pin = on
+        autoHideMenuBar: true,
+        frame: false,
+        skipTaskbar: false,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            sandbox: false,
+            preload: path.join(__dirname, 'quick-launch-preload.js')
+        }
+    };
+    if (Number.isFinite(prefs.x) && Number.isFinite(prefs.y)) {
+        opts.x = prefs.x; opts.y = prefs.y;
+    }
+    quickLaunchWindow = new BrowserWindow(opts);
+    quickLaunchWindow.loadURL(`${APP_URL}/quick-launch`);
+    quickLaunchWindow.once('ready-to-show', () => {
+        // Báo renderer biết trạng thái Pin lúc khởi tạo để sync UI nút 📌
+        try { quickLaunchWindow.webContents.send('quick-launch:initPin', opts.alwaysOnTop); } catch {}
+        quickLaunchWindow.show();
+    });
+    const persistBounds = () => {
+        if (!quickLaunchWindow || quickLaunchWindow.isDestroyed()) return;
+        try {
+            const b = quickLaunchWindow.getBounds();
+            saveQuickLaunchPrefs({ x: b.x, y: b.y, w: b.width, h: b.height });
+        } catch {}
+    };
+    quickLaunchWindow.on('moved',  persistBounds);
+    quickLaunchWindow.on('resize', persistBounds);
+    quickLaunchWindow.on('close', persistBounds);
+    quickLaunchWindow.on('closed', () => { quickLaunchWindow = null; });
+    quickLaunchWindow.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url); return { action: 'deny' };
+    });
+}
+ipcMain.on('quick-launch:setAlwaysOnTop', (e, on) => {
+    if (quickLaunchWindow && !quickLaunchWindow.isDestroyed()) {
+        quickLaunchWindow.setAlwaysOnTop(!!on);
+        saveQuickLaunchPrefs({ alwaysOnTop: !!on });
+    }
+});
+ipcMain.on('quick-launch:close', () => {
+    if (quickLaunchWindow && !quickLaunchWindow.isDestroyed()) quickLaunchWindow.close();
+});
+ipcMain.on('open-quick-launch', () => openQuickLaunchWindow());
 
 // 📂 Chọn file audio từ máy
 ipcMain.handle('sfx:pickAudio', async () => {

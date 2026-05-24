@@ -81,7 +81,16 @@
             <!-- HERO khi chưa chọn game -->
             <section id="view-home" class="view active">
                 <div class="hero">
-                    <h1>Thư viện Game TikTok LIVE</h1>
+                    <!-- 🚀 KHỞI ĐỘNG NHANH — bảng điều khiển cho các game đã cấu hình sẵn -->
+                    <section class="quick-launch">
+                        <div class="quick-launch-head">
+                            <h1>🚀 Khởi động nhanh</h1>
+                            <p class="hero-sub">Đã cài đặt sẵn — bấm <b>▶ Bắt đầu</b> để bật ngay, <b>⏹ Tắt</b> để ngừng, <b>⚙ Mở</b> để vào cài đặt chi tiết.</p>
+                        </div>
+                        <div id="quick-launch-grid" class="quick-launch-grid"></div>
+                    </section>
+
+                    <h2 class="hero-h2">📚 Thư viện Game TikTok LIVE</h2>
                     <p class="hero-sub">Chọn game ở khung bên trái để bắt đầu. Mỗi game có link overlay riêng để gắn vào OBS với nền trong suốt.</p>
                     <div id="home-grid" class="home-grid"></div>
                 </div>
@@ -126,7 +135,7 @@
                     </script>
                 </header>
                 <div style="padding:0; flex:1; min-height:0;">
-                    <iframe id="lq-frame" src="/_prototype/level-quest.html" style="width:100%; height:calc(100vh - 80px); border:0; display:block; background:#fafafa;" loading="lazy"></iframe>
+                    <iframe id="lq-frame" src="/_prototype/level-quest.html" style="width:100%; height:calc(100vh - 80px); border:0; display:block; background:#fafafa;"></iframe>
                 </div>
             </section>
 
@@ -169,7 +178,7 @@
                     </script>
                 </header>
                 <div style="padding:0; flex:1; min-height:0;">
-                    <iframe id="timer-frame" src="/_prototype/timer.html" style="width:100%; height:calc(100vh - 80px); border:0; display:block; background:#eef2f7;" loading="lazy"></iframe>
+                    <iframe id="timer-frame" src="/_prototype/timer.html" style="width:100%; height:calc(100vh - 80px); border:0; display:block; background:#eef2f7;"></iframe>
                 </div>
             </section>
 
@@ -1472,6 +1481,11 @@
             </section>
         </main>
     </div>
+
+    <!-- 🚀 FAB Khởi động nhanh — click mở cửa sổ tách rời (always-on-top), tiện minimize app chính -->
+    <button id="quick-launch-fab" class="quick-launch-fab" title="🚀 Khởi động nhanh — mở cửa sổ điều khiển rời để dùng nhanh khi minimize app">
+        🚀
+    </button>
 
     <!-- Floating: quà mới phát hiện (không có trong Google Sheet) — luôn hiện để user
          truy cập được kể cả khi chưa có quà nào. Badge chỉ hiện khi count > 0. -->

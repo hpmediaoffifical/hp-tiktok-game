@@ -1409,6 +1409,21 @@ updateVisibility();
 render();
 updateTimerBtn();   // sync nút BẮT ĐẦU/DỪNG (mặc định BẮT ĐẦU vì timer không auto chạy)
 
+// 🚀 Bridge từ cửa sổ Khởi động nhanh — app chính postMessage vào iframe.
+//   start = bật quest (toggleQuestTimer nếu chưa active)
+//   stop  = dừng quest (toggleQuestTimer nếu đang active)
+//   reset = clear state + auto-start quest mới
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || d.type !== 'quickLaunch') return;
+  if (d.action === 'start' && !state.timerActive) toggleQuestTimer();
+  else if (d.action === 'stop' && state.timerActive) toggleQuestTimer();
+  else if (d.action === 'reset') {
+    resetAll();          // xóa level/dia/heart/share, tắt timer cũ
+    toggleQuestTimer();  // bắt đầu quest mới ngay
+  }
+});
+
 // CẢ 2 MODE đều connect socket (LAB ghi state, OVERLAY chỉ nhận broadcast)
 bootSocket();
 

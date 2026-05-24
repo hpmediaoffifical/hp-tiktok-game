@@ -4192,6 +4192,10 @@ try {
     console.warn('[soundfx] không mount được:', e.message);
 }
 
+// ====== 🚀 Quick Launch — cửa sổ điều khiển nhanh tách rời, always-on-top ======
+app.get('/quick-launch', (req, res) =>
+    res.sendFile(path.join(__dirname, 'public', 'quick-launch.html')));
+
 // Default index
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -4205,6 +4209,9 @@ io.on('connection', (socket) => {
     socket.emit('translate:config', sanitizeLiveTranslateConfig(appConfig.liveTranslate));
     socket.emit('translate:rules', getCommentRulesMeta());
     socket.emit('creatorCaption:config', sanitizeCreatorCaptionConfig(appConfig.creatorCaption));
+    // Quick Launch cần biết Vote Bình Luận đang chạy phiên không — gửi snapshot ngay
+    // khi connect (kể cả cửa sổ Khởi động nhanh mở giữa chừng) thay vì chờ broadcast tiếp.
+    socket.emit('votecomment:state', voteCommentSnapshot());
 
     socket.on('creatorCaption:speech', (payload) => {
         processCreatorCaptionSpeech(payload).catch(e => console.warn('[creator-caption] translate failed:', e.message));
@@ -4221,6 +4228,16 @@ io.on('connection', (socket) => {
     socket.on('timer:cfg',     (data) => { socket.broadcast.emit('timer:cfg',     data); });
     socket.on('timer:state',   (data) => { socket.broadcast.emit('timer:state',   data); });
     socket.on('timer:trigger', (data) => { socket.broadcast.emit('timer:trigger', data); });
+
+    // 🚀 Quick Launch — cửa sổ rời emit lệnh start/stop → server forward tới app chính để
+    // chạy logic thật của từng game (openRegistration cho caro, postMessage iframe cho
+    // level-quest/timer, click translate-toggle cho liveTranslate, control endpoint cho
+    // votecomment). Broadcast tới MỌI client (kể cả sender) để app chính phản hồi nếu nó
+    // chính là nguồn phát; cửa sổ rời tự ignore (kiểm tra trong handler client).
+    socket.on('quickLaunch:cmd', (data) => { io.emit('quickLaunch:cmd', data); });
+    // App chính broadcast trạng thái Đang chạy của caro + liveTranslate (heartbeat 2s + on-change).
+    // Cửa sổ Khởi động nhanh listen để cập nhật chip "Đang chạy" / "Sẵn sàng".
+    socket.on('quickLaunch:status', (data) => { socket.broadcast.emit('quickLaunch:status', data); });
 
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {

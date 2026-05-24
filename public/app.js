@@ -125,6 +125,8 @@
         lstatShare: $('#lstat-share'),
         gameList: $('#game-list'),
         homeGrid: $('#home-grid'),
+        quickLaunchGrid: $('#quick-launch-grid'),
+        quickLaunchFab: $('#quick-launch-fab'),
         giftCountHint: $('#gift-count-hint'),
         // Game view
         gTitle: $('#g-title'),
@@ -311,7 +313,7 @@
     // ===== Games =====
     const GAME_DEVELOPMENT_NOTICE = 'Đang phát triển, có thể gặp sự cố...';
     // Whitelist game đã ổn định — không hiển thị cảnh báo "Đang phát triển"
-    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer']);
+    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer', 'liveTranslate']);
 
     function renderGameDevelopmentNotice(game) {
         if (STABLE_GAMES.has(game.id)) return '';
@@ -331,6 +333,7 @@
         });
         renderGameList();
         renderHomeGrid();
+        renderQuickLaunch();
     }
     function renderGameList() {
         dom.gameList.innerHTML = '';
@@ -365,6 +368,7 @@
                 if (g.virtual) {
                     localStorage.setItem('hp-live-translate-tool-enabled', next ? 'true' : 'false');
                     if (g.config) g.config.enabled = next;
+                    updateQuickLaunchCardState(g.id);
                     if (!next) {
                         if (ltEnabled) ltEnabled.checked = false;
                         if (ccEnabled) ccEnabled.checked = false;
@@ -385,6 +389,7 @@
                         currentGame.config = { ...(currentGame.config || {}), enabled: next };
                         if (gameInstance && g.id === 'thuytinh') gameInstance.setConfig({ enabled: next });
                     }
+                    updateQuickLaunchCardState(g.id);
                 } catch (err) {
                     // revert
                     btn.classList.toggle('on', !next);
@@ -404,6 +409,220 @@
                 ${renderGameDevelopmentNotice(g)}`;
             card.addEventListener('click', () => openGame(g.id));
             dom.homeGrid.appendChild(card);
+        }
+    }
+
+    // ===== 🚀 Khởi động nhanh =====
+    // Grid chỉ chứa các game đã ổn định (STABLE_GAMES). Mỗi card:
+    //   ▶ Bắt đầu  → POST enabled=true (hoặc set localStorage cho liveTranslate virtual)
+    //   ⏹ Tắt     → POST enabled=false
+    //   ⚙ Mở      → vào game view chi tiết
+    // State indicator tự re-render khi config thay đổi (qua updateQuickLaunchCardState).
+    function quickLaunchEntries() {
+        return games.filter(g => STABLE_GAMES.has(g.id));
+    }
+    function isGameEnabled(g) {
+        const cfg = g.config || {};
+        return !('enabled' in cfg) || cfg.enabled !== false;
+    }
+    function buildQuickLaunchCard(g) {
+        const enabled = isGameEnabled(g);
+        const card = document.createElement('div');
+        card.className = 'ql-card ' + (enabled ? 'is-on' : 'is-off');
+        card.dataset.gameId = g.id;
+        card.innerHTML = `
+            <div class="ql-card-head">
+                <span class="ql-card-ico">${g.icon}</span>
+                <div class="ql-card-meta">
+                    <div class="ql-card-name">${g.name}</div>
+                    <span class="ql-card-state ${enabled ? 'on' : 'off'}">
+                        <span class="dot"></span>
+                        <span class="ql-card-state-text">${enabled ? 'Đang BẬT' : 'Đang TẮT'}</span>
+                    </span>
+                </div>
+            </div>
+            <div class="ql-card-actions">
+                <button class="ql-btn ql-btn-start" data-action="start" ${enabled ? 'disabled' : ''} title="Bật game ngay">▶ Bắt đầu</button>
+                <button class="ql-btn ql-btn-stop"  data-action="stop"  ${enabled ? '' : 'disabled'} title="Tắt game">⏹ Tắt</button>
+                <button class="ql-btn ql-btn-open"  data-action="open"  title="Mở cài đặt chi tiết">⚙</button>
+            </div>
+        `;
+        card.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.dataset.action;
+            if (action === 'open') { openGame(g.id); return; }
+            // Đọc state HIỆN TẠI (g.config có thể đã đổi sau khi user vừa bấm) — KHÔNG dùng closure `enabled`
+            const curOn = isGameEnabled(g);
+            if (action === 'start' && !curOn) setGameEnabled(g, true);
+            else if (action === 'stop' && curOn) setGameEnabled(g, false);
+        });
+        return card;
+    }
+    function renderQuickLaunch() {
+        const host = dom.quickLaunchGrid;
+        if (!host) return;
+        host.innerHTML = '';
+        for (const g of quickLaunchEntries()) host.appendChild(buildQuickLaunchCard(g));
+    }
+    function updateQuickLaunchCardState(gameId) {
+        // Cả 2 grid (Home + popup) phải sync — selectAll thay vì querySelector
+        const cards = document.querySelectorAll(`.ql-card[data-game-id="${gameId}"]`);
+        if (!cards.length) return;
+        const g = games.find(x => x.id === gameId);
+        if (!g) return;
+        const enabled = isGameEnabled(g);
+        cards.forEach(card => {
+            card.classList.toggle('is-on', enabled);
+            card.classList.toggle('is-off', !enabled);
+            const state = card.querySelector('.ql-card-state');
+            const stateText = card.querySelector('.ql-card-state-text');
+            if (state) { state.classList.toggle('on', enabled); state.classList.toggle('off', !enabled); }
+            if (stateText) stateText.textContent = enabled ? 'Đang BẬT' : 'Đang TẮT';
+            const startBtn = card.querySelector('.ql-btn-start');
+            const stopBtn = card.querySelector('.ql-btn-stop');
+            if (startBtn) startBtn.disabled = enabled;
+            if (stopBtn) stopBtn.disabled = !enabled;
+        });
+    }
+    // FAB click → mở cửa sổ Khởi động nhanh tách rời. Trong Electron, setWindowOpenHandler
+    // catch URL /quick-launch và tạo BrowserWindow always-on-top (xem electron-main.js).
+    // Trong browser thường → window.open mở tab/popup mới với size hint.
+    function bindQuickLaunchFab() {
+        const fab = dom.quickLaunchFab;
+        if (!fab) return;
+        fab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.open('/quick-launch', '_blank', 'width=380,height=560,resizable=yes,scrollbars=no');
+        });
+    }
+    bindQuickLaunchFab();
+
+    // === Quick Launch action dispatcher — 3 action: start / stop / reset
+    //   start  = bấm BẮT ĐẦU / tiếp tục phiên (resume từ paused)
+    //   stop   = bấm DỪNG (pause, giữ tiến trình)
+    //   reset  = chạy lại từ đầu (xóa tiến trình)
+    // KHÔNG đụng sidebar toggle ⏻ (Bật/Tắt overlay OBS — khác việc start session). ===
+    async function handleQuickLaunchCmd({ gameId, action }) {
+        switch (gameId) {
+            case 'thuytinh':
+                // Game không có khái niệm "start/stop session" — quà tự rơi khi enabled.
+                // reset = "↺ HŨ MỚI" (xóa quà + reset counters). start/stop = no-op.
+                if (action === 'reset') {
+                    try {
+                        gameInstance?.resetSession?.();
+                        sendCmd?.('resetSession');   // broadcast OBS overlay
+                    } catch (e) { console.warn('[quick-launch] thuytinh reset fail:', e); }
+                }
+                break;
+            case 'caro':
+                try {
+                    const caro = window.HpCaroPanel?.instance?.();
+                    if (!caro) break;
+                    if (action === 'start') caro.openRegistration?.();
+                    else if (action === 'stop')  caro.closeRegistration?.();
+                    else if (action === 'reset') caro.newGame?.();   // về phase setup
+                } catch (e) { console.warn('[quick-launch] caro action fail:', e); }
+                break;
+            case 'votecomment':
+                try {
+                    await fetch('/api/games/votecomment/control', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cmd: action })   // 'start' | 'stop' | 'reset'
+                    });
+                } catch (e) { console.warn('[quick-launch] votecomment control fail:', e); }
+                break;
+            case 'level-quest': {
+                const f = document.getElementById('lq-frame');
+                try { f?.contentWindow?.postMessage({ type: 'quickLaunch', action }, '*'); } catch (e) {}
+                break;
+            }
+            case 'timer': {
+                const f = document.getElementById('timer-frame');
+                try { f?.contentWindow?.postMessage({ type: 'quickLaunch', action }, '*'); } catch (e) {}
+                break;
+            }
+            case 'liveTranslate':
+                // Không có session "running" — chỉ on/off. start = bật + tick lt-tts.
+                // stop + reset = tắt (reset không có thêm semantics khác).
+                if (action === 'start') {
+                    if (ltTts) ltTts.checked = true;
+                    try { await setLiveTranslateRunning(true);  } catch (e) {}
+                } else {
+                    try { await setLiveTranslateRunning(false); } catch (e) {}
+                }
+                break;
+        }
+    }
+    socket.on('quickLaunch:cmd', handleQuickLaunchCmd);
+
+    // === Broadcast trạng thái Đang chạy của caro + liveTranslate ===
+    // Cửa sổ Khởi động nhanh cần biết game nào đang trong phiên active. Các game khác đã có
+    // socket event riêng (votecomment:state, timer:state, levelquest:state). Caro + liveTranslate
+    // là client-side → main app phải tự broadcast. Dùng heartbeat 2s để bắt cả case cửa sổ rời
+    // mở giữa chừng (snapshot tới ngay trong vòng 2s).
+    function caroIsRunning() {
+        try {
+            const caro = window.HpCaroPanel?.instance?.();
+            const st = caro?.getState?.();
+            if (!st) return false;
+            // Đang trong vòng ghi danh mở, đang chọn đối thủ, hoặc đang thi đấu → coi là RUNNING
+            if (st.phase === 'registration' && st.registration?.open) return true;
+            if (st.phase === 'picking' || st.phase === 'playing') return true;
+            return false;
+        } catch { return false; }
+    }
+    function liveTranslateIsRunning() {
+        try {
+            // ltEnabled checkbox = nguồn sự thật cho "đang dịch + đọc TTS"
+            return !!ltEnabled?.checked;
+        } catch { return false; }
+    }
+    function emitQuickLaunchStatus() {
+        if (!socket.connected) return;
+        socket.emit('quickLaunch:status', { gameId: 'caro',          running: caroIsRunning() });
+        socket.emit('quickLaunch:status', { gameId: 'liveTranslate', running: liveTranslateIsRunning() });
+    }
+    setInterval(emitQuickLaunchStatus, 2000);
+    // Emit ngay khi 1 trong 2 thay đổi để không bị delay 2s
+    socket.on('translate:config', () => emitQuickLaunchStatus());
+    async function setGameEnabled(g, next) {
+        // Optimistic UI
+        if (g.config) g.config.enabled = next;
+        updateQuickLaunchCardState(g.id);
+        // Sync với sidebar toggle (cùng UI state)
+        const sideBtn = document.querySelector(`[data-game-toggle="${g.id}"]`);
+        if (sideBtn) {
+            sideBtn.classList.toggle('on', next);
+            sideBtn.classList.toggle('off', !next);
+            sideBtn.title = next ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT';
+        }
+        // Virtual tool (liveTranslate) dùng localStorage thay vì server config
+        if (g.virtual) {
+            localStorage.setItem('hp-live-translate-tool-enabled', next ? 'true' : 'false');
+            if (!next) {
+                if (typeof ltEnabled !== 'undefined' && ltEnabled) ltEnabled.checked = false;
+                if (typeof ccEnabled !== 'undefined' && ccEnabled) ccEnabled.checked = false;
+                if (typeof stopCreatorCaptionListening === 'function') stopCreatorCaptionListening();
+                if (typeof saveLiveTranslateConfig === 'function') saveLiveTranslateConfig({ silent: true });
+                if (typeof saveCreatorCaptionConfig === 'function') saveCreatorCaptionConfig().catch(() => {});
+            }
+            return;
+        }
+        try {
+            await fetch(`/api/games/${g.id}/config`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: next })
+            });
+            if (currentGame?.id === g.id) {
+                currentGame.config = { ...(currentGame.config || {}), enabled: next };
+                if (gameInstance && g.id === 'thuytinh') gameInstance.setConfig({ enabled: next });
+            }
+        } catch (err) {
+            // Revert UI on failure
+            if (g.config) g.config.enabled = !next;
+            updateQuickLaunchCardState(g.id);
         }
     }
     function highlightActiveGame(gameId) {
@@ -2561,6 +2780,12 @@
     });
 
     socket.on('gameConfig', ({ gameId, config }) => {
+        // Sync config trong games[] để quick-launch + sidebar phản ánh đúng state
+        const targetGame = games.find(x => x.id === gameId);
+        if (targetGame) {
+            targetGame.config = config;
+            updateQuickLaunchCardState(gameId);
+        }
         if (!gameInstance || gameId !== currentGame?.id) return;
         currentGame.config = config;
         // Bỏ qua echo của save vừa thực hiện (1.5s) — tránh overwrite local state đang edit
