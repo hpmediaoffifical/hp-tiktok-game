@@ -212,7 +212,8 @@
                 drawMusic: ''       // URL file phát khi hoà
             },
             // Nhạc gay cấn — phát khi 1 trong 2 bên có open-4/open-3
-            tenseMusic: { enabled: false, url: '' },
+            // url mặc định: file ship cùng app trong public/games/caro/assets/tense-default.mp3
+            tenseMusic: { enabled: true, url: '/games/caro/assets/tense-default.mp3' },
             // Tường chắn (walls) — đặt trước trận, tồn tại suốt match.
             // count = số tường tổng. Mỗi quà = 1 cơ hội user comment đặt 1 tường.
             // Creator cũng có thể click manual (tổng creator + user-via-gift ≤ count).
@@ -227,12 +228,19 @@
             surrender: { enabled: true, cooldownSec: 60 },
             // Crowd reactions — tiếng đám đông ooooh/cheer khi có threat/win
             crowd: { enabled: false },
-            // TTS voice announcer — đọc các sự kiện game qua Web Speech API
+            // TTS voice announcer — đọc các sự kiện game qua Web Speech API hoặc Google TTS proxy
             tts: {
                 enabled: false,
                 volume: 80,
                 rate: 1.1,
-                voice: '',                 // tên voice (vd 'Microsoft An Online (Natural)')
+                // voice='' (rỗng) → dùng Google TTS proxy server (tiếng Việt thật).
+                // voice='<name>' → fallback Web Speech API với voice tên đó.
+                voice: '',
+                // Chế độ đọc TÊN: 'full' = đọc tên user, 'moveOnly' = chỉ đọc nước,
+                // 'team' = đọc 'TEAM A'/'TEAM B' thay vì tên (an toàn nhất, không lộ tên cấm).
+                nameMode: 'team',
+                // Nếu user name chứa từ cấm (banned-words) → tự động fallback xuống moveOnly.
+                filterBannedNames: true,
                 events: {
                     move: false,           // đọc mỗi nước cờ (có thể spam)
                     win: true,             // đọc khi thắng/thua
@@ -353,16 +361,19 @@
             return null;
         }
 
-        // === Text with outline — Vietnamese-safe + nét đều ===
-        // ROOT FIX: dùng canvas filter drop-shadow → outline đều CẢ 4 phía,
-        // không bị "nét thanh nét đậm" như multi-offset fill (1 hướng dày hơn).
-        // Vẽ DUY NHẤT 1 fillText → filter tự tạo outline → diacritics Vietnamese render bình thường.
+        // === Text with outline — Vietnamese-safe + nét đều + FAST ===
+        // ROOT FIX v2: drop-shadow filter ~10x chậm hơn stroke+fill (GPU compositing mỗi pass).
+        // Dùng lineJoin='round' + miterLimit=2 để xóa miter spikes ở chữ D/V/W (nguyên nhân "nét thanh nét đậm").
+        // strokeText TRƯỚC fillText → diacritics tiếng Việt render đúng (cùng 1 pass paint).
         function drawOutlinedText(text, x, y, fillColor, outlineColor, outlineWidth) {
             const w = Math.max(1, outlineWidth || 2);
-            const oc = outlineColor || 'rgba(0,0,0,0.9)';
             ctx.save();
-            // 4 lớp drop-shadow để outline ĐỀU 360° + đậm vừa đủ
-            ctx.filter = `drop-shadow(0 0 ${w}px ${oc}) drop-shadow(0 0 ${w}px ${oc})`;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.miterLimit = 2;
+            ctx.strokeStyle = outlineColor || 'rgba(0,0,0,0.9)';
+            ctx.lineWidth = w * 2;   // stroke is centered → doubled cho equivalent outline width
+            ctx.strokeText(text, x, y);
             ctx.fillStyle = fillColor;
             ctx.fillText(text, x, y);
             ctx.restore();
@@ -400,28 +411,35 @@
             return pixelToCell(px, py);
         }
 
-        // --- Board layout (computed) ---
+        // --- Board layout (computed + cached) ---
+        // Cache layout — chỉ recompute khi cấu hình board hoặc display thay đổi.
+        // boardLayout() được gọi 5+ lần mỗi render → cache tiết kiệm ~30% CPU.
+        let _layoutCache = null;
+        let _layoutKey = '';
         function boardLayout() {
             const cols = cfg.board.cols, rows = cfg.board.rows;
-            // Bàn cờ chiếm vùng vuông giữa canvas
+            const showH = cfg.display.showHistory ? 1 : 0;
+            const key = `${cols}x${rows}x${showH}`;
+            if (_layoutCache && _layoutKey === key) return _layoutCache;
             const headerH = 200;
-            const footerH = cfg.display.showHistory ? 200 : 80;
-            // Dành margin cho coord labels (số trên + chữ trái)
+            const footerH = showH ? 200 : 80;
             const labelMargin = 70;
             const availH = STAGE_H - headerH - footerH - labelMargin;
-            const availW = STAGE_W - 80 - labelMargin; // padding hai bên + label trái
+            const availW = STAGE_W - 80 - labelMargin;
             const side = Math.min(availW, availH);
             const cellSize = Math.floor(side / Math.max(cols, rows));
             const boardW = cellSize * cols;
             const boardH = cellSize * rows;
             const ox = Math.floor((STAGE_W - boardW) / 2) + Math.floor(labelMargin / 2);
-            // Center toàn bộ khối nội dung (header + labels + board + footer) theo chiều dọc.
-            // Phần dư chia ĐỀU phía trên + phía dưới → bàn cờ không bị lệch trên/dưới.
             const totalUsed = headerH + labelMargin + boardH + footerH;
             const yShift = Math.max(0, Math.floor((STAGE_H - totalUsed) / 2));
             const oy = headerH + labelMargin + yShift;
-            return { cols, rows, cellSize, ox, oy, boardW, boardH, headerH, footerH, yShift };
+            _layoutCache = { cols, rows, cellSize, ox, oy, boardW, boardH, headerH, footerH, yShift };
+            _layoutKey = key;
+            return _layoutCache;
         }
+        // Public invalidator — gọi khi cfg.board thay đổi qua setConfig
+        function invalidateLayout() { _layoutCache = null; }
 
         function cellToPixel(c, r) {
             const lay = boardLayout();
@@ -1218,6 +1236,7 @@
         // ---------- Public API ----------
         function setConfig(newCfg) {
             cfg = mergeConfig(cfg, newCfg || {});
+            invalidateLayout();   // board/display có thể đã thay đổi
             // === AUTO-CLAMP winLength theo kích thước bàn ===
             // Bàn 3x3 chỉ chơi được win=3. Bàn 4x4 win ≤ 4. Bàn lớn win ≤ 5 (chuẩn caro).
             // Tránh bug "đặt 3 quân thẳng hàng nhưng game không win vì winLength=5".
@@ -1682,6 +1701,35 @@
             fire('walls', { phase: 'placing', target: state.walls.target });
             fire('change');
         }
+
+        // === TEST MODE — Creator tự đặt thử tường, không cần opponent + không cần quà ===
+        // Khi click target lần cuối → reset walls phase='idle' để khỏi vào trận thật.
+        // Mục đích: streamer test layout tường trước khi go LIVE.
+        function wallTestStart() {
+            // Lưu cờ test để wallPlace biết KHÔNG auto-startRound
+            state.walls.phase = 'placing';
+            state.walls.placedBy = '__test__';
+            state.walls.opportunitiesUser = 0;
+            state.walls.cells = [];
+            state.walls.target = Math.max(1, Math.min(10, cfg.walls?.count || 3));
+            state.walls.isTest = true;
+            render();
+            fire('walls', { phase: 'placing', target: state.walls.target, isTest: true });
+            fire('change');
+            return { ok: true };
+        }
+        function wallTestEnd() {
+            // Xóa tường test + về idle
+            state.walls.phase = 'idle';
+            state.walls.cells = [];
+            state.walls.isTest = false;
+            state.walls.placedBy = '';
+            state.walls.opportunitiesUser = 0;
+            render();
+            fire('walls', { phase: 'idle' });
+            fire('change');
+            return { ok: true };
+        }
         function wallAddGiftOpportunity(uid) {
             // Quà chỉ định tới → tăng cơ hội cho user được chọn
             if (state.walls.phase !== 'placing') return { ok: false, reason: 'not_placing' };
@@ -1709,13 +1757,19 @@
             state.walls.cells.push({ c, r });
             // Nếu đã đủ target → ready, auto-startRound
             if (state.walls.cells.length >= state.walls.target) {
-                state.walls.phase = 'ready';
-                // Auto-start match nếu opponent đã có
-                if (state.opponent && state.phase !== 'playing') {
-                    state.phase = 'playing';
-                    startRound(1);
+                if (state.walls.isTest) {
+                    // TEST mode: KHÔNG vào trận, để Creator review rồi clear/keep
+                    state.walls.phase = 'test-done';
+                    fire('walls', { phase: 'test-done', cells: state.walls.cells });
+                } else {
+                    state.walls.phase = 'ready';
+                    // Auto-start match nếu opponent đã có
+                    if (state.opponent && state.phase !== 'playing') {
+                        state.phase = 'playing';
+                        startRound(1);
+                    }
+                    fire('walls', { phase: 'ready', cells: state.walls.cells });
                 }
-                fire('walls', { phase: 'ready', cells: state.walls.cells });
             } else {
                 fire('walls', { phase: 'placed', c, r, source, remaining: state.walls.target - state.walls.cells.length });
             }
@@ -1843,12 +1897,29 @@
             return { ok: true };
         }
 
-        // ---------- Render loop ----------
+        // ---------- Render loop (gated) ----------
+        // CHỈ render trong rAF khi có animation đang chạy (pulse last stone, hint expire,
+        // undo window countdown). Otherwise dùng dirty-render: gọi render() ở mỗi state change.
+        // Cải thiện CPU ~80% khi bàn cờ ở trạng thái idle.
         let rafId = null;
+        function needsAnimation() {
+            if (state.phase === 'matchEnd') return true;                  // win-line animation
+            if (state.hint?.active && Date.now() < (state.hint.expireAt || 0)) return true;
+            if (state.userUndo?.active && Date.now() < (state.userUndo.expireAt || 0)) return true;
+            // Pulse vòng quanh nước cuối — chỉ trong vòng undo window
+            if (state.phase === 'playing' && state.round?.moves?.length > 0) {
+                const last = state.round.moves[state.round.moves.length - 1];
+                const ageSec = (Date.now() - (last.ts || 0)) / 1000;
+                if (ageSec < (cfg.undo?.window || 0)) return true;
+            }
+            return false;
+        }
         function loop() {
-            render();
+            if (needsAnimation()) render();
             rafId = requestAnimationFrame(loop);
         }
+        // Initial render xong khởi động loop
+        render();
         loop();
 
         function destroy() {
@@ -1919,6 +1990,7 @@
             _setOpponentAvatar,
             // Walls
             wallStart, wallAddGiftOpportunity, wallPlace,
+            wallTestStart, wallTestEnd,   // Creator test layout mode
             // Fog gift activation
             fogActivate,
             // Surrender

@@ -139,6 +139,44 @@
         }
     };
 
+    // ============ Banned-words cache — fetch từ server 1 lần khi init Caro ============
+    // Dùng để lọc tên user trong TTS (không đọc tên chứa từ cấm thành tiếng).
+    const BannedWords = {
+        list: [],          // lowercase + non-diacritic
+        loaded: false,
+        loading: null,
+        async load() {
+            if (this.loaded) return this.list;
+            if (this.loading) return this.loading;
+            this.loading = fetch('/api/comment-rules/list')
+                .then(r => r.json())
+                .then(d => {
+                    const raw = Array.isArray(d.forbiddenWords) ? d.forbiddenWords : [];
+                    this.list = raw.map(w => this._normalize(w)).filter(w => w.length >= 2);
+                    this.loaded = true;
+                    console.log('[banned] loaded', this.list.length, 'words');
+                    return this.list;
+                })
+                .catch(e => { console.warn('[banned] load fail:', e.message); return []; });
+            return this.loading;
+        },
+        _normalize(s) {
+            return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .toLowerCase().replace(/\s+/g, '').trim();
+        },
+        // Trả về true nếu text chứa bất kỳ từ cấm nào (đã normalize, bỏ dấu)
+        contains(text) {
+            if (!this.loaded || !text) return false;
+            const norm = this._normalize(text);
+            if (!norm) return false;
+            for (const w of this.list) {
+                if (norm.includes(w)) return true;
+            }
+            return false;
+        }
+    };
+    BannedWords.load();   // fire-and-forget khi panel load
+
     // ============ TTSAnnouncer — đọc tiếng Việt qua Google TTS proxy (server) ============
     // Web Speech API không có giọng tiếng Việt mặc định trên Windows.
     // Server đã có /api/live-translate/tts proxy Google TTS → dùng nó để có giọng VN thật.
@@ -155,6 +193,26 @@
             this.ensureVoices();
             return this.voices.filter(v => v.lang.toLowerCase().startsWith('vi'));
         },
+        // === Convert name (tùy nameMode) — bỏ qua tên cấm ===
+        // side: 'idol' | 'user'
+        // nickname: tên gốc (có thể chứa từ cấm)
+        // Trả về { text, skip } — nếu skip=true thì gọi-bên dùng fallback moveOnly
+        resolveName(side, nickname) {
+            const mode = cfg?.tts?.nameMode || 'team';
+            // moveOnly = không đọc tên (return empty → caller bỏ qua)
+            if (mode === 'moveOnly') return { text: '', skip: true };
+            // team = đọc TEAM A / TEAM B (an toàn, không lộ tên cấm)
+            if (mode === 'team') {
+                return { text: side === 'idol' ? 'TEAM A' : 'TEAM B', skip: false };
+            }
+            // full = đọc tên thật, NHƯNG check từ cấm nếu filterBannedNames bật
+            const safeName = String(nickname || '').trim() || (side === 'idol' ? 'TEAM A' : 'TEAM B');
+            if (cfg?.tts?.filterBannedNames !== false && BannedWords.contains(safeName)) {
+                console.log('[tts] tên có từ cấm, fallback TEAM:', safeName);
+                return { text: side === 'idol' ? 'TEAM A' : 'TEAM B', skip: false };
+            }
+            return { text: safeName, skip: false };
+        },
         speak(text) {
             if (!cfg?.tts?.enabled) return;
             if (!text || !text.trim()) return;
@@ -163,19 +221,25 @@
                 try { this.currentAudio.pause(); } catch {}
                 this.currentAudio = null;
             }
-            // Google TTS via server proxy
-            const lang = cfg.tts?.lang || 'vi';
-            const url = `/api/live-translate/tts?lang=${lang}&text=${encodeURIComponent(text)}`;
-            try {
-                const audio = new Audio(url);
-                audio.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
-                audio.playbackRate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.0));
-                this.currentAudio = audio;
-                audio.play().catch(e => {
-                    console.warn('[tts] Google fail, fallback Web Speech:', e.message);
+            // Voice = '' hoặc 'google' → dùng Google TTS proxy (tiếng Việt chuẩn)
+            const voiceName = cfg.tts?.voice || '';
+            const useGoogle = !voiceName || voiceName === 'google';
+            if (useGoogle) {
+                const lang = cfg.tts?.lang || 'vi';
+                const url = `/api/live-translate/tts?lang=${lang}&text=${encodeURIComponent(text)}`;
+                try {
+                    const audio = new Audio(url);
+                    audio.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
+                    audio.playbackRate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.0));
+                    this.currentAudio = audio;
+                    audio.play().catch(e => {
+                        console.warn('[tts] Google fail, fallback Web Speech:', e.message);
+                        this._speakWebSpeech(text);
+                    });
+                } catch (e) {
                     this._speakWebSpeech(text);
-                });
-            } catch (e) {
+                }
+            } else {
                 this._speakWebSpeech(text);
             }
         },
@@ -769,12 +833,14 @@
             }
         });
         game.on('win', (info) => {
-            const winnerName = info.side === 'idol' ? 'CREATOR' : (game.getState().opponent?.nickname || 'USER');
+            const winnerName = info.side === 'idol' ? 'TEAM A' : (game.getState().opponent?.nickname || 'TEAM B');
             logSystem(`🏆 ${winnerName} thắng!`);
             pushState();
-            // TTS announce
+            // TTS announce — tùy nameMode (full / moveOnly / team)
             if (cfg?.tts?.enabled && cfg?.tts?.events?.win) {
-                TTSAnnouncer.speak(`${winnerName} thắng hiệp này`);
+                const nm = TTSAnnouncer.resolveName(info.side, winnerName);
+                if (nm.text) TTSAnnouncer.speak(`${nm.text} thắng hiệp này`);
+                else TTSAnnouncer.speak('Hết hiệp');
             }
             // Stop tense music + play match-end music + crowd cheer
             TenseMusic.stop();
@@ -820,8 +886,11 @@
                 const st = game.getState();
                 const last = st.round.moves[st.round.moves.length - 1];
                 if (last) {
-                    const who = last.side === 'idol' ? 'CREATOR' : (st.opponent?.nickname || 'User');
-                    TTSAnnouncer.speak(`${who} đặt ${last.c + 1} ${String.fromCharCode(65 + last.r)}`);
+                    const rawName = last.side === 'idol' ? 'TEAM A' : (st.opponent?.nickname || 'TEAM B');
+                    const nm = TTSAnnouncer.resolveName(last.side, rawName);
+                    const coord = `${last.c + 1} ${String.fromCharCode(65 + last.r)}`;
+                    if (nm.text) TTSAnnouncer.speak(`${nm.text} đặt ${coord}`);
+                    else TTSAnnouncer.speak(`đặt ${coord}`);   // moveOnly mode
                 }
             }
         });
@@ -967,6 +1036,20 @@
         $('#caro-tts-enabled')?.addEventListener('change', (e) => {
             updateCfg({ tts: { enabled: e.target.checked } });
         });
+        // Name mode segmented (team / full / moveOnly)
+        const nameModeSeg = document.getElementById('caro-tts-namemode-seg');
+        if (nameModeSeg) {
+            nameModeSeg.querySelectorAll('.caro-seg-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mode = btn.dataset.v;
+                    nameModeSeg.querySelectorAll('.caro-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+                    updateCfg({ tts: { nameMode: mode } });
+                });
+            });
+        }
+        $('#caro-tts-filter-banned')?.addEventListener('change', (e) => {
+            updateCfg({ tts: { filterBannedNames: e.target.checked } });
+        });
         const ttsRate = $('#caro-tts-rate'), ttsRateV = $('#caro-tts-rate-v');
         ttsRate?.addEventListener('input', () => {
             ttsRateV.textContent = ttsRate.value + 'x';
@@ -991,6 +1074,8 @@
             TTSAnnouncer.speak('Xin chào, đây là giọng đọc tự động của Caro');
         });
         // Populate voice select khi voice list load (async trên 1 số browser)
+        // QUAN TRỌNG: luôn thêm option "🇻🇳 Tiếng Việt (Google TTS)" ở đầu — đây là giọng VN thật,
+        // không cần OS có voice VN. value='' (rỗng) = Google TTS mặc định.
         const populateTTSVoices = () => {
             const sel = $('#caro-tts-voice');
             if (!sel) return;
@@ -998,21 +1083,23 @@
             const vi = voices.filter(v => v.lang.toLowerCase().startsWith('vi'));
             const others = voices.filter(v => !v.lang.toLowerCase().startsWith('vi')).slice(0, 30);
             sel.innerHTML = '';
+            // 1) Google TTS — mặc định + ưu tiên
+            const gOpt = document.createElement('option');
+            gOpt.value = '';   // empty = use Google TTS proxy
+            gOpt.textContent = '🇻🇳 Tiếng Việt (Google TTS) — mặc định';
+            sel.appendChild(gOpt);
+            // 2) Web Speech voices VN (nếu OS có)
             const addOpt = (v, group) => {
                 const opt = document.createElement('option');
                 opt.value = v.name;
                 opt.textContent = `${group} · ${v.name} (${v.lang})`;
                 sel.appendChild(opt);
             };
-            if (vi.length === 0) {
-                const opt = document.createElement('option');
-                opt.value = '';
-                opt.textContent = '— Không tìm thấy giọng tiếng Việt —';
-                sel.appendChild(opt);
-            }
             vi.forEach(v => addOpt(v, '🇻🇳 VN'));
+            // 3) Voice ngoại
             others.forEach(v => addOpt(v, '🌐'));
-            sel.value = cfg?.tts?.voice || (vi[0]?.name || '');
+            // Default = Google TTS nếu config chưa có voice
+            sel.value = cfg?.tts?.voice || '';
         };
         populateTTSVoices();
         if ('speechSynthesis' in window) {
@@ -1237,6 +1324,38 @@
                 updateCfg({ walls: { giftId: id } });
             });
         }
+        // === Wall TEST mode — Creator preview layout không cần opponent/quà ===
+        $('#caro-walls-test-start')?.addEventListener('click', () => {
+            if (!game) return;
+            if (cfg.walls?.enabled !== true) {
+                flashWarn('Bật "Tường chắn" trước khi test');
+                return;
+            }
+            const res = game.wallTestStart();
+            if (res?.ok) {
+                $('#caro-walls-test-start').disabled = true;
+                $('#caro-walls-test-end').disabled = false;
+                logSystem(`🧪 Test tường: click trên bàn để đặt ${cfg.walls.count} tường`);
+                flashOk('Test mode ON — click trên bàn cờ');
+            }
+        });
+        $('#caro-walls-test-end')?.addEventListener('click', () => {
+            if (!game) return;
+            game.wallTestEnd();
+            $('#caro-walls-test-start').disabled = false;
+            $('#caro-walls-test-end').disabled = true;
+            logSystem('🧪 Test tường: đã xoá tất cả tường thử');
+            flashOk('Đã xoá tường test');
+        });
+        // Khi walls vào phase 'test-done' (đủ N tường) → enable nút xoá, disable nút bắt đầu
+        game.on('walls', (info) => {
+            if (info.phase === 'test-done') {
+                $('#caro-walls-test-start') && ($('#caro-walls-test-start').disabled = true);
+                $('#caro-walls-test-end') && ($('#caro-walls-test-end').disabled = false);
+                logSystem(`🧪 Test xong: đã đặt ${info.cells?.length || 0} tường`);
+                flashOk('Test xong — bấm Xoá để clear');
+            }
+        });
 
         // === Avatar mode — TỰ LẤY từ TikTok, không cần config URL/file ===
         $('#caro-avatar-enabled')?.addEventListener('change', (e) => {
@@ -1384,6 +1503,13 @@
             $('#caro-tts-rate-v').textContent = (cfg.tts?.rate ?? 1.1) + 'x';
             $('#caro-tts-volume').value = cfg.tts?.volume ?? 80;
             $('#caro-tts-volume-v').textContent = (cfg.tts?.volume ?? 80) + '%';
+            // Cách đọc tên (segmented)
+            const nm = cfg.tts?.nameMode || 'team';
+            document.querySelectorAll('#caro-tts-namemode-seg .caro-seg-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.v === nm);
+            });
+            const filterCB = $('#caro-tts-filter-banned');
+            if (filterCB) filterCB.checked = cfg.tts?.filterBannedNames !== false;
             $('#caro-tts-evt-win').checked = cfg.tts?.events?.win !== false;
             $('#caro-tts-evt-round').checked = cfg.tts?.events?.roundStart !== false;
             $('#caro-tts-evt-threat').checked = cfg.tts?.events?.threat !== false;

@@ -696,6 +696,20 @@
                                             <label>Giọng đọc</label>
                                             <select id="caro-tts-voice" class="caro-music-select"></select>
                                         </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Cách đọc tên</label>
+                                            <div class="caro-seg" id="caro-tts-namemode-seg">
+                                                <button class="caro-seg-btn" data-v="team">TEAM A/B</button>
+                                                <button class="caro-seg-btn" data-v="full">Tên thật</button>
+                                                <button class="caro-seg-btn" data-v="moveOnly">Chỉ nước đi</button>
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide" id="caro-tts-filter-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-tts-filter-banned" />
+                                                <span>🛡️ Tự động bỏ qua tên có từ cấm (fallback TEAM)</span>
+                                            </label>
+                                        </div>
                                         <div class="cfg-row">
                                             <label>Tốc độ</label>
                                             <input type="range" id="caro-tts-rate" min="0.5" max="2" step="0.1" />
@@ -873,6 +887,18 @@
                                             • Khán giả tặng quà → User được chọn có 1 cơ hội comment toạ độ (vd "5C") → đặt tường<br>
                                             • Creator click trực tiếp ô trên bàn → đặt tường (giới hạn theo số tường tối đa)<br>
                                             • Khi đủ số tường → tự động bắt đầu trận. Tường tồn tại suốt match.
+                                        </div>
+                                        <!-- TEST MODE — Creator preview layout tường mà không cần opponent/quà -->
+                                        <div class="cfg-row cfg-row-wide" style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.1)">
+                                            <label>🧪 Thử đặt tường (test mode)</label>
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                                <button class="ghost small" id="caro-walls-test-start">▶ Bắt đầu test</button>
+                                                <button class="ghost small" id="caro-walls-test-end" disabled>⏹ Xoá tường test</button>
+                                            </div>
+                                            <div class="caro-music-hint" style="margin-top:6px">
+                                                Click bật <b>Bắt đầu test</b> → click trực tiếp trên canvas bàn cờ để đặt tường thử.<br>
+                                                Đủ số tường mục tiêu → dừng + giữ layout trên bàn. Bấm <b>Xoá</b> để clear.
+                                            </div>
                                         </div>
                                     </div>
                                 </details>

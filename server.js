@@ -2259,6 +2259,15 @@ app.post('/api/live-translate/rules/reload', async (req, res) => {
     res.json({ ok: !commentSheetRules.error, ...getCommentRulesMeta() });
 });
 
+// Trả về full danh sách từ cấm (cho client lọc nội dung — vd Caro TTS không đọc tên có từ cấm)
+app.get('/api/comment-rules/list', (req, res) => {
+    res.json({
+        ok: !commentSheetRules.error,
+        forbiddenWords: commentSheetRules.forbiddenWords || [],
+        ...getCommentRulesMeta()
+    });
+});
+
 app.post('/api/live-translate/test-tts', (req, res) => {
     const cfg = sanitizeLiveTranslateConfig(appConfig.liveTranslate);
     const text = String(req.body?.text || LIVE_TRANSLATE_TEST_PHRASE).trim().slice(0, 220);
