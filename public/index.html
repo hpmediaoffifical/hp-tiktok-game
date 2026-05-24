@@ -659,14 +659,171 @@
                                         <div class="cfg-row">
                                             <label class="toggle-row">
                                                 <input type="checkbox" id="caro-audio-enabled" checked />
-                                                <span>🔊 Âm thanh đặt quân (2 màu khác nhau)</span>
+                                                <span>🔊 Âm thanh đặt quân + thắng/thua</span>
                                             </label>
                                         </div>
                                         <div class="cfg-row">
-                                            <label>Âm lượng</label>
+                                            <label>Âm lượng SFX</label>
                                             <input type="range" id="caro-audio-volume" min="0" max="100" step="5" />
                                             <span class="cfg-val" id="caro-audio-volume-v">50%</span>
                                         </div>
+                                        <!-- Manual test buttons cho thắng/thua — bấm như SoundEffects -->
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Test âm thanh chuẩn</label>
+                                            <div class="caro-sfx-test">
+                                                <button class="ghost small" id="caro-sfx-win-creator" title="Phát âm CREATOR thắng (fanfare)">🏆 CREATOR thắng</button>
+                                                <button class="ghost small" id="caro-sfx-lose-creator" title="Phát âm CREATOR thua (sad descending)">😢 CREATOR thua</button>
+                                                <button class="ghost small" id="caro-sfx-draw" title="Phát âm hoà">🤝 Hoà</button>
+                                            </div>
+                                        </div>
+                                        <!-- Custom sound clips do user upload -->
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>🎧 Âm thanh tự upload</label>
+                                            <input type="file" id="caro-sfx-clip-picker" accept="audio/*" multiple style="font-size:11px;" />
+                                            <div class="caro-sfx-clips" id="caro-sfx-clips"></div>
+                                            <div class="caro-music-hint">Chọn 1 hoặc nhiều file MP3/WAV/OGG → bấm tên để phát · ✕ để xoá. Tự lưu.</div>
+                                        </div>
+                                        <!-- 🏆 Nhạc match-end (win/lose/draw) tự chọn từ máy -->
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>🏆 Nhạc kết quả trận</label>
+                                            <div class="caro-end-music-grid">
+                                                <div class="caro-end-music-item">
+                                                    <span class="caro-end-music-label">🏆 Thắng</span>
+                                                    <input type="file" id="caro-music-win-picker" accept="audio/*" style="font-size:11px;" />
+                                                    <div class="caro-end-music-current" id="caro-music-win-current">— Mặc định (Web Audio fanfare)</div>
+                                                    <button class="ghost small" id="caro-music-win-test" title="Test nhạc thắng">▶ Test</button>
+                                                    <button class="ghost small" id="caro-music-win-clear" title="Xoá file → quay lại Web Audio fanfare">✕ Mặc định</button>
+                                                </div>
+                                                <div class="caro-end-music-item">
+                                                    <span class="caro-end-music-label">😢 Thua</span>
+                                                    <input type="file" id="caro-music-lose-picker" accept="audio/*" style="font-size:11px;" />
+                                                    <div class="caro-end-music-current" id="caro-music-lose-current">— Mặc định (Web Audio sad)</div>
+                                                    <button class="ghost small" id="caro-music-lose-test">▶ Test</button>
+                                                    <button class="ghost small" id="caro-music-lose-clear">✕ Mặc định</button>
+                                                </div>
+                                                <div class="caro-end-music-item">
+                                                    <span class="caro-end-music-label">🤝 Hoà</span>
+                                                    <input type="file" id="caro-music-draw-picker" accept="audio/*" style="font-size:11px;" />
+                                                    <div class="caro-end-music-current" id="caro-music-draw-current">— Mặc định (Web Audio chord)</div>
+                                                    <button class="ghost small" id="caro-music-draw-test">▶ Test</button>
+                                                    <button class="ghost small" id="caro-music-draw-clear">✕ Mặc định</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- 🎼 Nhạc gay cấn -->
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>🎼 Nhạc gay cấn</label>
+                                            <div class="caro-tense-row">
+                                                <label class="toggle-row">
+                                                    <input type="checkbox" id="caro-tense-enabled" />
+                                                    <span>Bật — phát khi 1 bên còn ≤2 nước thắng</span>
+                                                </label>
+                                                <input type="file" id="caro-tense-picker" accept="audio/*" style="font-size:11px;margin-top:6px" />
+                                                <div class="caro-end-music-current" id="caro-tense-current">— Chưa chọn file</div>
+                                                <button class="ghost small" id="caro-tense-test">▶ Test</button>
+                                                <button class="ghost small" id="caro-tense-clear">✕ Xoá</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 😀 AVATAR MODE — thay quân tròn bằng avatar TikTok cho hài hước -->
+                                <details class="caro-acc">
+                                    <summary>😀 Avatar mode (vui) <span class="acc-hint" id="acc-hint-avatar">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-avatar-enabled" />
+                                                <span>😀 Thay quân tròn bằng ảnh đại diện TikTok</span>
+                                            </label>
+                                        </div>
+                                        <div class="caro-music-hint">
+                                            Tự lấy avatar từ TikTok:<br>
+                                            🩵 CREATOR side → avatar của Creator (lấy khi connect LIVE)<br>
+                                            🩷 User side → profilePicture từ chat/gift của user<br>
+                                            Mode UvU: 2 avatar User A + User B đều từ TikTok<br>
+                                            <i>Viền cyan/pink theo side · KHÔNG cần upload gì</i>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 💡 GỢI Ý "SẮP THUA KHÔNG" — gift trigger threat check -->
+                                <details class="caro-acc">
+                                    <summary>💡 Gợi ý "sắp thua không" <span class="acc-hint" id="acc-hint-threathint">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-hint-enabled" />
+                                                <span>💡 Bật — User tặng quà sẽ check Creator có nước cờ nguy hiểm không</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Quà trigger</label>
+                                            <div id="caro-hint-gift" class="caro-gift-picker" data-target="hint"></div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label title="Mỗi user phải đợi N giây giữa 2 lần gợi ý — chống spam">Cooldown/user</label>
+                                            <input type="range" id="caro-hint-cooldown" min="5" max="60" step="5" />
+                                            <span class="cfg-val" id="caro-hint-cooldown-v">10s</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label title="Banner CÓ/KHÔNG hiển thị bao lâu trên overlay">Thời gian hiển thị</label>
+                                            <input type="range" id="caro-hint-show" min="2" max="10" step="1" />
+                                            <span class="cfg-val" id="caro-hint-show-v">3s</span>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Test gợi ý</label>
+                                            <div class="caro-hint-test">
+                                                <button class="ghost small" id="caro-btn-test-hint" title="Bắn 1 quà gợi ý giả — verify check threat hoạt động">🧪 Test gợi ý giả</button>
+                                            </div>
+                                        </div>
+                                        <div class="caro-music-hint">
+                                            Phát hiện: <b>open-4</b> (4 quân liền trống ≥1 đầu) hoặc <b>open-3</b> (3 quân liền trống 2 đầu — forced win).
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 🎵 NHẠC NỀN -->
+                                <details class="caro-acc">
+                                    <summary>🎵 Nhạc nền <span class="acc-hint" id="acc-hint-music">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-music-enabled" />
+                                                <span>🎵 Bật nhạc nền</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Track</label>
+                                            <select id="caro-music-track" class="caro-music-select"></select>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide" id="caro-music-custom-row" style="display:none">
+                                            <label>URL hoặc file MP3</label>
+                                            <input type="text" id="caro-music-custom-url" placeholder="https://... .mp3" />
+                                            <input type="file" id="caro-music-file-picker" accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg" style="margin-top:6px; font-size:11px;" />
+                                            <div class="caro-music-yt-hint">
+                                                YouTube: dùng tool như <b>cobalt.tools</b> hoặc <b>y2mate</b> để tải MP3 trước rồi paste URL hoặc Browse file.
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Âm lượng nhạc</label>
+                                            <input type="range" id="caro-music-volume" min="0" max="100" step="5" />
+                                            <span class="cfg-val" id="caro-music-volume-v">30%</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-music-autoplay" />
+                                                <span>Tự bật khi vào hiệp · Dừng khi hết trận</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Điều khiển</label>
+                                            <div class="caro-music-controls">
+                                                <button class="primary small" id="caro-music-play">▶ Phát</button>
+                                                <button class="ghost small" id="caro-music-stop">⏹ Dừng</button>
+                                            </div>
+                                        </div>
+                                        <div class="caro-music-hint">5 nhạc procedural (Web Audio synth) — không cần tải file. Hoặc dán URL MP3 riêng.</div>
                                     </div>
                                 </details>
                             </div>
@@ -733,8 +890,8 @@
                                 <div class="cfg-row">
                                     <label>Cách hoàn</label>
                                     <div class="caro-seg" id="caro-undo-mode-seg">
-                                        <button data-v="idol" class="active" title="CREATOR bấm để hoàn">CREATOR</button>
-                                        <button data-v="gift" title="User gửi quà để hoàn">Qua quà</button>
+                                        <button data-v="idol" class="active" title="CREATOR bấm để hoàn">IDOL</button>
+                                        <button data-v="gift" title="User gửi quà để hoàn">User</button>
                                         <button data-v="both" title="Cả idol và user đều hoàn được">Cả 2</button>
                                         <button data-v="off" title="Tắt tính năng hoàn">Tắt</button>
                                     </div>
@@ -764,6 +921,35 @@
                                 </div>
                                 <div class="caro-actions">
                                     <button class="primary block" id="caro-btn-undo">🔄 Hoàn nước cuối</button>
+                                </div>
+
+                                <hr class="caro-sep" />
+                                <!-- ⚡ User-undo bằng quà — "chấp User": sau khi đánh phải kịp tặng quà -->
+                                <div class="caro-uu-section">
+                                    <div class="caro-uu-title">⚡ Chấp User — hoàn liền bằng quà</div>
+                                    <div class="caro-uu-hint">
+                                        Sau khi User đánh, có N giây để tặng quà → hoàn nước đi.
+                                        Nếu CREATOR đi tiếp trước → cơ hội hoàn KHÉP. Kiểu Creator quá giỏi nên chấp người chơi.
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label class="toggle-row">
+                                            <input type="checkbox" id="caro-uu-enabled" />
+                                            <span>Bật chế độ chấp</span>
+                                        </label>
+                                    </div>
+                                    <div class="cfg-row">
+                                        <label title="Thời gian User có để tặng quà hoàn nước sau khi đánh">Window suy nghĩ</label>
+                                        <input type="range" id="caro-uu-window" min="1" max="15" step="1" />
+                                        <span class="cfg-val" id="caro-uu-window-v">3s</span>
+                                    </div>
+                                    <div class="cfg-row cfg-row-wide">
+                                        <label>Quà hoàn (User tặng)</label>
+                                        <div id="caro-uu-gift" class="caro-gift-picker" data-target="uu"></div>
+                                    </div>
+                                    <div class="cfg-row cfg-row-wide">
+                                        <label>Test</label>
+                                        <button class="ghost small" id="caro-btn-test-uu" title="Bắn quà hoàn giả — verify mechanism">🧪 Test hoàn-bằng-quà</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

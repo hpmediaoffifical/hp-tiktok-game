@@ -1190,6 +1190,7 @@ let connecting = false;
 let liveConnected = false;
 let currentRoomId = null;
 let currentHostUserId = '';   // owner.userId của room đang connect — dùng để identify host team trong PK
+let currentHostProfile = null;   // { uniqueId, nickname, profilePic, userId } — broadcast cho Caro avatar mode
 // Hook để emitGift gọi vào PK gift tracking (set bởi attachConnectionEvents khi PK active)
 let pktiktokTrackPkGift = null;
 // Lưu thông tin TOP 1 contributor khi PK kết thúc — dùng cho rule override
@@ -2207,6 +2208,16 @@ async function connectToUser(username) {
         setTimeout(() => {
             maybeFireFirstSeenJoin(currentUsername, hostNickname, hostLevel, hostPic, 'hostConnect', hostVerified);
         }, 300);
+        // Lưu host profile vào RAM + emit cho client (Caro panel cần để hiển thị avatar CREATOR)
+        currentHostProfile = {
+            uniqueId: currentUsername || '',
+            nickname: hostNickname || '',
+            profilePic: hostPic || '',
+            userId: currentHostUserId || '',
+            level: hostLevel || 0,
+            verified: !!hostVerified
+        };
+        io.emit('hostInfo', currentHostProfile);
         // Sau khi connect → connection.availableGifts có sẵn metadata cho mọi gift trong room.
         // Quét lại các unknown entry cũ thiếu icon/name → điền từ TikTok metadata cache.
         // Chạy sau 500ms để chắc availableGifts đã fully load.
@@ -2607,6 +2618,59 @@ app.get('/api/games/:id/state', (req, res) => {
 });
 
 // Trả về version app hiện tại (KHÔNG còn expose GitHub repo)
+// ============================================================
+// TikTok avatar fetcher — via tikwm.com public API (TikTok chính chủ block scrape)
+// ============================================================
+// Endpoint: GET /api/tiktok-user-avatar?username=xxx
+// Cache 6 giờ trong RAM tránh hit rate limit của tikwm.
+const _ttAvatarCache = new Map();   // username → { url, nickname, ts, error }
+const TT_AVATAR_TTL = 6 * 60 * 60 * 1000;
+async function fetchTikTokAvatar(username) {
+    const uname = String(username || '').toLowerCase().replace(/^@+/, '').trim();
+    if (!uname) return { ok: false, error: 'empty_username' };
+    // Cache hit?
+    const cached = _ttAvatarCache.get(uname);
+    if (cached && (Date.now() - cached.ts) < TT_AVATAR_TTL) {
+        if (cached.error) return { ok: false, error: cached.error, cached: true };
+        return { ok: true, avatarUrl: cached.url, nickname: cached.nickname, cached: true };
+    }
+    try {
+        // tikwm.com public API — scrape TikTok user info
+        const res = await fetch(`https://www.tikwm.com/api/user/info?unique_id=${encodeURIComponent(uname)}`, {
+            timeout: 10000,
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (!res.ok) {
+            _ttAvatarCache.set(uname, { error: `HTTP ${res.status}`, ts: Date.now() });
+            return { ok: false, error: `HTTP ${res.status}` };
+        }
+        const body = await res.json();
+        if (body?.code !== 0 || !body?.data?.user) {
+            _ttAvatarCache.set(uname, { error: body?.msg || 'no_user', ts: Date.now() });
+            return { ok: false, error: body?.msg || 'no_user' };
+        }
+        const u = body.data.user;
+        // Prefer avatarLarger > avatarMedium > avatarThumb
+        const avatarUrl = u.avatarLarger || u.avatarMedium || u.avatarThumb || '';
+        const nickname = u.nickname || u.uniqueId || uname;
+        if (!avatarUrl) {
+            _ttAvatarCache.set(uname, { error: 'no_avatar', ts: Date.now() });
+            return { ok: false, error: 'no_avatar' };
+        }
+        _ttAvatarCache.set(uname, { url: avatarUrl, nickname, ts: Date.now() });
+        return { ok: true, avatarUrl, nickname };
+    } catch (e) {
+        _ttAvatarCache.set(uname, { error: e.message, ts: Date.now() });
+        return { ok: false, error: e.message };
+    }
+}
+app.get('/api/tiktok-user-avatar', async (req, res) => {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.status(400).json({ ok: false, error: 'username required' });
+    const r = await fetchTikTokAvatar(username);
+    res.json(r);
+});
+
 app.get('/api/version', (req, res) => {
     try {
         const pkg = require('./package.json');
@@ -4128,6 +4192,7 @@ io.on('connection', (socket) => {
     socket.emit('giftSheet', giftList);
     socket.emit('status', { connected: isTikTokLiveConnected(), username: currentUsername, roomId: currentRoomId });
     socket.emit('liveStats', liveStats);
+    if (currentHostProfile) socket.emit('hostInfo', currentHostProfile);
     socket.emit('translate:config', sanitizeLiveTranslateConfig(appConfig.liveTranslate));
     socket.emit('translate:rules', getCommentRulesMeta());
     socket.emit('creatorCaption:config', sanitizeCreatorCaptionConfig(appConfig.creatorCaption));

@@ -4283,6 +4283,228 @@ body.game-caro #caught-popup {
     white-space: nowrap;
 }
 
+/* Match-end music grid (Win/Lose/Draw) */
+.caro-end-music-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+.caro-end-music-item {
+    display: grid;
+    grid-template-columns: 75px 1fr auto auto;
+    gap: 6px;
+    align-items: center;
+    padding: 8px;
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    border-radius: 8px;
+}
+.caro-end-music-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #FFD166;
+}
+.caro-end-music-current {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 2px;
+    word-break: break-all;
+    line-height: 1.4;
+}
+.caro-end-music-item button {
+    font-size: 11px;
+    padding: 4px 8px;
+}
+.caro-end-music-item input[type=file] {
+    grid-column: 2 / 3;
+    min-width: 0;
+}
+
+/* Tense music block */
+.caro-tense-row {
+    background: rgba(254, 44, 85, 0.05);
+    border: 1px dashed rgba(254, 44, 85, 0.35);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.caro-tense-row button {
+    font-size: 11px;
+    padding: 4px 8px;
+    margin-top: 4px;
+    align-self: flex-start;
+}
+
+/* SFX clip list — soundboard mini */
+.caro-sfx-clips {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.caro-sfx-clip {
+    display: grid;
+    grid-template-columns: 1fr 28px;
+    gap: 4px;
+    align-items: center;
+}
+.caro-sfx-clip-play {
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background .15s ease, border-color .15s ease;
+}
+.caro-sfx-clip-play:hover {
+    background: rgba(37, 244, 238, 0.12);
+    border-color: var(--caro-cyan);
+}
+.caro-sfx-clip-play.playing {
+    background: rgba(37, 244, 238, 0.2);
+    border-color: var(--caro-cyan);
+    color: var(--caro-cyan);
+}
+.caro-sfx-clip-del {
+    background: rgba(254, 44, 85, 0.12);
+    border: 1px solid rgba(254, 44, 85, 0.35);
+    color: var(--caro-pink);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0;
+    line-height: 1;
+}
+.caro-sfx-clip-del:hover { background: rgba(254, 44, 85, 0.3); }
+
+/* Test SFX buttons — bố trí 3 nút ngang */
+.caro-sfx-test {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.caro-sfx-test button {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11px;
+    padding: 6px 8px;
+}
+
+/* Đấu tự do section — màu vàng để phân biệt với CREATOR flow */
+.caro-duel-section {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 209, 102, 0.06);
+    border: 1px dashed rgba(255, 209, 102, 0.4);
+    border-radius: 10px;
+}
+.caro-duel-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #FFD166;
+    margin-bottom: 4px;
+    letter-spacing: 0.3px;
+}
+.caro-duel-status {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 8px;
+    line-height: 1.4;
+    font-style: italic;
+}
+.caro-duel-status.active {
+    color: #FFD166;
+    font-style: normal;
+    font-weight: 600;
+}
+.caro-duel-status.ready {
+    color: #25F4EE;
+    font-weight: 700;
+}
+
+/* User-undo bằng quà */
+.caro-uu-section {
+    background: rgba(255, 100, 60, 0.05);
+    border: 1px dashed rgba(255, 100, 60, 0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.caro-uu-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #FF8C5A;
+    margin-bottom: 4px;
+}
+.caro-uu-hint {
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    line-height: 1.45;
+    margin-bottom: 8px;
+}
+
+/* Music UI */
+.caro-music-select {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+}
+.caro-music-select:focus {
+    border-color: var(--caro-cyan);
+}
+#caro-music-custom-url {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--caro-card-2);
+    border: 1px solid var(--caro-border);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    outline: none;
+    font-family: 'Consolas', monospace;
+}
+.caro-music-controls {
+    display: flex;
+    gap: 6px;
+}
+.caro-music-controls button { flex: 1; }
+.caro-music-hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.4;
+    margin-top: 6px;
+    font-style: italic;
+}
+.caro-music-yt-hint {
+    font-size: 10px;
+    color: rgba(255, 209, 102, 0.7);
+    line-height: 1.4;
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: rgba(255, 209, 102, 0.08);
+    border-left: 2px solid rgba(255, 209, 102, 0.45);
+    border-radius: 4px;
+}
+
 /* Quà ghi danh — gắn trên Match tab, vùng nổi bật */
 .caro-reg-gift-row {
     background: rgba(37, 244, 238, 0.06);

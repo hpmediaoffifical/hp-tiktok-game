@@ -92,6 +92,52 @@
         return null;
     }
 
+    // ---------- Threat detection ("đối thủ gần thắng không?") ----------
+    // Quét tất cả nước CỦA `targetSide` ('idol' = Creator) tìm pattern nguy hiểm:
+    //   - open-4: (winLength-1) quân liên tiếp, có ÍT NHẤT 1 đầu trống → thắng nước tới
+    //   - open-3: (winLength-2) quân liên tiếp, CẢ 2 đầu trống → forced win
+    // Trả về: { yes: bool, pattern: 'open-4'|'open-3'|null, line: [{c,r}, ...] | null, side: targetSide }
+    function checkThreatForSide(moves, targetSide, cols, rows, winLength) {
+        const placed = new Map();
+        for (const m of moves) placed.set(`${m.c},${m.r}`, m.side);
+        const isMine = (c, r) => placed.get(`${c},${r}`) === targetSide;
+        const isEmpty = (c, r) => {
+            if (c < 0 || c >= cols || r < 0 || r >= rows) return false;
+            return !placed.has(`${c},${r}`);
+        };
+        const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (const m of moves) {
+            if (m.side !== targetSide) continue;
+            for (const [dc, dr] of dirs) {
+                if (isMine(m.c - dc, m.r - dr)) continue;   // start chỉ ở stone đầu chuỗi
+                let cc = m.c, rr = m.r;
+                const line = [];
+                while (isMine(cc, rr)) { line.push({ c: cc, r: rr }); cc += dc; rr += dr; }
+                const len = line.length;
+                if (len === 0 || len >= winLength) continue;
+                const fwdOpen = isEmpty(cc, rr);
+                const backOpen = isEmpty(m.c - dc, m.r - dr);
+                if (len === winLength - 1 && (fwdOpen || backOpen)) {
+                    return { yes: true, pattern: 'open-4', line, side: targetSide };
+                }
+                if (len === winLength - 2 && fwdOpen && backOpen) {
+                    return { yes: true, pattern: 'open-3', line, side: targetSide };
+                }
+            }
+        }
+        return { yes: false, pattern: null, line: null, side: targetSide };
+    }
+    // Wrapper backwards-compat: chỉ check CREATOR (idol side)
+    function checkCreatorThreat(moves, cols, rows, winLength) {
+        return checkThreatForSide(moves, 'idol', cols, rows, winLength);
+    }
+    // Check BOTH sides — trả về threat đầu tiên tìm được (idol hoặc user)
+    function checkAnyThreat(moves, cols, rows, winLength) {
+        const idolThreat = checkThreatForSide(moves, 'idol', cols, rows, winLength);
+        if (idolThreat.yes) return idolThreat;
+        return checkThreatForSide(moves, 'user', cols, rows, winLength);
+    }
+
     // ---------- Win detection ----------
     // Trả về { line: [{c,r}, ...] } nếu có winLength liên tiếp, ngược lại null.
     function detectWin(moves, side, lastMove, winLength) {
@@ -128,7 +174,28 @@
             // quá N → quân CŨ NHẤT của bên đó tự biến mất khi đặt quân mới.
             // Hợp với bàn nhỏ 3x3, 4x4 — biến caro thành game endless không hoà.
             rolling: { enabled: false, tokensPerSide: 3 },
-            audio: { enabled: true, volume: 50 },
+            // SFX clips + match-end music do user upload
+            audio: {
+                enabled: true,
+                volume: 50,
+                clips: [],          // clips: [{ name, url }]
+                winMusic: '',       // URL file phát khi CREATOR thắng
+                loseMusic: '',      // URL file phát khi CREATOR thua
+                drawMusic: ''       // URL file phát khi hoà
+            },
+            // Nhạc gay cấn — phát khi 1 trong 2 bên có open-4/open-3
+            tenseMusic: { enabled: false, url: '' },
+            // Nhạc nền — Web Audio synth (calm/arcade/epic/lofi/final) hoặc custom URL/file.
+            music: { enabled: false, track: 'calm', volume: 30, customUrl: '', autoPlayOnRound: true },
+            // Gợi ý "Tôi có sắp thua không?" — user tặng quà → check threat của CREATOR.
+            // Cooldown per-user (giây) để chống spam khi nhiều user gửi cùng lúc.
+            hint: { enabled: false, giftId: '', cooldownSec: 10, showSeconds: 3 },
+            // User-undo bằng quà: sau khi User đánh, mở window N giây cho User tặng quà → hoàn nước.
+            // Creator đặt quân trước → window đóng (Creator quá nhanh, User mất quyền hoàn).
+            userUndo: { enabled: false, giftId: '', windowSec: 3 },
+            // Chế độ AVATAR — thay quân tròn bằng ảnh đại diện TikTok user.
+            // Creator side dùng creatorAvatar (config). Opponent side dùng profilePic từ TikTok.
+            avatarMode: { enabled: false, creatorAvatar: '' },
             colors: { idol: '#25F4EE', user: '#FE2C55' },
             display: {
                 showHistory: true, showInfo: true,
@@ -166,7 +233,23 @@
                 open: false,
                 entries: []                  // { uniqueId, nickname, profilePic, totalDiamond, registered }
             },
-            opponent: null                   // { uniqueId, nickname, profilePic, totalDiamond }
+            opponent: null,                  // { uniqueId, nickname, profilePic, totalDiamond } — bên 'user' (pink)
+            // Gợi ý "có đang sắp thua không"
+            hint: {
+                active: false,
+                yes: false,
+                pattern: null,               // 'open-4' | 'open-3'
+                line: null,                  // [{c,r},...] line dangerous (để overlay highlight)
+                triggeredBy: '',             // nickname user tặng quà
+                expireAt: 0,                 // ms epoch — auto-clear khi expire
+                userCooldown: {}             // uniqueId → ts của lần trigger gần nhất
+            },
+            // User-undo window: active sau khi User đánh, đóng khi Creator đánh hoặc expire.
+            userUndo: {
+                active: false,
+                lastMove: null,              // { c, r, side, ts } — nước cờ User vừa đặt
+                expireAt: 0                  // ms epoch
+            }
         };
     }
 
@@ -182,7 +265,39 @@
         // win = round won
         // draw = bàn đầy, không ai thắng (chờ Idol quyết định)
         // sound = âm thanh cue (panel + overlay subscribe để play tone)
-        const listeners = { change: [], tap: [], placed: [], win: [], draw: [], sound: [], invalid: [] };
+        // hint = banner "có sắp thua không" show/clear
+        const listeners = { change: [], tap: [], placed: [], win: [], draw: [], sound: [], invalid: [], hint: [] };
+
+        // === AVATAR cache ===
+        // Cache Image objects để khỏi reload mỗi frame. URL → { img, loaded, error }
+        const avatarCache = new Map();
+        function getAvatar(url) {
+            if (!url) return null;
+            let entry = avatarCache.get(url);
+            if (entry) return entry.loaded && !entry.error ? entry.img : null;
+            entry = { img: new Image(), loaded: false, error: false };
+            entry.img.crossOrigin = 'anonymous';
+            entry.img.onload = () => { entry.loaded = true; };
+            entry.img.onerror = () => { entry.error = true; };
+            entry.img.src = url;
+            avatarCache.set(url, entry);
+            return null;
+        }
+
+        // === Text with outline — Vietnamese-safe + nét đều ===
+        // ROOT FIX: dùng canvas filter drop-shadow → outline đều CẢ 4 phía,
+        // không bị "nét thanh nét đậm" như multi-offset fill (1 hướng dày hơn).
+        // Vẽ DUY NHẤT 1 fillText → filter tự tạo outline → diacritics Vietnamese render bình thường.
+        function drawOutlinedText(text, x, y, fillColor, outlineColor, outlineWidth) {
+            const w = Math.max(1, outlineWidth || 2);
+            const oc = outlineColor || 'rgba(0,0,0,0.9)';
+            ctx.save();
+            // 4 lớp drop-shadow để outline ĐỀU 360° + đậm vừa đủ
+            ctx.filter = `drop-shadow(0 0 ${w}px ${oc}) drop-shadow(0 0 ${w}px ${oc})`;
+            ctx.fillStyle = fillColor;
+            ctx.fillText(text, x, y);
+            ctx.restore();
+        }
 
         // --- Pixel sizing ---
         canvas.width = STAGE_W;
@@ -269,6 +384,8 @@
             if (state.phase === 'matchEnd') drawMatchEnd();
             // Banner ghi danh đã merge vào footer status — không vẽ banner riêng (tránh che cột labels).
             if (state.phase === 'roundEnd') drawRoundEnd();
+            // Hint "có đang sắp thua không" — chỉ render khi active + chưa expire
+            if (state.hint?.active && Date.now() < (state.hint.expireAt || 0)) drawHintBanner();
         }
 
         function drawBackground() {
@@ -496,6 +613,19 @@
                 if (userMoves.length >= limit) oldestUserIdx = userMoves[0];
             }
 
+            // === AVATAR MODE — lấy URL avatar mỗi bên TỪ TIKTOK (auto) ===
+            // idol side: host profile (Creator avatar từ TikTok connect)
+            // user side: opponent.profilePic (từ chat/gift event TikTok)
+            // FALLBACK: chưa có URL → vẽ chữ INITIAL từ nickname với viền màu side.
+            const avatarMode = !!cfg.avatarMode?.enabled;
+            const hostInfo = (typeof window !== 'undefined' && window.__hostInfo) || null;
+            const hostPic = hostInfo?.profilePic || '';
+            const idolAvatarUrl = avatarMode ? (hostPic || '') : '';
+            const userAvatarUrl = avatarMode ? (state.opponent?.profilePic || '') : '';
+            // Tên dùng để fallback INITIAL (nếu avatar chưa load)
+            const idolName = hostInfo?.nickname || hostInfo?.uniqueId || 'CREATOR';
+            const userName = state.opponent?.nickname || state.opponent?.uniqueId || 'USER';
+
             for (let i = 0; i < state.round.moves.length; i++) {
                 const m = state.round.moves[i];
                 const isLast = i === state.round.moves.length - 1;
@@ -512,14 +642,66 @@
                 // Glow
                 ctx.shadowColor = color;
                 ctx.shadowBlur = isLast ? 28 : 14;
-                // Stone
-                const grad = ctx.createRadialGradient(px - radius/3, py - radius/3, 2, px, py, radius);
-                grad.addColorStop(0, lighten(color, 60));
-                grad.addColorStop(1, color);
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                ctx.arc(px, py, radius, 0, Math.PI * 2);
-                ctx.fill();
+
+                // === AVATAR? Vẽ ảnh circle-clipped với viền màu side ===
+                const avatarUrl = m.side === 'idol' ? idolAvatarUrl : userAvatarUrl;
+                const sideName = m.side === 'idol' ? idolName : userName;
+                const img = avatarUrl ? getAvatar(avatarUrl) : null;
+                if (avatarMode) {
+                    // Viền màu side + glow (lúc nào cũng vẽ)
+                    ctx.beginPath();
+                    ctx.arc(px, py, radius + 2, 0, Math.PI * 2);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    if (img) {
+                        // Có avatar → clip + vẽ ảnh
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(px, py, radius - 1, 0, Math.PI * 2);
+                        ctx.clip();
+                        ctx.drawImage(img, px - radius, py - radius, radius * 2, radius * 2);
+                        ctx.restore();
+                    } else {
+                        // FALLBACK: chưa có avatar → vẽ INITIAL từ nickname với BG đậm
+                        // Background đậm (tối) bên trong viền màu side
+                        ctx.beginPath();
+                        ctx.arc(px, py, radius - 1, 0, Math.PI * 2);
+                        const bgGrad = ctx.createRadialGradient(px - radius/3, py - radius/3, 2, px, py, radius);
+                        bgGrad.addColorStop(0, 'rgba(40, 48, 70, 0.95)');
+                        bgGrad.addColorStop(1, 'rgba(15, 20, 32, 0.98)');
+                        ctx.fillStyle = bgGrad;
+                        ctx.fill();
+                        // INITIAL — chữ đầu tiên của nickname (loại bỏ @, emoji)
+                        const cleanName = String(sideName || '?').replace(/^[@\s_.]+/, '').replace(/[^\p{L}\p{N}]/gu, '');
+                        const initial = (cleanName || '?').charAt(0).toUpperCase();
+                        ctx.fillStyle = color;
+                        ctx.shadowColor = color;
+                        ctx.shadowBlur = 8;
+                        ctx.font = `900 ${Math.floor(radius * 1.15)}px Inter, Arial, sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(initial, px, py);
+                        ctx.shadowBlur = 0;
+                    }
+                    // Đường viền màu side rõ nét (luôn vẽ trên cùng)
+                    ctx.shadowBlur = isLast ? 28 : 14;
+                    ctx.shadowColor = color;
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(px, py, radius - 1, 0, Math.PI * 2);
+                    ctx.stroke();
+                } else {
+                    // Stone tròn truyền thống
+                    const grad = ctx.createRadialGradient(px - radius/3, py - radius/3, 2, px, py, radius);
+                    grad.addColorStop(0, lighten(color, 60));
+                    grad.addColorStop(1, color);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(px, py, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 ctx.globalAlpha = 1;
 
                 // Rolling: vòng tròn nét đứt vàng quanh quân sắp mất
@@ -679,6 +861,81 @@
             ctx.restore();
         }
 
+        // === Hint banner — "TÔI CÓ ĐANG SẮP THUA KHÔNG? [CÓ/KHÔNG]" ===
+        // Hiển thị to ở giữa bàn cờ, có stroke đen + glow màu kết quả.
+        function drawHintBanner() {
+            const lay = boardLayout();
+            const yes = !!state.hint.yes;
+            const triggeredBy = state.hint.triggeredBy || '';
+            const cx = STAGE_W / 2;
+            // Card NHỎ GỌN hơn — không che quá nhiều bàn cờ
+            const cardH = 210;
+            const cardW = Math.min(720, STAGE_W - 200);
+            const cardX = (STAGE_W - cardW) / 2;
+            const cardY = lay.oy + lay.boardH / 2 - cardH / 2;
+            // === Bảng màu MỚI — dịu mắt, đẹp mềm ===
+            // YES: warm coral pink (#FB7185 / rose-400) — vẫn cảnh báo nhưng không nhức mắt
+            // NO: mint teal (#5EEAD4 / teal-300) — êm dịu, sang
+            const accent = yes ? '#FB7185' : '#5EEAD4';
+            const accentSoft = yes ? 'rgba(251, 113, 133, 0.18)' : 'rgba(94, 234, 212, 0.16)';
+            const accentDeep = yes ? 'rgba(159, 18, 57, 0.35)' : 'rgba(15, 118, 110, 0.30)';
+
+            ctx.save();
+            // Highlight line nguy hiểm — màu dịu hơn (rose nhạt thay neon đỏ)
+            if (yes && Array.isArray(state.hint.line)) {
+                ctx.fillStyle = accentSoft;
+                ctx.shadowColor = accent;
+                ctx.shadowBlur = 14;
+                for (const c of state.hint.line) {
+                    const x = lay.ox + c.c * lay.cellSize;
+                    const y = lay.oy + c.r * lay.cellSize;
+                    ctx.fillRect(x + 2, y + 2, lay.cellSize - 4, lay.cellSize - 4);
+                }
+                ctx.shadowBlur = 0;
+            }
+            // Card backdrop — đổ bóng gradient nhẹ theo accent thay vì black tuyền
+            roundRect(ctx, cardX, cardY, cardW, cardH, 22);
+            // Background gradient: deep accent → near-black (subtle tint, không chói)
+            const bgGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
+            bgGrad.addColorStop(0, accentDeep);
+            bgGrad.addColorStop(0.5, 'rgba(12, 14, 22, 0.96)');
+            bgGrad.addColorStop(1, 'rgba(8, 10, 18, 0.98)');
+            ctx.fillStyle = bgGrad;
+            ctx.fill();
+            // Border + glow MỀM (giảm shadowBlur 32 → 18)
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = accent;
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 18;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Câu hỏi
+            ctx.font = '700 30px Inter, Arial, sans-serif';
+            drawOutlinedText('ĐỐI THỦ CÓ ĐANG GẦN THẮNG?', cx, cardY + 38, 'rgba(255,255,255,0.95)', 'rgba(0,0,0,0.85)', 2);
+            // Đáp án — nhỏ hơn (120 → 78), text TRẮNG + glow accent nhẹ
+            ctx.font = '900 78px Inter, Arial, sans-serif';
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 10;
+            drawOutlinedText(yes ? 'CÓ!' : 'KHÔNG', cx, cardY + 100, '#FFFFFF', 'rgba(0,0,0,0.85)', 2);
+            ctx.shadowBlur = 0;
+            // Sub-label
+            ctx.font = '700 18px Inter, Arial, sans-serif';
+            drawOutlinedText(
+                yes ? 'NGUY HIỂM — Block ngay!' : 'AN TOÀN — chơi tiếp',
+                cx, cardY + 155, accent, 'rgba(0,0,0,0.8)', 1.5);
+            // Triggered by
+            if (triggeredBy) {
+                ctx.font = '600 14px Inter, Arial, sans-serif';
+                const tag = `📩 ${truncate(triggeredBy, 18)}${yes ? ' · ' + (state.hint.pattern || '') : ''}`;
+                drawOutlinedText(tag, cx, cardY + 184, 'rgba(255,255,255,0.65)', 'rgba(0,0,0,0.75)', 1);
+            }
+            ctx.restore();
+        }
+
+
         function drawRoundEnd() {
             // GIẢM dim (0.55 → 0.18) để bàn cờ + quân rõ hơn,
             // người xem LIVE thấy rõ pattern thắng để bình luận tranh luận
@@ -796,6 +1053,8 @@
             state.match = Object.assign({ score: { idol: 0, user: 0 }, currentRound: 1 }, snap.match || {});
             state.round = Object.assign(defaultState().round, snap.round || {});
             state.registration = Object.assign(defaultState().registration, snap.registration || {});
+            // Hint state — preserve cho overlay render banner
+            state.hint = Object.assign(defaultState().hint, snap.hint || {});
 
             // Sound cue cho overlay: nếu hiệp đang chơi và có nước MỚI thêm vào
             if (mirrorMode) {
@@ -892,12 +1151,61 @@
                 return { ok: true, move, draw: true };
             }
 
+            // === User-undo window: chỉ mở khi User vừa đánh, đóng ngay khi Creator đánh ===
+            if (cfg.userUndo?.enabled && side === 'user') {
+                state.userUndo.active = true;
+                state.userUndo.lastMove = { ...move };
+                state.userUndo.expireAt = Date.now() + (cfg.userUndo.windowSec || 3) * 1000;
+            } else if (side === 'idol' && state.userUndo?.active) {
+                // Creator đánh trước → window đóng (User mất quyền hoàn)
+                state.userUndo.active = false;
+                state.userUndo.lastMove = null;
+                state.userUndo.expireAt = 0;
+            }
+
             // Switch turn
             state.round.turn = side === 'idol' ? 'user' : 'idol';
             render();
             fire('placed', { side, cell: { c, r }, move });
             fire('change');
             return { ok: true, move };
+        }
+
+        // === User-undo bằng quà — gỡ nước cuối của User nếu window còn active ===
+        // Gọi từ panel khi user tặng quà undo trong N giây sau khi đánh.
+        // Phải đúng user vừa đánh (so sánh uniqueId vs opponent.uniqueId).
+        function tryUserUndoByGift(userInfo) {
+            if (!cfg.userUndo?.enabled) return { ok: false, reason: 'disabled' };
+            if (state.phase !== 'playing') return { ok: false, reason: 'not_playing' };
+            if (!state.userUndo?.active) return { ok: false, reason: 'no_window' };
+            if (Date.now() > state.userUndo.expireAt) {
+                state.userUndo.active = false;
+                return { ok: false, reason: 'expired' };
+            }
+            // Chỉ opponent đã chọn mới hoàn được nước CỦA HỌ
+            const uid = String(userInfo?.uniqueId || '').toLowerCase();
+            const opUid = String(state.opponent?.uniqueId || '').toLowerCase();
+            if (uid && opUid && uid !== opUid) return { ok: false, reason: 'not_opponent' };
+            // Verify last move khớp với userUndo.lastMove
+            const last = state.round.moves[state.round.moves.length - 1];
+            const lm = state.userUndo.lastMove;
+            if (!last || !lm || last.c !== lm.c || last.r !== lm.r || last.side !== 'user') {
+                return { ok: false, reason: 'move_changed' };
+            }
+            // POP nước cuối
+            state.round.moves.pop();
+            state.round.moveCount.user = Math.max(0, (state.round.moveCount.user || 1) - 1);
+            state.round.turn = 'user';   // Lượt quay lại User
+            state.round.lastMoveTs = state.round.moves.length
+                ? state.round.moves[state.round.moves.length - 1].ts : 0;
+            // Đóng window
+            state.userUndo.active = false;
+            state.userUndo.lastMove = null;
+            state.userUndo.expireAt = 0;
+            render();
+            fire('placed', { side: 'user', cell: { c: last.c, r: last.r }, move: last, undone: true });
+            fire('change');
+            return { ok: true, undone: last };
         }
 
         // === Reset hiệp HIỆN TẠI — không đụng score, không sang round mới ===
@@ -1043,6 +1351,48 @@
             render();
             fire('change');
         }
+        // === HINT — User tặng quà chỉ định, hỏi "Creator có đang sắp thua không?" ===
+        // Trả về: { ok, yes, pattern } hoặc { ok: false, reason }
+        function requestThreatHint(userInfo) {
+            if (!cfg.hint?.enabled) return { ok: false, reason: 'disabled' };
+            if (state.phase !== 'playing') return { ok: false, reason: 'not_playing' };
+            // Cooldown per-user
+            const uid = userInfo?.uniqueId || 'unknown';
+            const now = Date.now();
+            if (!state.hint.userCooldown) state.hint.userCooldown = {};
+            const lastTs = state.hint.userCooldown[uid] || 0;
+            const cdMs = (cfg.hint?.cooldownSec || 10) * 1000;
+            if (now - lastTs < cdMs) {
+                return { ok: false, reason: 'cooldown', remain: Math.ceil((cdMs - (now - lastTs)) / 1000) };
+            }
+            state.hint.userCooldown[uid] = now;
+            // Detect threat
+            const effWin = Math.max(3, Math.min(cfg.board.winLength, Math.min(cfg.board.cols, cfg.board.rows)));
+            const result = checkCreatorThreat(state.round.moves, cfg.board.cols, cfg.board.rows, effWin);
+            // Show banner
+            const showMs = (cfg.hint?.showSeconds || 3) * 1000;
+            state.hint.active = true;
+            state.hint.yes = !!result.yes;
+            state.hint.pattern = result.pattern;
+            state.hint.line = result.line;
+            state.hint.triggeredBy = userInfo?.nickname || uid;
+            state.hint.expireAt = now + showMs;
+            render();
+            fire('hint', { yes: result.yes, pattern: result.pattern, triggeredBy: state.hint.triggeredBy, phase: 'show' });
+            fire('change');
+            // Auto-clear sau showSeconds
+            setTimeout(() => {
+                if (state.hint && state.hint.expireAt <= Date.now()) {
+                    state.hint.active = false;
+                    state.hint.line = null;
+                    render();
+                    fire('hint', { phase: 'clear' });
+                    fire('change');
+                }
+            }, showMs + 50);
+            return { ok: true, yes: result.yes, pattern: result.pattern };
+        }
+
         function addGift(g, isRegistrationGift) {
             if (state.phase !== 'registration' && state.phase !== 'picking') {
                 // chỉ tính gift trong reg phase, NHƯNG cũng cho phép cộng điểm "tip" trong picking
@@ -1098,6 +1448,18 @@
             state.phase = 'playing';
             startRound(1);
             return true;
+        }
+
+        // Auto-update profilePic của opponent từ chat events (Free-ID flow)
+        function _setOpponentAvatar(uniqueId, profilePic) {
+            const uid = String(uniqueId || '').toLowerCase();
+            if (state.opponent && (state.opponent.uniqueId || '').toLowerCase() === uid) {
+                if (state.opponent.profilePic !== profilePic) {
+                    state.opponent.profilePic = profilePic;
+                    render();
+                    fire('change');
+                }
+            }
         }
 
         function startRound(idx) {
@@ -1225,6 +1587,16 @@
             drawReplay, drawHalfPoint, drawEndMatch,
             // registration
             openRegistration, closeRegistration, addGift, pickOpponent, pickOpponentManual,
+            _setOpponentAvatar,
+            // hint "có đang thua không"
+            requestThreatHint,
+            // tense music — panel poll mỗi nước để start/stop nhạc gây cấn
+            checkAnyThreat: () => {
+                const effWin = Math.max(3, Math.min(cfg.board.winLength, Math.min(cfg.board.cols, cfg.board.rows)));
+                return checkAnyThreat(state.round.moves, cfg.board.cols, cfg.board.rows, effWin);
+            },
+            // user-undo bằng quà
+            tryUserUndoByGift,
             // match flow
             startRound, nextRound, resetMatch, newGame,
             // helpers exposed

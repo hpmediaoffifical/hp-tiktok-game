@@ -673,6 +673,8 @@
         }
 
         function runTriggerAction(action, userInfo) {
+            // Game tắt → bỏ qua MỌI trigger (kể cả audio + visual fx)
+            if (!isEnabled()) return;
             switch (action) {
                 case 'thief': triggerThief(userInfo); break;
                 case 'joinPolice': togglePoliceMembership(userInfo); break;
@@ -1059,6 +1061,7 @@
             onStatsChange(stats);
         }
         function handleCombo(g, count) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua (KHÔNG phát âm)
             if (!config.features.combo) return;
             const uid = String(g.userId || g.uniqueId || '');
             if (!uid) return;
@@ -1070,6 +1073,7 @@
             if (newCount >= 3) flashComboToast(g.nickname || g.uniqueId || 'guest', newCount);
         }
         function handleWelcome(g) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua (KHÔNG phát âm)
             if (!config.features.welcome) return;
             const id = String(g.giftId);
             if (!id || stats.seenGiftTypes.has(id)) return;
@@ -1077,6 +1081,7 @@
             showWelcome(g);
         }
         function checkBigGiftFx(g, count) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua (KHÔNG phát âm)
             if (!config.features.bigGiftFx) return;
             const v = (g.coinValue || 1) * count;
             const tipperName = g.nickname || g.uniqueId || 'Guest';
@@ -3270,6 +3275,7 @@
         }
         // KHÔNG khoá: cho phép nhiều tên trộm cùng lúc
         async function triggerThief(opts = {}) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua effect (KHÔNG phát âm)
             if (!thiefLayer || !bodies.length) return;
             // CS không được đi trộm
             if (isInPoliceForce(opts.uid)) {
@@ -3509,6 +3515,7 @@
         // Sử dụng CÙNG buildThiefNode như rope thief để visual đồng bộ — chỉ thêm class
         // .tt-thief-runner để ẨN dây (rope) và điều chỉnh position anchor.
         async function triggerThiefRunner(opts = {}) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua effect (KHÔNG phát âm)
             const { name, avatar, uid } = opts;
             const r = jarRect();
             // Reuse buildThiefNode (giống rope thief 100%): có rope + body + name + loot
@@ -3741,6 +3748,7 @@
             return wrap;
         }
         async function triggerOsin(opts = {}) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua effect (KHÔNG phát âm)
             if (!thiefLayer || osinBusy) return;
             const r = jarRect();
 
@@ -4257,6 +4265,7 @@
         //   5.5s: cleanup video + restore jar visuals (jar tự rebuild qua shatterJar)
         let dragonFireBusy = false;
         async function fxDragonFire(opts = {}) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua effect (KHÔNG phát âm)
             if (dragonFireBusy || jarStolen) return;
             if (!overlayLayer) return;
             dragonFireBusy = true;
@@ -4932,6 +4941,7 @@
             return wrap;
         }
         async function triggerUFO(opts = {}) {
+            if (!isEnabled()) return;   // Game tắt → bỏ qua effect (KHÔNG phát âm)
             if (!thiefLayer || ufoBusy) return;
             // UFO chỉ hút quà NGOÀI hũ (escaped) — VIP PRO version của OSIN.
             // Picking-from-jar-and-dropping-back-into-jar là vô nghĩa.

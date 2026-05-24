@@ -24,7 +24,8 @@
 
     // ============ SoundManager — Web Audio synth ============
     // Sinh tone bằng OscillatorNode, không cần file audio asset.
-    // Idol = pitch cao + sine (mềm/sáng), User = pitch thấp + triangle (ấm/đậm)
+    // Creator (side='idol') = pitch cao + fanfare thắng / triangle.
+    // User (side='user') = pitch thấp / khi User thắng → Creator THUA → sad descending.
     const SoundManager = {
         ctx: null,
         ensureCtx() {
@@ -35,61 +36,389 @@
             } catch (e) { /* unsupported */ }
             return this.ctx;
         },
+        // Tone helper: 1 nốt với envelope ADSR đơn giản.
+        tone(ctx, freq, t, dur, vol, type = 'sine') {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = freq;
+            osc.type = type;
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(vol, t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(t); osc.stop(t + dur + 0.05);
+        },
         play(kind, side) {
             if (!cfg?.audio?.enabled) return;
             const ctx = this.ensureCtx();
             if (!ctx) return;
-            // Resume context nếu bị suspended (chính sách autoplay browser)
             if (ctx.state === 'suspended') ctx.resume();
             const vol = Math.max(0, Math.min(1, (cfg.audio.volume ?? 50) / 100));
             if (vol === 0) return;
 
             const now = ctx.currentTime;
             if (kind === 'place') {
-                // Tone ngắn 0.12s — idol 880Hz, user 440Hz
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                if (side === 'idol') { osc.frequency.value = 880; osc.type = 'sine'; }
-                else { osc.frequency.value = 440; osc.type = 'triangle'; }
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.25 * vol, now + 0.005);
-                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.start(now); osc.stop(now + 0.18);
+                if (side === 'idol') this.tone(ctx, 880, now, 0.14, 0.25 * vol, 'sine');
+                else this.tone(ctx, 440, now, 0.14, 0.25 * vol, 'triangle');
             }
             else if (kind === 'win') {
-                // Fanfare 3 nốt nhanh
-                const notes = side === 'idol' ? [880, 1108, 1318] : [440, 554, 659]; // C5/E5/G5 vs C4/E4/G4
-                notes.forEach((freq, i) => {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.frequency.value = freq;
-                    osc.type = 'sine';
-                    const t = now + i * 0.1;
-                    gain.gain.setValueAtTime(0, t);
-                    gain.gain.linearRampToValueAtTime(0.3 * vol, t + 0.01);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-                    osc.connect(gain); gain.connect(ctx.destination);
-                    osc.start(t); osc.stop(t + 0.35);
-                });
+                if (side === 'idol') {
+                    // CREATOR THẮNG — Fanfare ascending major (C5/E5/G5 + high C)
+                    [523, 659, 784, 1047].forEach((f, i) => {
+                        this.tone(ctx, f, now + i * 0.09, 0.32, 0.3 * vol, 'sine');
+                    });
+                    // Layer triangle ngân vang dưới
+                    this.tone(ctx, 261, now, 0.6, 0.18 * vol, 'triangle');
+                } else {
+                    // CREATOR THUA (User thắng) — Sad descending minor (E4/C4/A3/E3)
+                    [659, 523, 440, 330, 220].forEach((f, i) => {
+                        this.tone(ctx, f, now + i * 0.14, 0.45, 0.28 * vol, 'triangle');
+                    });
+                    // Layer sub bass
+                    this.tone(ctx, 110, now + 0.3, 0.8, 0.15 * vol, 'sine');
+                }
             }
             else if (kind === 'draw') {
-                // 2 nốt giáng nhẹ (hoà)
-                [440, 392].forEach((freq, i) => {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.frequency.value = freq;
-                    osc.type = 'sine';
-                    const t = now + i * 0.18;
-                    gain.gain.setValueAtTime(0, t);
-                    gain.gain.linearRampToValueAtTime(0.25 * vol, t + 0.01);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-                    osc.connect(gain); gain.connect(ctx.destination);
-                    osc.start(t); osc.stop(t + 0.3);
-                });
+                [440, 392].forEach((f, i) => this.tone(ctx, f, now + i * 0.18, 0.28, 0.25 * vol, 'sine'));
+            }
+            else if (kind === 'hint-yes') {
+                // Cảnh báo "có thể thua" — 2 hồi chuông khẩn cấp
+                [880, 1175].forEach((f, i) => this.tone(ctx, f, now + i * 0.12, 0.25, 0.3 * vol, 'square'));
+            }
+            else if (kind === 'hint-no') {
+                // Yên tâm — 1 nốt êm dịu
+                this.tone(ctx, 523, now, 0.4, 0.2 * vol, 'sine');
             }
         }
     };
+
+    // ============ MatchEndMusic — phát nhạc khi kết thúc trận ============
+    const MatchEndMusic = {
+        currentAudio: null,
+        play(url) {
+            this.stop();
+            if (!url) return;
+            try {
+                this.currentAudio = new Audio(url);
+                const vol = Math.max(0, Math.min(1, (cfg?.audio?.volume ?? 50) / 100));
+                this.currentAudio.volume = vol;
+                this.currentAudio.play().catch(e => console.warn('[match-end-music] fail:', e.message));
+            } catch (e) {}
+        },
+        stop() {
+            if (this.currentAudio) {
+                try { this.currentAudio.pause(); } catch {}
+                this.currentAudio = null;
+            }
+        }
+    };
+    // ============ TenseMusic — phát loop khi 1 bên gần thắng (open-3/4) ============
+    const TenseMusic = {
+        audio: null,
+        active: false,
+        start(url) {
+            if (this.active) return;
+            if (!url) return;
+            try {
+                this.audio = new Audio(url);
+                this.audio.loop = true;
+                const vol = Math.max(0, Math.min(1, (cfg?.music?.volume ?? 30) / 100));
+                this.audio.volume = vol;
+                this.audio.play().catch(e => console.warn('[tense-music] fail:', e.message));
+                this.active = true;
+            } catch (e) {}
+        },
+        stop() {
+            if (this.audio) {
+                try { this.audio.pause(); } catch {}
+                this.audio = null;
+            }
+            this.active = false;
+        }
+    };
+
+    // ============ SfxClipPlayer — HTML5 Audio cho user-uploaded clips ============
+    const SfxClipPlayer = {
+        currentAudio: null,
+        play(url, onEnd) {
+            this.stop();
+            try {
+                this.currentAudio = new Audio(url);
+                const sfxVol = Math.max(0, Math.min(1, (cfg?.audio?.volume ?? 50) / 100));
+                this.currentAudio.volume = sfxVol;
+                this.currentAudio.play().catch(e => console.warn('[sfx-clip] play fail:', e.message));
+                this.currentAudio.onended = () => { onEnd && onEnd(); this.currentAudio = null; };
+            } catch (e) { console.warn('[sfx-clip] err:', e.message); }
+        },
+        stop() {
+            if (this.currentAudio) {
+                try { this.currentAudio.pause(); } catch {}
+                this.currentAudio = null;
+            }
+        }
+    };
+    function renderSfxClips() {
+        const host = document.getElementById('caro-sfx-clips');
+        if (!host) return;
+        const clips = cfg?.audio?.clips || [];
+        host.innerHTML = '';
+        if (!clips.length) {
+            host.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.35);padding:4px 0;">Chưa có clip nào</div>';
+            return;
+        }
+        clips.forEach((clip, idx) => {
+            const row = document.createElement('div');
+            row.className = 'caro-sfx-clip';
+            row.innerHTML = `
+                <button class="caro-sfx-clip-play" data-idx="${idx}" title="${escapeHtml(clip.url)}">▶ ${escapeHtml(clip.name || 'Clip ' + (idx + 1))}</button>
+                <button class="caro-sfx-clip-del" data-idx="${idx}" title="Xoá clip">✕</button>`;
+            host.appendChild(row);
+        });
+        host.querySelectorAll('.caro-sfx-clip-play').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = +btn.dataset.idx;
+                const clip = (cfg?.audio?.clips || [])[idx];
+                if (!clip) return;
+                // Toggle visual + play
+                document.querySelectorAll('.caro-sfx-clip-play.playing').forEach(b => b.classList.remove('playing'));
+                btn.classList.add('playing');
+                SfxClipPlayer.play(clip.url, () => btn.classList.remove('playing'));
+            });
+        });
+        host.querySelectorAll('.caro-sfx-clip-del').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = +btn.dataset.idx;
+                const clips = [...(cfg?.audio?.clips || [])];
+                clips.splice(idx, 1);
+                cfg.audio = { ...(cfg.audio || {}), clips };
+                if (game) game.setConfig(cfg);
+                clearTimeout(pendingSave);
+                pendingSave = setTimeout(() => saveConfig().catch(() => {}), 500);
+                renderSfxClips();
+            });
+        });
+    }
+
+    // ============ BackgroundMusic — Web Audio synth ambient + HTML5 Audio cho URL/file user ============
+    // 3 track ambient procedural KHÔNG cần asset bundle. Cộng option user upload MP3 riêng.
+    const BackgroundMusic = {
+        ctx: null,
+        masterGain: null,
+        scheduler: null,
+        playing: false,
+        currentTrack: 'none',
+        nextNoteTime: 0,
+        step: 0,
+        // User custom audio (file/URL)
+        audioEl: null,
+        ensureCtx() {
+            if (this.ctx) return this.ctx;
+            try {
+                const Ctor = window.AudioContext || window.webkitAudioContext;
+                if (Ctor) {
+                    this.ctx = new Ctor();
+                    this.masterGain = this.ctx.createGain();
+                    this.masterGain.gain.value = 0.3;
+                    this.masterGain.connect(this.ctx.destination);
+                }
+            } catch (e) {}
+            return this.ctx;
+        },
+        setVolume(v) {
+            const ctx = this.ensureCtx();
+            if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, v / 100)) * 0.5;
+            if (this.audioEl) this.audioEl.volume = Math.max(0, Math.min(1, v / 100));
+        },
+        // === Track 1: "Calm Strategy" — slow arpeggio Cmaj7 (C-E-G-B)
+        track_calm(ctx, t) {
+            const seq = [261.63, 329.63, 392.00, 493.88];
+            const note = seq[this.step % seq.length];
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'triangle';
+            o.frequency.value = note;
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.18, t + 0.05);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+            o.connect(g); g.connect(this.masterGain);
+            o.start(t); o.stop(t + 1.0);
+            // Bass note mỗi 4 bước
+            if (this.step % 4 === 0) {
+                const b = ctx.createOscillator();
+                const bg = ctx.createGain();
+                b.type = 'sine';
+                b.frequency.value = 65.41;   // C2
+                bg.gain.setValueAtTime(0, t);
+                bg.gain.linearRampToValueAtTime(0.25, t + 0.08);
+                bg.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+                b.connect(bg); bg.connect(this.masterGain);
+                b.start(t); b.stop(t + 1.6);
+            }
+            return 0.42;   // step duration
+        },
+        // === Track 2: "Arcade Tension" — chiptune 8-bit feel
+        track_arcade(ctx, t) {
+            const lead = [392, 392, 523, 392, 587, 523, 440, 440, 523, 440, 587, 659];
+            const note = lead[this.step % lead.length];
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'square';
+            o.frequency.value = note;
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.13, t + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+            o.connect(g); g.connect(this.masterGain);
+            o.start(t); o.stop(t + 0.2);
+            // Kick mỗi bước chẵn
+            if (this.step % 2 === 0) {
+                const k = ctx.createOscillator();
+                const kg = ctx.createGain();
+                k.type = 'sine';
+                k.frequency.setValueAtTime(120, t);
+                k.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+                kg.gain.setValueAtTime(0.25, t);
+                kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+                k.connect(kg); kg.connect(this.masterGain);
+                k.start(t); k.stop(t + 0.13);
+            }
+            return 0.22;
+        },
+        // === Track 3: "Epic Boss" — dark sweeping pad + bass pulse
+        track_epic(ctx, t) {
+            const bass = [82.41, 82.41, 110, 92.5, 82.41, 82.41, 110, 123.47];   // E2/A2/F#2/B2
+            const noteB = bass[this.step % bass.length];
+            const b = ctx.createOscillator();
+            const bg = ctx.createGain();
+            b.type = 'sawtooth';
+            b.frequency.value = noteB;
+            bg.gain.setValueAtTime(0, t);
+            bg.gain.linearRampToValueAtTime(0.22, t + 0.05);
+            bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+            b.connect(bg); bg.connect(this.masterGain);
+            b.start(t); b.stop(t + 0.7);
+            // Pad hợp âm 4 bước/lần
+            if (this.step % 4 === 0) {
+                const pad = [329.63, 392, 493.88, 659.26];   // Emin7
+                pad.forEach((f, i) => {
+                    const o = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    o.type = 'triangle';
+                    o.frequency.value = f;
+                    o.detune.value = (i - 1.5) * 8;
+                    g.gain.setValueAtTime(0, t);
+                    g.gain.linearRampToValueAtTime(0.1, t + 0.4);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+                    o.connect(g); g.connect(this.masterGain);
+                    o.start(t); o.stop(t + 2.9);
+                });
+            }
+            return 0.36;
+        },
+        // === Track 4: "Lofi Chill" — gentle pads + soft kicks
+        track_lofi(ctx, t) {
+            const seq = [261.63, 311.13, 349.23, 311.13];   // C/Eb/F/Eb
+            const note = seq[this.step % seq.length];
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.value = note;
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.16, t + 0.2);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+            o.connect(g); g.connect(this.masterGain);
+            o.start(t); o.stop(t + 1.9);
+            return 0.7;
+        },
+        // === Track 5: "Final Round" — fast tense rhythm
+        track_final(ctx, t) {
+            const rhythm = [440, 0, 440, 523, 0, 440, 587, 440];
+            const note = rhythm[this.step % rhythm.length];
+            if (note > 0) {
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'sawtooth';
+                o.frequency.value = note;
+                g.gain.setValueAtTime(0, t);
+                g.gain.linearRampToValueAtTime(0.16, t + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+                o.connect(g); g.connect(this.masterGain);
+                o.start(t); o.stop(t + 0.15);
+            }
+            // Kick mỗi 2 step
+            if (this.step % 2 === 0) {
+                const k = ctx.createOscillator();
+                const kg = ctx.createGain();
+                k.type = 'sine';
+                k.frequency.setValueAtTime(80, t);
+                k.frequency.exponentialRampToValueAtTime(35, t + 0.08);
+                kg.gain.setValueAtTime(0.28, t);
+                kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+                k.connect(kg); kg.connect(this.masterGain);
+                k.start(t); k.stop(t + 0.12);
+            }
+            return 0.16;
+        },
+        play(trackId) {
+            this.stop();
+            this.currentTrack = trackId || 'none';
+            if (this.currentTrack === 'none') return;
+            // === Custom URL/file (HTML5 Audio) ===
+            if (this.currentTrack === 'custom') {
+                const url = cfg?.music?.customUrl;
+                if (!url) return;
+                this.audioEl = new Audio(url);
+                this.audioEl.loop = true;
+                this.audioEl.volume = Math.max(0, Math.min(1, (cfg?.music?.volume ?? 30) / 100));
+                this.audioEl.play().catch(e => console.warn('[music] play fail:', e.message));
+                this.playing = true;
+                return;
+            }
+            // === Procedural Web Audio tracks ===
+            const ctx = this.ensureCtx();
+            if (!ctx) return;
+            if (ctx.state === 'suspended') ctx.resume();
+            this.setVolume(cfg?.music?.volume ?? 30);
+            this.step = 0;
+            this.nextNoteTime = ctx.currentTime + 0.05;
+            this.playing = true;
+            const fn = {
+                calm: this.track_calm.bind(this),
+                arcade: this.track_arcade.bind(this),
+                epic: this.track_epic.bind(this),
+                lofi: this.track_lofi.bind(this),
+                final: this.track_final.bind(this)
+            }[this.currentTrack];
+            if (!fn) return;
+            const tick = () => {
+                if (!this.playing) return;
+                while (this.nextNoteTime < ctx.currentTime + 0.1) {
+                    const dur = fn(ctx, this.nextNoteTime);
+                    this.nextNoteTime += dur;
+                    this.step++;
+                }
+                this.scheduler = setTimeout(tick, 50);
+            };
+            tick();
+        },
+        stop() {
+            this.playing = false;
+            if (this.scheduler) { clearTimeout(this.scheduler); this.scheduler = null; }
+            if (this.audioEl) {
+                try { this.audioEl.pause(); } catch {}
+                this.audioEl = null;
+            }
+            this.step = 0;
+        }
+    };
+    const MUSIC_TRACKS = [
+        { id: 'none',   label: '— Không nhạc —' },
+        { id: 'calm',   label: '🧘 Calm Strategy (suy nghĩ chiến thuật)' },
+        { id: 'arcade', label: '🕹 Arcade Tension (8-bit nhiệt huyết)' },
+        { id: 'epic',   label: '⚔️ Epic Boss (trận quyết đấu)' },
+        { id: 'lofi',   label: '☕ Lofi Chill (thư giãn)' },
+        { id: 'final',  label: '🔥 Final Round (cân não cuối hiệp)' },
+        { id: 'custom', label: '🔗 Nhạc tự chọn (URL/file)' }
+    ];
 
     // ============ Custom Gift Picker (thay cho <select>) ============
     function createGiftPicker(host, onChange) {
@@ -239,6 +568,8 @@
             updateUI();
             // fit canvas resize
             requestAnimationFrame(() => game && fitCanvasContainer());
+            // Auto-fetch Creator avatar nếu avatar mode đang bật + có username TikTok đã typed
+            maybeFetchCreatorAvatar();
         },
         instance() { return game; }
     };
@@ -297,9 +628,49 @@
         });
         game.on('change', () => {
             updateUI();
+            // Auto-play music khi vào pha playing — auto-stop khi matchEnd
+            if (cfg?.music?.enabled && cfg?.music?.autoPlayOnRound !== false) {
+                const ph = game.getState().phase;
+                if (ph === 'playing' && !BackgroundMusic.playing) {
+                    BackgroundMusic.play(cfg.music.track || 'calm');
+                } else if (ph === 'matchEnd' && BackgroundMusic.playing) {
+                    BackgroundMusic.stop();
+                }
+            }
         });
         game.on('win', (info) => {
             logSystem(`🏆 ${info.side === 'idol' ? 'CREATOR' : (game.getState().opponent?.nickname || 'USER')} thắng!`);
+            pushState();
+            // Stop tense music + play match-end music
+            TenseMusic.stop();
+            const isCreatorWin = info.side === 'idol';
+            const customUrl = isCreatorWin ? cfg?.audio?.winMusic : cfg?.audio?.loseMusic;
+            if (customUrl) {
+                BackgroundMusic.stop();
+                MatchEndMusic.play(customUrl);
+            }
+            // Nếu không có file custom → SoundManager đã fire qua fire('sound', {kind: 'win'}) ở placeStone
+        });
+        // Draw event (bàn đầy) → play draw music nếu có
+        game.on('draw', (info) => {
+            TenseMusic.stop();
+            if (cfg?.audio?.drawMusic) {
+                BackgroundMusic.stop();
+                MatchEndMusic.play(cfg.audio.drawMusic);
+            }
+        });
+        // Sau MỖI nước → check tense threat, start/stop nhạc gay cấn
+        game.on('placed', () => {
+            if (!cfg?.tenseMusic?.enabled || !cfg?.tenseMusic?.url) {
+                TenseMusic.stop();
+                return;
+            }
+            const threat = game.checkAnyThreat();
+            if (threat.yes) TenseMusic.start(cfg.tenseMusic.url);
+            else TenseMusic.stop();
+        });
+        // Hint event — fire khi banner show AND clear → đẩy state lên overlay đồng bộ
+        game.on('hint', (info) => {
             pushState();
         });
 
@@ -408,6 +779,185 @@
             // play test khi thả slider
             SoundManager.play('place', 'user');
         });
+        // === Manual SFX test buttons (như SoundEffects) ===
+        $('#caro-sfx-win-creator')?.addEventListener('click', () => SoundManager.play('win', 'idol'));
+        $('#caro-sfx-lose-creator')?.addEventListener('click', () => SoundManager.play('win', 'user'));   // user thắng = creator thua
+        $('#caro-sfx-draw')?.addEventListener('click', () => SoundManager.play('draw'));
+
+        // === Match-end music (Win / Lose / Draw) — chọn file từ máy ===
+        const wireMatchEndMusic = (kind) => {
+            const key = kind === 'win' ? 'winMusic' : kind === 'lose' ? 'loseMusic' : 'drawMusic';
+            const picker = $(`#caro-music-${kind}-picker`);
+            const currentEl = $(`#caro-music-${kind}-current`);
+            const testBtn = $(`#caro-music-${kind}-test`);
+            const clearBtn = $(`#caro-music-${kind}-clear`);
+            const updateCurrentDisplay = () => {
+                const url = cfg?.audio?.[key] || '';
+                if (currentEl) {
+                    currentEl.textContent = url
+                        ? `🎵 ${decodeURIComponent(url.split('/').pop().split('\\').pop())}`
+                        : `— Mặc định (${kind === 'win' ? 'Web Audio fanfare' : kind === 'lose' ? 'Web Audio sad' : 'Web Audio chord'})`;
+                }
+            };
+            picker?.addEventListener('change', (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const url = file.path ? `file:///${file.path.replace(/\\/g, '/')}` : URL.createObjectURL(file);
+                cfg.audio = { ...(cfg.audio || {}), [key]: url };
+                if (game) game.setConfig(cfg);
+                clearTimeout(pendingSave);
+                pendingSave = setTimeout(() => saveConfig().catch(() => {}), 500);
+                updateCurrentDisplay();
+                flashOk(`Đã set nhạc ${kind}: ${file.name}`);
+                e.target.value = '';
+            });
+            testBtn?.addEventListener('click', () => {
+                const url = cfg?.audio?.[key];
+                if (url) {
+                    MatchEndMusic.play(url);
+                } else {
+                    // Fallback to Web Audio default
+                    SoundManager.play(kind === 'draw' ? 'draw' : 'win', kind === 'lose' ? 'user' : 'idol');
+                }
+            });
+            clearBtn?.addEventListener('click', () => {
+                cfg.audio = { ...(cfg.audio || {}), [key]: '' };
+                if (game) game.setConfig(cfg);
+                clearTimeout(pendingSave);
+                pendingSave = setTimeout(() => saveConfig().catch(() => {}), 500);
+                updateCurrentDisplay();
+                MatchEndMusic.stop();
+                flashOk(`${kind} → quay lại Web Audio mặc định`);
+            });
+            updateCurrentDisplay();
+        };
+        wireMatchEndMusic('win');
+        wireMatchEndMusic('lose');
+        wireMatchEndMusic('draw');
+
+        // === Nhạc gay cấn ===
+        const tenseCurrentEl = $('#caro-tense-current');
+        const updateTenseCurrent = () => {
+            const url = cfg?.tenseMusic?.url || '';
+            if (tenseCurrentEl) {
+                tenseCurrentEl.textContent = url
+                    ? `🎵 ${decodeURIComponent(url.split('/').pop().split('\\').pop())}`
+                    : '— Chưa chọn file';
+            }
+        };
+        $('#caro-tense-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ tenseMusic: { enabled: e.target.checked } });
+            if (!e.target.checked) TenseMusic.stop();
+        });
+        $('#caro-tense-picker')?.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const url = file.path ? `file:///${file.path.replace(/\\/g, '/')}` : URL.createObjectURL(file);
+            updateCfg({ tenseMusic: { url } });
+            updateTenseCurrent();
+            flashOk(`Nhạc gay cấn: ${file.name}`);
+            e.target.value = '';
+        });
+        $('#caro-tense-test')?.addEventListener('click', () => {
+            const url = cfg?.tenseMusic?.url;
+            if (!url) { flashWarn('Chưa chọn file nhạc gay cấn'); return; }
+            TenseMusic.start(url);
+            // Auto-stop sau 5s khi test
+            setTimeout(() => TenseMusic.stop(), 5000);
+        });
+        $('#caro-tense-clear')?.addEventListener('click', () => {
+            updateCfg({ tenseMusic: { url: '' } });
+            updateTenseCurrent();
+            TenseMusic.stop();
+        });
+
+        // === Custom SFX clips (user upload) ===
+        const sfxClipPicker = $('#caro-sfx-clip-picker');
+        sfxClipPicker?.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            const existing = [...(cfg.audio?.clips || [])];
+            for (const file of files) {
+                const url = file.path ? `file:///${file.path.replace(/\\/g, '/')}` : URL.createObjectURL(file);
+                existing.push({ name: file.name.replace(/\.(mp3|wav|ogg|m4a)$/i, ''), url });
+            }
+            // Trick để gán array trực tiếp (deepMerge merge object, không thay array gốc)
+            cfg.audio = { ...(cfg.audio || {}), clips: existing };
+            if (game) game.setConfig(cfg);
+            clearTimeout(pendingSave);
+            pendingSave = setTimeout(() => saveConfig().catch(() => {}), 500);
+            renderSfxClips();
+            flashOk(`Đã thêm ${files.length} âm thanh`);
+            e.target.value = '';   // cho phép pick lại cùng file
+        });
+        // (renderSfxClips() được gọi từ applyConfigToUI)
+
+        // === Music UI ===
+        const musicSel = $('#caro-music-track');
+        const musicCustomRow = $('#caro-music-custom-row');
+        const musicCustomUrl = $('#caro-music-custom-url');
+        const musicVol = $('#caro-music-volume'), musicVolV = $('#caro-music-volume-v');
+        // Populate dropdown
+        if (musicSel) {
+            musicSel.innerHTML = MUSIC_TRACKS.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+        }
+        $('#caro-music-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ music: { enabled: e.target.checked } });
+            if (!e.target.checked) BackgroundMusic.stop();
+        });
+        musicSel?.addEventListener('change', (e) => {
+            const track = e.target.value;
+            updateCfg({ music: { track } });
+            musicCustomRow.style.display = track === 'custom' ? '' : 'none';
+            // Đang phát → đổi ngay
+            if (BackgroundMusic.playing) BackgroundMusic.play(track);
+        });
+        musicCustomUrl?.addEventListener('change', (e) => {
+            updateCfg({ music: { customUrl: e.target.value.trim() } });
+            if (BackgroundMusic.playing && cfg.music?.track === 'custom') BackgroundMusic.play('custom');
+        });
+        musicVol?.addEventListener('input', () => {
+            musicVolV.textContent = musicVol.value + '%';
+            updateCfg({ music: { volume: +musicVol.value } });
+            BackgroundMusic.setVolume(+musicVol.value);
+        });
+        $('#caro-music-autoplay')?.addEventListener('change', (e) => {
+            updateCfg({ music: { autoPlayOnRound: e.target.checked } });
+        });
+        $('#caro-music-play')?.addEventListener('click', () => {
+            const track = cfg?.music?.track || 'calm';
+            BackgroundMusic.play(track);
+            flashOk(`Đang phát: ${MUSIC_TRACKS.find(t => t.id === track)?.label || track}`);
+        });
+        $('#caro-music-stop')?.addEventListener('click', () => {
+            BackgroundMusic.stop();
+        });
+        // File picker cho nhạc: chọn file local → save object URL hoặc file path (Electron)
+        $('#caro-music-file-picker')?.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            // Electron file.path là path tuyệt đối trên disk (Browser sandbox không có)
+            const urlVal = file.path ? `file:///${file.path.replace(/\\/g, '/')}` : URL.createObjectURL(file);
+            $('#caro-music-custom-url').value = urlVal;
+            updateCfg({ music: { customUrl: urlVal, track: 'custom' } });
+            $('#caro-music-track').value = 'custom';
+            $('#caro-music-custom-row').style.display = '';
+            BackgroundMusic.play('custom');
+            flashOk(`Đang phát: ${file.name}`);
+        });
+
+        // === Avatar mode — TỰ LẤY từ TikTok, không cần config URL/file ===
+        $('#caro-avatar-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ avatarMode: { enabled: e.target.checked } });
+            if (e.target.checked) maybeFetchCreatorAvatar(true);
+        });
+        // Listen username field changes → re-fetch host avatar
+        const tikUsernameInput = document.getElementById('username');
+        if (tikUsernameInput) {
+            tikUsernameInput.addEventListener('change', () => maybeFetchCreatorAvatar());
+            tikUsernameInput.addEventListener('blur', () => maybeFetchCreatorAvatar());
+        }
+
         // Practice mode toggle — bật là reset bàn để tap được liền
         $('#caro-practice-mode').addEventListener('change', (e) => {
             updateCfg({ practiceMode: e.target.checked });
@@ -441,6 +991,42 @@
         // Custom gift picker — registration
         giftPickers.reg = createGiftPicker($('#caro-reg-gift'), (id) => {
             updateCfg({ registration: { giftId: id } });
+        });
+
+        // === Hint "sắp thua không" config ===
+        $('#caro-hint-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ hint: { enabled: e.target.checked } });
+        });
+        const hintCdEl = $('#caro-hint-cooldown'), hintCdV = $('#caro-hint-cooldown-v');
+        hintCdEl?.addEventListener('input', () => {
+            hintCdV.textContent = hintCdEl.value + 's';
+            updateCfg({ hint: { cooldownSec: +hintCdEl.value } });
+        });
+        const hintShowEl = $('#caro-hint-show'), hintShowV = $('#caro-hint-show-v');
+        hintShowEl?.addEventListener('input', () => {
+            hintShowV.textContent = hintShowEl.value + 's';
+            updateCfg({ hint: { showSeconds: +hintShowEl.value } });
+        });
+        // Gift picker for hint trigger
+        if ($('#caro-hint-gift')) {
+            giftPickers.hint = createGiftPicker($('#caro-hint-gift'), (id) => {
+                updateCfg({ hint: { giftId: id } });
+            });
+        }
+        // Test hint button — chạy threat check ngay với fake user
+        $('#caro-btn-test-hint')?.addEventListener('click', () => {
+            if (game.getState().phase !== 'playing') {
+                flashWarn('Phải đang trong pha chơi (Đối đầu)');
+                return;
+            }
+            const res = game.requestThreatHint({ uniqueId: 'test_' + Date.now(), nickname: 'TEST' });
+            if (res.ok) {
+                flashOk(`Test: ${res.yes ? 'CÓ ' + res.pattern : 'KHÔNG'}`);
+            } else if (res.reason === 'disabled') {
+                flashWarn('Bật "💡 Gợi ý sắp thua không" trước');
+            } else if (res.reason === 'cooldown') {
+                flashWarn(`Cooldown — đợi ${res.remain}s`);
+            }
         });
     }
 
@@ -499,6 +1085,53 @@
         $('#caro-audio-enabled').checked = cfg.audio?.enabled !== false;
         $('#caro-audio-volume').value = cfg.audio?.volume ?? 50;
         $('#caro-audio-volume-v').textContent = (cfg.audio?.volume ?? 50) + '%';
+        renderSfxClips();   // Render danh sách clip user đã upload
+        // Match-end music labels + tense music
+        ['win', 'lose', 'draw'].forEach(kind => {
+            const key = kind === 'win' ? 'winMusic' : kind === 'lose' ? 'loseMusic' : 'drawMusic';
+            const url = cfg?.audio?.[key] || '';
+            const el = document.getElementById(`caro-music-${kind}-current`);
+            if (el) el.textContent = url
+                ? `🎵 ${decodeURIComponent(url.split('/').pop().split('\\').pop())}`
+                : `— Mặc định (${kind === 'win' ? 'Web Audio fanfare' : kind === 'lose' ? 'Web Audio sad' : 'Web Audio chord'})`;
+        });
+        if ($('#caro-tense-enabled')) {
+            $('#caro-tense-enabled').checked = !!cfg.tenseMusic?.enabled;
+            const url = cfg?.tenseMusic?.url || '';
+            const tenseEl = $('#caro-tense-current');
+            if (tenseEl) tenseEl.textContent = url
+                ? `🎵 ${decodeURIComponent(url.split('/').pop().split('\\').pop())}`
+                : '— Chưa chọn file';
+        }
+        // Avatar mode config
+        if ($('#caro-avatar-enabled')) {
+            $('#caro-avatar-enabled').checked = !!cfg.avatarMode?.enabled;
+        }
+        // Hint config
+        if ($('#caro-hint-enabled')) {
+            $('#caro-hint-enabled').checked = !!cfg.hint?.enabled;
+            $('#caro-hint-cooldown').value = cfg.hint?.cooldownSec ?? 10;
+            $('#caro-hint-cooldown-v').textContent = (cfg.hint?.cooldownSec ?? 10) + 's';
+            $('#caro-hint-show').value = cfg.hint?.showSeconds ?? 3;
+            $('#caro-hint-show-v').textContent = (cfg.hint?.showSeconds ?? 3) + 's';
+        }
+        // User-undo config
+        if ($('#caro-uu-enabled')) {
+            $('#caro-uu-enabled').checked = !!cfg.userUndo?.enabled;
+            $('#caro-uu-window').value = cfg.userUndo?.windowSec ?? 3;
+            $('#caro-uu-window-v').textContent = (cfg.userUndo?.windowSec ?? 3) + 's';
+        }
+        // Music
+        if ($('#caro-music-enabled')) {
+            $('#caro-music-enabled').checked = !!cfg.music?.enabled;
+            const trackEl = $('#caro-music-track');
+            if (trackEl) trackEl.value = cfg.music?.track || 'calm';
+            $('#caro-music-volume').value = cfg.music?.volume ?? 30;
+            $('#caro-music-volume-v').textContent = (cfg.music?.volume ?? 30) + '%';
+            $('#caro-music-autoplay').checked = cfg.music?.autoPlayOnRound !== false;
+            $('#caro-music-custom-url').value = cfg.music?.customUrl || '';
+            $('#caro-music-custom-row').style.display = (cfg.music?.track === 'custom') ? '' : 'none';
+        }
         // Rolling mode
         if ($('#caro-rolling-enabled')) {
             $('#caro-rolling-enabled').checked = !!cfg.rolling?.enabled;
@@ -540,6 +1173,21 @@
         $h('acc-hint-display', dispBits.join(' · '));
         // Audio
         $h('acc-hint-audio', cfg.audio?.enabled ? `Bật · ${cfg.audio?.volume || 0}%` : 'Tắt');
+        // Avatar mode
+        $h('acc-hint-avatar', cfg.avatarMode?.enabled
+            ? (cfg.avatarMode?.creatorAvatar ? 'Bật · có ảnh CREATOR' : 'Bật · CREATOR dùng quân tròn')
+            : 'Tắt');
+        // Threat hint
+        const hintGift = (window.__giftSheet || []).find(g => String(g.id) === String(cfg.hint?.giftId));
+        $h('acc-hint-threathint', cfg.hint?.enabled
+            ? `${hintGift?.name || '⚠️ chưa chọn quà'} · cd ${cfg.hint?.cooldownSec || 10}s`
+            : 'Tắt');
+        // Music
+        const musicTrack = MUSIC_TRACKS.find(t => t.id === cfg.music?.track);
+        const musicLabel = musicTrack?.label || cfg.music?.track || '—';
+        $h('acc-hint-music', cfg.music?.enabled
+            ? `${musicLabel.replace(/^[^\w]+/, '').slice(0, 20)} · ${cfg.music?.volume || 0}%`
+            : 'Tắt');
     }
 
     // ---------- Match tab ----------
@@ -603,8 +1251,7 @@
         });
 
         // === HUỶ ĐỐI THỦ — nút (X) ở card "Đang đấu với" ===
-        // Bỏ opponent, về setup → Idol chọn người khác (free-ID hoặc ghi danh).
-        // Confirm nếu đang playing để tránh huỷ nhầm giữa hiệp.
+        // Bỏ opponent, về setup → Creator chọn người khác (free-ID hoặc ghi danh).
         $('#caro-btn-clear-opponent')?.addEventListener('click', () => {
             const st = game.getState();
             if (!st.opponent) return;
@@ -629,6 +1276,29 @@
             const ok = game.pickOpponentManual(raw, raw);
             if (!ok) { flashWarn('ID không hợp lệ'); return; }
             opponentSource = 'freeid';
+            // === AUTO-FETCH AVATAR + NICKNAME TikTok theo username (qua tikwm API) ===
+            const cleanUid = raw.replace(/^@+/, '').toLowerCase();
+            fetch(`/api/tiktok-user-avatar?username=${encodeURIComponent(cleanUid)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data?.ok && data.avatarUrl) {
+                        game._setOpponentAvatar(cleanUid, data.avatarUrl);
+                        // Update nickname thật từ TikTok nếu khác input
+                        if (data.nickname && data.nickname !== cleanUid) {
+                            const st = game.getState();
+                            if (st.opponent && (st.opponent.uniqueId || '').toLowerCase() === cleanUid) {
+                                st.opponent.nickname = data.nickname;
+                                game.loadState(st);   // re-render với nickname mới
+                            }
+                        }
+                        logSystem(`🖼 Lấy được avatar + nickname TikTok: ${data.nickname || cleanUid}`);
+                        flashOk(`Avatar TikTok: ${data.nickname || cleanUid}`);
+                    } else {
+                        console.warn('[caro] tiktok avatar fetch fail:', data?.error);
+                        logSystem(`⚠️ Không lấy được avatar @${cleanUid} (${data?.error || 'unknown'})`);
+                    }
+                })
+                .catch(e => console.warn('[caro] tiktok avatar fetch error:', e.message));
             logSystem(`🎯 Đấu trực tiếp với "${raw}" (bỏ qua ghi danh)`);
             flashOk(`Đã chọn đối thủ: ${raw}`);
             if (inp) inp.value = '';
@@ -776,6 +1446,32 @@
                 pushState();
             }
         });
+
+        // === User-undo bằng quà (chấp User) ===
+        $('#caro-uu-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ userUndo: { enabled: e.target.checked } });
+        });
+        const uuWin = $('#caro-uu-window'), uuWinV = $('#caro-uu-window-v');
+        uuWin?.addEventListener('input', () => {
+            uuWinV.textContent = uuWin.value + 's';
+            updateCfg({ userUndo: { windowSec: +uuWin.value } });
+        });
+        if ($('#caro-uu-gift')) {
+            giftPickers.uu = createGiftPicker($('#caro-uu-gift'), (id) => {
+                updateCfg({ userUndo: { giftId: id } });
+            });
+        }
+        $('#caro-btn-test-uu')?.addEventListener('click', () => {
+            const opponent = game.getState().opponent;
+            const res = game.tryUserUndoByGift({ uniqueId: opponent?.uniqueId, nickname: opponent?.nickname || 'TEST' });
+            if (res.ok) {
+                logSystem(`⚡ Test: hoàn nước User ${res.undone.c + 1}${String.fromCharCode(65 + res.undone.r)}`);
+                flashOk('Hoàn nước OK');
+                pushState();
+            } else {
+                flashWarn(`Test fail: ${res.reason}`);
+            }
+        });
     }
 
     // ---------- Save / overlay copy ----------
@@ -841,12 +1537,17 @@
 
     function bindSocket() {
         if (!socket) return;
-        // Comment listener — parse coord khi đến lượt user
+        // Comment listener — parse coord khi đến lượt user (hoặc User A trong UvU mode)
         socket.on('chat', (data) => {
             // Game bị TẮT trong Thư viện → bỏ qua mọi comment để game không nhận nước cờ
             if (cfg && cfg.enabled === false) return;
             if (!game) return;
             const st = game.getState();
+            // === AUTO-FETCH AVATAR — update profilePic của opponent/opponentA từ chat events ===
+            // Free-ID flow: user gõ ID, chưa có avatar; khi user comment → grab profilePic ngay.
+            if (data.profilePicture && game._setOpponentAvatar) {
+                game._setOpponentAvatar(data.uniqueId, data.profilePicture);
+            }
             if (st.phase !== 'playing') return;
             if (!st.opponent) return;
             // Chỉ xử lý comment từ ĐÚNG opponent
@@ -884,6 +1585,44 @@
             window.__giftSheet = list;
             refreshGiftOptions();
         });
+        // Host (CREATOR) profile từ server → lưu cho avatar mode + render
+        socket.on('hostInfo', (info) => {
+            window.__hostInfo = info;
+            // Force re-render canvas để pick avatar mới
+            if (game) game.setConfig({});
+        });
+    }
+
+    // === Auto-fetch Creator avatar TỪ USERNAME đã typed (kể cả chưa connect LIVE) ===
+    // Trigger: khi panel mở + avatar mode ON, hoặc khi user đổi username TikTok input.
+    let _lastFetchedHostUsername = '';
+    function maybeFetchCreatorAvatar(force) {
+        if (!cfg?.avatarMode?.enabled && !force) return;
+        // Lấy username từ field connect TikTok (app.js dùng #username)
+        const inp = document.getElementById('username');
+        const uname = String(inp?.value || '').trim().replace(/^@+/, '').toLowerCase();
+        if (!uname) return;
+        if (uname === _lastFetchedHostUsername && !force) return;
+        // Nếu hostInfo từ server đã có (đang LIVE) → KHÔNG đè
+        if (window.__hostInfo?.profilePic && window.__hostInfo.uniqueId?.toLowerCase() === uname) return;
+        _lastFetchedHostUsername = uname;
+        fetch(`/api/tiktok-user-avatar?username=${encodeURIComponent(uname)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data?.ok && data.avatarUrl) {
+                    window.__hostInfo = {
+                        uniqueId: uname,
+                        nickname: data.nickname || uname,
+                        profilePic: data.avatarUrl,
+                        userId: '',
+                        level: 0,
+                        verified: false
+                    };
+                    if (game) game.setConfig({});   // force re-render
+                    logSystem(`🖼 Lấy avatar CREATOR: ${data.nickname || uname}`);
+                }
+            })
+            .catch(() => {});
     }
 
     // ---------- Gift event handler (gọi từ socket VÀ từ nút Test) ----------
@@ -892,6 +1631,33 @@
         const giftIdIn = String(g.giftId ?? '').trim();
         const giftIdCfg = String(cfg?.registration?.giftId ?? '').trim();
         let isRegGift = giftIdIn !== '' && giftIdCfg !== '' && giftIdIn === giftIdCfg;
+        // === Threat hint gift check (chạy SONG SONG với reg gift — quà có thể vừa reg vừa hint nếu trùng id) ===
+        const hintGiftId = String(cfg?.hint?.giftId ?? '').trim();
+        const isHintGift = cfg?.hint?.enabled && giftIdIn !== '' && hintGiftId !== '' && giftIdIn === hintGiftId;
+        if (isHintGift && game && st0?.phase === 'playing') {
+            const res = game.requestThreatHint({ uniqueId: g.uniqueId, nickname: g.nickname });
+            if (res.ok) {
+                logSystem(`💡 ${g.nickname || g.uniqueId} hỏi gợi ý → ${res.yes ? 'CÓ (' + res.pattern + ')' : 'KHÔNG'}`);
+                SoundManager.play(res.yes ? 'hint-yes' : 'hint-no');
+                pushState();
+            } else if (res.reason === 'cooldown') {
+                logSystem(`💤 ${g.nickname || g.uniqueId} hỏi gợi ý — cooldown ${res.remain}s`);
+            }
+        }
+        // === User-undo bằng quà — chỉ opponent đang chơi mới hoàn được nước của mình ===
+        const uuGiftId = String(cfg?.userUndo?.giftId ?? '').trim();
+        const isUuGift = cfg?.userUndo?.enabled && giftIdIn !== '' && uuGiftId !== '' && giftIdIn === uuGiftId;
+        if (isUuGift && game && st0?.phase === 'playing') {
+            const res = game.tryUserUndoByGift({ uniqueId: g.uniqueId, nickname: g.nickname });
+            if (res.ok) {
+                logSystem(`⚡ ${g.nickname || g.uniqueId} HOÀN NƯỚC qua quà: ${res.undone.c + 1}${String.fromCharCode(65 + res.undone.r)}`);
+                flashOk(`User hoàn nước cuối`);
+                pushState();
+            } else if (res.reason !== 'no_window' && res.reason !== 'expired') {
+                // Chỉ log lỗi đáng chú ý — no_window/expired là bình thường (window đã đóng)
+                logSystem(`⚡ ${g.nickname || g.uniqueId} muốn hoàn nhưng: ${res.reason}`);
+            }
+        }
         // Fallback: id không khớp NHƯNG tên trùng tên quà đã chọn → vẫn nhận
         if (!isRegGift && giftIdCfg) {
             const cfgGift = (window.__giftSheet || []).find(x => String(x.id) === giftIdCfg);
@@ -957,6 +1723,14 @@
             giftPickers.undo.setList(list);
             giftPickers.undo.setValue(cfg?.undo?.giftId || '');
         }
+        if (giftPickers.hint) {
+            giftPickers.hint.setList(list);
+            giftPickers.hint.setValue(cfg?.hint?.giftId || '');
+        }
+        if (giftPickers.uu) {
+            giftPickers.uu.setList(list);
+            giftPickers.uu.setValue(cfg?.userUndo?.giftId || '');
+        }
     }
 
     // ---------- UI updaters ----------
@@ -976,16 +1750,12 @@
         const srcEl = $('#caro-opponent-source');
         if (nameEl) nameEl.textContent = op.nickname || op.uniqueId || '—';
         if (uidEl) uidEl.textContent = op.uniqueId ? '@' + op.uniqueId : '';
-        if (avEl) {
-            avEl.src = op.profilePic || '/favicon.ico';
-        }
+        if (avEl) avEl.src = op.profilePic || '/favicon.ico';
         if (diaEl) {
             const d = Number(op.totalDiamond) || 0;
             diaEl.textContent = d > 0 ? `${d}💎` : '';
         }
-        if (srcEl) {
-            srcEl.textContent = opponentSource === 'freeid' ? '🆔 Nhập tay' : (opponentSource === 'reg' ? '🎁 Qua ghi danh' : '');
-        }
+        if (srcEl) srcEl.textContent = opponentSource === 'freeid' ? '🆔 Nhập tay' : (opponentSource === 'reg' ? '🎁 Qua ghi danh' : '');
     }
 
     function updateUI() {
@@ -1029,6 +1799,8 @@
         const isSetup = st.phase === 'setup';
         const isReg = st.phase === 'registration';
         const isPicking = st.phase === 'picking';
+        const isPlaying = st.phase === 'playing';
+        const isRoundEnd = st.phase === 'roundEnd';
         const isRegOpen = !!st.registration.open;
         const hasEntries = st.registration.entries.length > 0;
         const hasOpponent = !!st.opponent;
@@ -1041,6 +1813,7 @@
         $('#caro-btn-pick-top').disabled = !hasEntries || !(isReg || isPicking) || hasOpponent;
         // Đổi đối thủ: cần entries để chọn người khác
         $('#caro-btn-change-opponent').disabled = !hasEntries;
+
     }
 
     function renderLeaderboard(entries, currentOpponentUid) {
@@ -1084,7 +1857,9 @@
         if (!host) return;
         const div = document.createElement('div');
         div.className = 'caro-log-line ' + side;
-        const tag = side === 'idol' ? '🩵 CREATOR' : '🩷 USER';
+        const st = game?.getState();
+        const userName = st?.opponent?.nickname || 'USER';
+        const tag = side === 'idol' ? '🩵 CREATOR' : `🩷 ${userName}`;
         const c = cell.c + 1, r = String.fromCharCode(65 + cell.r);
         div.textContent = `${game.getState().round.moves.length}. ${tag} → ${c}${r}`;
         host.appendChild(div);
