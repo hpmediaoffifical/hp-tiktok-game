@@ -139,6 +139,11 @@
         }
     };
 
+    // Helper: tên hiển thị creator (dùng cho log + TTS). '' → 'TEAM A' fallback.
+    function creatorDisplayName() {
+        return (cfg?.display?.creatorName || '').trim() || 'TEAM A';
+    }
+
     // ============ Banned-words cache — fetch từ server 1 lần khi init Caro ============
     // Dùng để lọc tên user trong TTS (không đọc tên chứa từ cấm thành tiếng).
     const BannedWords = {
@@ -201,20 +206,23 @@
             const mode = cfg?.tts?.nameMode || 'team';
             // moveOnly = không đọc tên (return empty → caller bỏ qua)
             if (mode === 'moveOnly') return { text: '', skip: true };
-            // team = đọc TEAM A / TEAM B (an toàn, không lộ tên cấm)
+            // team = đọc <creatorName> / TEAM B (an toàn, không lộ tên cấm)
+            const teamA = creatorDisplayName();
             if (mode === 'team') {
-                return { text: side === 'idol' ? 'TEAM A' : 'TEAM B', skip: false };
+                return { text: side === 'idol' ? teamA : 'TEAM B', skip: false };
             }
             // full = đọc tên thật, NHƯNG check từ cấm nếu filterBannedNames bật
-            const safeName = String(nickname || '').trim() || (side === 'idol' ? 'TEAM A' : 'TEAM B');
+            const safeName = String(nickname || '').trim() || (side === 'idol' ? teamA : 'TEAM B');
             if (cfg?.tts?.filterBannedNames !== false && BannedWords.contains(safeName)) {
                 console.log('[tts] tên có từ cấm, fallback TEAM:', safeName);
-                return { text: side === 'idol' ? 'TEAM A' : 'TEAM B', skip: false };
+                return { text: side === 'idol' ? teamA : 'TEAM B', skip: false };
             }
             return { text: safeName, skip: false };
         },
-        speak(text) {
-            if (!cfg?.tts?.enabled) return;
+        // opts.force=true → bypass tts.enabled check (cho Test button)
+        // opts.forceGoogle=true → bỏ qua voice setting, luôn dùng Google TTS (tiếng Việt)
+        speak(text, opts = {}) {
+            if (!opts.force && !cfg?.tts?.enabled) return;
             if (!text || !text.trim()) return;
             // Stop audio cũ
             if (this.currentAudio) {
@@ -222,21 +230,24 @@
                 this.currentAudio = null;
             }
             // Voice = '' hoặc 'google' → dùng Google TTS proxy (tiếng Việt chuẩn)
-            const voiceName = cfg.tts?.voice || '';
-            const useGoogle = !voiceName || voiceName === 'google';
+            const voiceName = cfg?.tts?.voice || '';
+            const useGoogle = opts.forceGoogle || !voiceName || voiceName === 'google';
             if (useGoogle) {
-                const lang = cfg.tts?.lang || 'vi';
+                const lang = cfg?.tts?.lang || 'vi';
                 const url = `/api/live-translate/tts?lang=${lang}&text=${encodeURIComponent(text)}`;
                 try {
                     const audio = new Audio(url);
-                    audio.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
-                    audio.playbackRate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.0));
+                    audio.volume = Math.max(0, Math.min(1, (cfg?.tts?.volume ?? 80) / 100));
+                    audio.playbackRate = Math.max(0.5, Math.min(2.0, cfg?.tts?.rate ?? 1.0));
                     this.currentAudio = audio;
-                    audio.play().catch(e => {
-                        console.warn('[tts] Google fail, fallback Web Speech:', e.message);
+                    audio.play().then(() => {
+                        console.log('[tts] Google TTS playing:', text.slice(0, 30));
+                    }).catch(e => {
+                        console.warn('[tts] Google fail (autoplay block?), fallback Web Speech:', e.message);
                         this._speakWebSpeech(text);
                     });
                 } catch (e) {
+                    console.warn('[tts] Google err:', e.message);
                     this._speakWebSpeech(text);
                 }
             } else {
@@ -784,9 +795,12 @@
             // === WALL PLACING — Creator click ô để đặt tường ===
             const stWall = game.getState();
             if (stWall.walls?.phase === 'placing') {
+                console.log('[wall-test] tap cell', ev.cell, '→ wallPlace creator-click');
                 const res = game.wallPlace(ev.cell.c, ev.cell.r, 'creator-click');
+                console.log('[wall-test] wallPlace result:', res, 'cells now:', game.getState().walls.cells);
                 if (res.ok) {
-                    const remaining = stWall.walls.target - stWall.walls.cells.length - 1;
+                    const newSt = game.getState();
+                    const remaining = newSt.walls.target - newSt.walls.cells.length;
                     logSystem(`🧱 CREATOR đặt tường tại ${ev.cell.c+1}${String.fromCharCode(65+ev.cell.r)} · còn ${remaining}`);
                     pushState();
                 } else {
@@ -833,7 +847,7 @@
             }
         });
         game.on('win', (info) => {
-            const winnerName = info.side === 'idol' ? 'TEAM A' : (game.getState().opponent?.nickname || 'TEAM B');
+            const winnerName = info.side === 'idol' ? creatorDisplayName() : (game.getState().opponent?.nickname || 'TEAM B');
             logSystem(`🏆 ${winnerName} thắng!`);
             pushState();
             // TTS announce — tùy nameMode (full / moveOnly / team)
@@ -886,7 +900,7 @@
                 const st = game.getState();
                 const last = st.round.moves[st.round.moves.length - 1];
                 if (last) {
-                    const rawName = last.side === 'idol' ? 'TEAM A' : (st.opponent?.nickname || 'TEAM B');
+                    const rawName = last.side === 'idol' ? creatorDisplayName() : (st.opponent?.nickname || 'TEAM B');
                     const nm = TTSAnnouncer.resolveName(last.side, rawName);
                     const coord = `${last.c + 1} ${String.fromCharCode(65 + last.r)}`;
                     if (nm.text) TTSAnnouncer.speak(`${nm.text} đặt ${coord}`);
@@ -969,6 +983,17 @@
 
     // ---------- Setup tab ----------
     function wireSetupTab() {
+        // === Tên Creator (display.creatorName) ===
+        const creatorNameInput = $('#caro-creator-name');
+        if (creatorNameInput) {
+            creatorNameInput.addEventListener('input', () => {
+                const v = String(creatorNameInput.value || '').trim().slice(0, 20);
+                updateCfg({ display: { creatorName: v } });
+                const hintEl = $('#acc-hint-name');
+                if (hintEl) hintEl.textContent = v || 'TEAM A';
+            });
+        }
+
         const cols = $('#caro-cols'), colsV = $('#caro-cols-v');
         const rows = $('#caro-rows'), rowsV = $('#caro-rows-v');
         const scale = $('#caro-scale'), scaleV = $('#caro-scale-v');
@@ -1071,7 +1096,9 @@
             });
         });
         $('#caro-tts-test')?.addEventListener('click', () => {
-            TTSAnnouncer.speak('Xin chào, đây là giọng đọc tự động của Caro');
+            // Force play kể cả khi TTS đang tắt (bypass enabled check).
+            // forceGoogle=true để bảo đảm đọc tiếng Việt dù user chọn voice English.
+            TTSAnnouncer.speak('Xin chào, đây là giọng đọc tự động của Caro', { force: true, forceGoogle: true });
         });
         // Populate voice select khi voice list load (async trên 1 số browser)
         // QUAN TRỌNG: luôn thêm option "🇻🇳 Tiếng Việt (Google TTS)" ở đầu — đây là giọng VN thật,
@@ -1327,16 +1354,24 @@
         // === Wall TEST mode — Creator preview layout không cần opponent/quà ===
         $('#caro-walls-test-start')?.addEventListener('click', () => {
             if (!game) return;
+            // Auto-enable walls nếu chưa bật (UX-friendly: bấm Test = đồng nghĩa muốn dùng walls)
             if (cfg.walls?.enabled !== true) {
-                flashWarn('Bật "Tường chắn" trước khi test');
-                return;
+                updateCfg({ walls: { enabled: true } });
+                const tg = $('#caro-walls-enabled');
+                if (tg) tg.checked = true;
+                logSystem('🧱 Đã tự động bật "Tường chắn"');
             }
             const res = game.wallTestStart();
+            console.log('[wall-test] start →', res, 'walls state:', game.getState().walls);
             if (res?.ok) {
                 $('#caro-walls-test-start').disabled = true;
                 $('#caro-walls-test-end').disabled = false;
-                logSystem(`🧪 Test tường: click trên bàn để đặt ${cfg.walls.count} tường`);
-                flashOk('Test mode ON — click trên bàn cờ');
+                const target = game.getState().walls.target;
+                logSystem(`🧪 Test tường: click ${target} ô trên bàn cờ để đặt tường thử`);
+                flashOk(`Test mode ON — click ${target} ô trên bàn cờ`);
+                pushState();   // sync overlay
+            } else {
+                flashWarn('Không khởi tạo được test mode');
             }
         });
         $('#caro-walls-test-end')?.addEventListener('click', () => {
@@ -1346,9 +1381,11 @@
             $('#caro-walls-test-end').disabled = true;
             logSystem('🧪 Test tường: đã xoá tất cả tường thử');
             flashOk('Đã xoá tường test');
+            pushState();
         });
         // Khi walls vào phase 'test-done' (đủ N tường) → enable nút xoá, disable nút bắt đầu
         game.on('walls', (info) => {
+            console.log('[wall-test] walls event:', info);
             if (info.phase === 'test-done') {
                 $('#caro-walls-test-start') && ($('#caro-walls-test-start').disabled = true);
                 $('#caro-walls-test-end') && ($('#caro-walls-test-end').disabled = false);
@@ -1476,6 +1513,12 @@
 
     function applyConfigToUI() {
         if (!cfg) return;
+        // Tên Creator
+        if ($('#caro-creator-name')) {
+            $('#caro-creator-name').value = cfg.display?.creatorName || '';
+            const hintEl = $('#acc-hint-name');
+            if (hintEl) hintEl.textContent = (cfg.display?.creatorName || '').trim() || 'TEAM A';
+        }
         $('#caro-cols').value = cfg.board.cols;
         $('#caro-cols-v').textContent = cfg.board.cols;
         $('#caro-rows').value = cfg.board.rows;

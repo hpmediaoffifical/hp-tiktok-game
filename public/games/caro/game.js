@@ -264,7 +264,10 @@
                 showHistory: true, showInfo: true,
                 scale: 100, xPercent: 50, yPercent: 50,
                 // Mặc định cellHints BẬT với opacity 55% — đủ rõ trên OBS LIVE sau nén.
-                cellHints: true, cellHintOpacity: 55
+                cellHints: true, cellHintOpacity: 55,
+                // Tên hiển thị tuỳ chỉnh cho creator-side ('' = mặc định 'TEAM A')
+                // Áp dụng cả canvas (header/footer/matchEnd) lẫn TTS.
+                creatorName: ''
             }
         };
     }
@@ -359,6 +362,12 @@
             entry.img.src = url;
             avatarCache.set(url, entry);
             return null;
+        }
+
+        // === Tên hiển thị creator — '' (rỗng) → 'TEAM A' fallback ===
+        // Áp dụng cho header, footer, matchEnd, hint banner, surrender banner, log messages.
+        function creatorName() {
+            return (cfg?.display?.creatorName || '').trim() || 'TEAM A';
         }
 
         // === Text with outline — Vietnamese-safe + nét đều + FAST ===
@@ -515,9 +524,10 @@
             const userScore = state.match.score.user;
             const roundIdx = state.round.idx;
 
-            // === Tỉ số: TEAM A 0 — 0 TEAM B + ID dưới ===
+            // === Tỉ số: <creatorName> 0 — 0 TEAM B + ID dưới ===
             const cyY = 130 + yS;
-            const idolTxt = `🩵 TEAM A  ${idolScore}`;
+            const cName = creatorName();
+            const idolTxt = `🩵 ${cName}  ${idolScore}`;
             const vsTxt = `  —  `;
             const userTxt = `${userScore}  🩷 TEAM B`;
 
@@ -1003,7 +1013,7 @@
             }
             else if (state.phase === 'picking') line = '🎯 Idol đang chọn đối thủ...';
             else if (state.phase === 'playing') {
-                const who = state.round.turn === 'idol' ? '🩵 Lượt TEAM A' : '🩷 Lượt TEAM B';
+                const who = state.round.turn === 'idol' ? `🩵 Lượt ${creatorName()}` : '🩷 Lượt TEAM B';
                 // VD động theo bàn cờ (vd bàn 3x3 → 2B, bàn 12x12 → 9F)
                 const exC = Math.min(Math.ceil(cfg.board.cols / 2) + 1, cfg.board.cols);
                 const exR = Math.min(Math.ceil(cfg.board.rows / 2) + 1, cfg.board.rows);
@@ -1011,7 +1021,7 @@
                 line = `${who} · Bình luận tọa độ (VD: ${example})`;
             }
             else if (state.phase === 'roundEnd') {
-                const winner = state.round.winner === 'idol' ? '🩵 TEAM A' : '🩷 TEAM B';
+                const winner = state.round.winner === 'idol' ? `🩵 ${creatorName()}` : '🩷 TEAM B';
                 line = `🏆 ${winner} thắng hiệp ${state.round.idx}`;
             }
 
@@ -1123,7 +1133,7 @@
             ctx.font = '700 18px Inter, Arial, sans-serif';
             let subLabel = 'AN TOÀN — chơi tiếp';
             if (yes) {
-                const sideName = state.hint.threatSide === 'idol' ? '🩵 TEAM A' : '🩷 TEAM B';
+                const sideName = state.hint.threatSide === 'idol' ? `🩵 ${creatorName()}` : '🩷 TEAM B';
                 subLabel = `${sideName} sắp thắng — Block ngay!`;
             }
             drawOutlinedText(subLabel, cx, cardY + 155, accent, 'rgba(0,0,0,0.8)', 1.5);
@@ -1167,7 +1177,7 @@
                 else winner = 'idol';
             }
             const color = winner === 'idol' ? cfg.colors.idol : cfg.colors.user;
-            const name = winner === 'idol' ? 'TEAM A' : 'TEAM B';
+            const name = winner === 'idol' ? creatorName() : 'TEAM B';
 
             // Background card ở TOP của canvas (replace header area) — shift theo yShift
             const lay = boardLayout();
@@ -1211,7 +1221,7 @@
             ctx.font = '600 28px Inter, Arial, sans-serif';
             ctx.fillStyle = cfg.colors.idol;
             ctx.textAlign = 'right';
-            ctx.fillText(`🩵 TEAM A ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
+            ctx.fillText(`🩵 ${creatorName()} ${moves.idol} nước`, STAGE_W / 2 - 16, cardY + 230);
             ctx.fillStyle = cfg.colors.user;
             ctx.textAlign = 'left';
             ctx.fillText(`🩷 TEAM B ${moves.user} nước`, STAGE_W / 2 + 16, cardY + 230);
@@ -1227,7 +1237,7 @@
             if (state.round.surrenderedBy === 'idol' && winner === 'user') {
                 ctx.font = '900 28px Inter, Arial, sans-serif';
                 ctx.textAlign = 'center';
-                drawOutlinedText('🏳️ HONOR VICTORY · TEAM A đầu hàng',
+                drawOutlinedText(`🏳️ HONOR VICTORY · ${creatorName()} đầu hàng`,
                     STAGE_W / 2, cardY + 270, '#FFD166', 'rgba(0,0,0,0.85)', 2);
             }
             ctx.restore();
