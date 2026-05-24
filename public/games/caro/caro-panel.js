@@ -2026,6 +2026,21 @@
             if (ok) flashOk('Đã copy link OBS overlay Caro');
             else flashWarn('Copy thất bại — link: ' + url);
         });
+        // POPOUT — cửa sổ Overlay Review trong suốt + frameless.
+        // Electron-main bắt URL ?popout=1 và tạo BrowserWindow transparent (xem
+        // openCaroPreviewWindow trong electron-main.js). OBS dùng Window Capture
+        // (WGC) bắt cửa sổ này → giữ alpha + render 1:1 native DPI → sắc nét hơn
+        // Browser Source URL bị CEF downscale.
+        $('#caro-btn-popout')?.addEventListener('click', () => {
+            try {
+                const w = window.open('/overlay/caro?popout=1', 'hp-caro-popout');
+                // Trong Electron, setWindowOpenHandler trả {action:'deny'} → w === null
+                // và cửa sổ tự mở qua openCaroPreviewWindow. Không cần xử lý gì thêm.
+                if (w === null) flashOk('Đã mở cửa sổ Overlay Review');
+            } catch (e) {
+                flashWarn('Không mở được Overlay Review: ' + e.message);
+            }
+        });
     }
 
     function wireSave() {

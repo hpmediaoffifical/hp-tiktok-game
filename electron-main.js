@@ -192,6 +192,12 @@ function createMainWindow() {
             openQuickLaunchWindow();
             return { action: 'deny' };
         }
+        // /overlay/caro?popout=1 → cửa sổ Overlay Review trong suốt + frameless để
+        // OBS dùng Window Capture (WGC) bắt sắc nét hơn so với Browser Source URL.
+        if (url.startsWith(`${APP_URL}/overlay/caro`) && url.includes('popout=1')) {
+            openCaroPreviewWindow();
+            return { action: 'deny' };
+        }
         if (url.startsWith(APP_URL)) {
             return { action: 'allow' };
         }
@@ -612,6 +618,101 @@ ipcMain.on('quick-launch:close', () => {
     if (quickLaunchWindow && !quickLaunchWindow.isDestroyed()) quickLaunchWindow.close();
 });
 ipcMain.on('open-quick-launch', () => openQuickLaunchWindow());
+
+// ============================================================
+// 🎯 Caro Overlay Review — cửa sổ trong suốt + frameless cho OBS Window Capture
+// ============================================================
+// Mục đích: link OBS Browser Source render Caro overlay bị mờ do CEF của OBS down-scale
+// canvas 1080×1920 nhỏ hơn nguồn → blur. Cửa sổ rời này render 1:1 ở native DPI →
+// OBS dùng "Window Capture (WGC)" bắt pixel trực tiếp → sắc nét hơn. Transparent +
+// frameless → OBS WGC giữ alpha → overlay vẫn trong suốt như Browser Source.
+let caroPreviewWindow = null;
+function getCaroPreviewPrefsPath() {
+    try { return path.join(app.getPath('userData'), 'data', 'caro-preview.json'); }
+    catch { return null; }
+}
+function loadCaroPreviewPrefs() {
+    try {
+        const p = getCaroPreviewPrefsPath();
+        if (!p || !fs.existsSync(p)) return {};
+        return JSON.parse(fs.readFileSync(p, 'utf8')) || {};
+    } catch { return {}; }
+}
+let cpSaveTimer = null;
+function saveCaroPreviewPrefs(patch) {
+    if (cpSaveTimer) clearTimeout(cpSaveTimer);
+    cpSaveTimer = setTimeout(() => {
+        try {
+            const p = getCaroPreviewPrefsPath();
+            if (!p) return;
+            const dir = path.dirname(p);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            const cur = loadCaroPreviewPrefs();
+            const next = { ...cur, ...patch };
+            fs.writeFileSync(p, JSON.stringify(next, null, 2), 'utf8');
+        } catch (e) { /* swallow */ }
+    }, 250);
+}
+function openCaroPreviewWindow() {
+    if (caroPreviewWindow && !caroPreviewWindow.isDestroyed()) {
+        caroPreviewWindow.show(); caroPreviewWindow.focus(); return;
+    }
+    const prefs = loadCaroPreviewPrefs();
+    // Default 540×960 = 1080×1920 portrait /2 — fitScale() trong overlay tự adapt theo size
+    const opts = {
+        width:  Math.max(270, parseInt(prefs.w, 10) || 540),
+        height: Math.max(480, parseInt(prefs.h, 10) || 960),
+        minWidth: 270,
+        minHeight: 480,
+        resizable: true,
+        maximizable: true,
+        fullscreenable: false,
+        title: 'HP Caro — Overlay Review (OBS Window Capture)',
+        icon: getIcon(),
+        backgroundColor: '#00000000',   // alpha 00 = transparent — OBS WGC giữ alpha
+        transparent: true,
+        frame: false,
+        hasShadow: false,
+        alwaysOnTop: prefs.alwaysOnTop === true,
+        skipTaskbar: false,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            sandbox: false,
+            preload: path.join(__dirname, 'caro-preview-preload.js')
+        }
+    };
+    if (Number.isFinite(prefs.x) && Number.isFinite(prefs.y)) {
+        opts.x = prefs.x; opts.y = prefs.y;
+    }
+    caroPreviewWindow = new BrowserWindow(opts);
+    caroPreviewWindow.loadURL(`${APP_URL}/overlay/caro?popout=1`);
+    caroPreviewWindow.once('ready-to-show', () => caroPreviewWindow.show());
+    const persistBounds = () => {
+        if (!caroPreviewWindow || caroPreviewWindow.isDestroyed()) return;
+        try {
+            const b = caroPreviewWindow.getBounds();
+            saveCaroPreviewPrefs({ x: b.x, y: b.y, w: b.width, h: b.height });
+        } catch {}
+    };
+    caroPreviewWindow.on('moved',  persistBounds);
+    caroPreviewWindow.on('resize', persistBounds);
+    caroPreviewWindow.on('close',  persistBounds);
+    caroPreviewWindow.on('closed', () => { caroPreviewWindow = null; });
+    caroPreviewWindow.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url); return { action: 'deny' };
+    });
+}
+ipcMain.on('caro-preview:setAlwaysOnTop', (e, on) => {
+    if (caroPreviewWindow && !caroPreviewWindow.isDestroyed()) {
+        caroPreviewWindow.setAlwaysOnTop(!!on);
+        saveCaroPreviewPrefs({ alwaysOnTop: !!on });
+    }
+});
+ipcMain.on('caro-preview:close', () => {
+    if (caroPreviewWindow && !caroPreviewWindow.isDestroyed()) caroPreviewWindow.close();
+});
+ipcMain.on('open-caro-preview', () => openCaroPreviewWindow());
 
 // 📂 Chọn file audio từ máy
 ipcMain.handle('sfx:pickAudio', async () => {

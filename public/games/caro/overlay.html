@@ -30,6 +30,56 @@
     body.offline #content { display: none; }
     body.offline #stage { background: transparent; }
     body.offline .debug-pill { display: none !important; }
+
+    /* === POPOUT mode — cửa sổ Overlay Review trong suốt (Electron BrowserWindow
+       transparent:true, frame:false). OBS Window Capture (WGC) bắt cửa sổ này
+       sắc nét hơn Browser Source vì render 1:1 native DPI. Body GIỮ transparent
+       để OBS WGC giữ alpha channel. Control strip auto-hide → khi user không
+       hover (OBS đang capture passively) → invisible → OBS không bắt vào. */
+    #popout-controls { display: none; }
+    body.popout-mode #popout-controls {
+        display: flex;
+        position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+        z-index: 99999;
+        gap: 6px; align-items: center;
+        padding: 5px 12px;
+        background: rgba(10, 12, 18, 0.7);
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-top: none;
+        border-radius: 0 0 10px 10px;
+        color: #e6e8ee;
+        font: 600 11px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-app-region: drag;
+        opacity: 0;
+        transition: opacity 0.22s ease;
+        user-select: none;
+    }
+    /* Hover hoặc focus-within → hiện. Khi OBS chỉ "xem" cửa sổ (không di chuột
+       qua nó) → opacity 0 → OBS render thấy strip biến mất. */
+    body.popout-mode:hover #popout-controls,
+    body.popout-mode #popout-controls:focus-within { opacity: 1; }
+    body.popout-mode #popout-controls .pc-hint { opacity: 0.7; padding-right: 4px; }
+    body.popout-mode #popout-controls button {
+        -webkit-app-region: no-drag;
+        background: rgba(255, 255, 255, 0.08);
+        color: #e6e8ee;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 3px 9px;
+        cursor: pointer;
+        border-radius: 6px;
+        font: inherit;
+    }
+    body.popout-mode #popout-controls button:hover {
+        background: rgba(255, 255, 255, 0.18);
+        border-color: rgba(255, 255, 255, 0.32);
+    }
+    body.popout-mode #popout-controls button.pin-on {
+        background: rgba(255, 107, 61, 0.35);
+        border-color: rgba(255, 107, 61, 0.65);
+    }
+    /* Trong popout: ẩn debug pill — không muốn OBS bắt phải */
+    body.popout-mode .debug-pill { display: none !important; }
 </style>
 </head>
 <body>
@@ -40,10 +90,43 @@
     </div>
     <div class="debug-pill" id="debug">connecting…</div>
 
+    <!-- POPOUT control strip — chỉ hiện khi ?popout=1 + đang hover. Cho phép
+         kéo cửa sổ trong suốt (frameless không có titlebar) + pin + close. -->
+    <div id="popout-controls">
+        <span class="pc-hint">🎯 Caro · Overlay Review</span>
+        <button id="pc-pin"  type="button" title="Ghim trên cùng">📌 Pin</button>
+        <button id="pc-close" type="button" title="Đóng cửa sổ">✕</button>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="/games/caro/game.js"></script>
     <script>
     (function () {
+        // === POPOUT mode init — phải trước everything để debug pill / scale logic
+        // pick đúng class. ?popout=1 = Electron transparent frameless window. ===
+        const isPopout = new URLSearchParams(location.search).has('popout');
+        if (isPopout) {
+            document.body.classList.add('popout-mode');
+            const pinBtn = document.getElementById('pc-pin');
+            const closeBtn = document.getElementById('pc-close');
+            // Preload (caro-preview-preload.js) expose window.hpCaroPreview qua
+            // contextBridge — chỉ available trong Electron popout, KHÔNG có trong
+            // OBS Browser Source (vẫn render overlay đầy đủ vì controls đã CSS-ẩn
+            // ngoài popout-mode).
+            const api = window.hpCaroPreview || null;
+            let pinned = false;
+            pinBtn?.addEventListener('click', () => {
+                pinned = !pinned;
+                pinBtn.classList.toggle('pin-on', pinned);
+                pinBtn.textContent = pinned ? '📌 Pinned' : '📌 Pin';
+                api?.setAlwaysOnTop(pinned);
+            });
+            closeBtn?.addEventListener('click', () => {
+                if (api?.close) api.close();
+                else { try { window.close(); } catch (e) {} }
+            });
+        }
+
         const debugEl = document.getElementById('debug');
         const content = document.getElementById('content');
         const canvas = document.getElementById('caro-canvas');

@@ -1078,6 +1078,49 @@ function processLiveTranslateChat(chat) {
 let giftMap = {};
 let giftList = [];
 
+// ====== Gift list disk cache ======
+// Vì sao: trên 1 số PC, cả license-server (hp-license.nguyenvu.dev) lẫn fallback
+// Google Sheet đều bị firewall/AV chặn → loadGiftSheet() trả [] → panel "📦 Danh
+// sách quà" rỗng, badge effects mất ảnh quà gốc. Cache đĩa ở DATA_DIR đảm bảo:
+//   - Lần đầu fetch thành công → ghi cache
+//   - Lần sau (offline / blocked) → đọc cache → vẫn hiển thị đủ
+// File ở DATA_DIR (= userData/data trên Electron build, ../data trên dev) cùng
+// app-config.json — persist across upgrades.
+const GIFT_CACHE_FILE = path.join(DATA_DIR, 'gift-sheet-cache.json');
+
+function loadGiftCacheFromDisk() {
+    try {
+        if (!fs.existsSync(GIFT_CACHE_FILE)) return [];
+        const data = JSON.parse(fs.readFileSync(GIFT_CACHE_FILE, 'utf8'));
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.warn('[gift-sheet] Cache đọc fail:', e.message);
+        return [];
+    }
+}
+function saveGiftCacheToDisk(list) {
+    try {
+        if (!Array.isArray(list) || list.length === 0) return;
+        fs.writeFileSync(GIFT_CACHE_FILE, JSON.stringify(list), 'utf8');
+    } catch (e) {
+        console.warn('[gift-sheet] Cache lưu fail:', e.message);
+    }
+}
+
+// Eager load cache trên startup — socket client đầu tiên connect đã nhận được
+// list ngay, không phải đợi 15s timeout của license-server. loadGiftSheet() sau
+// đó refresh nếu network OK.
+(function eagerLoadGiftCache() {
+    const cached = loadGiftCacheFromDisk();
+    if (cached.length > 0) {
+        giftList = cached.slice().sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
+        for (const g of giftList) {
+            if (g && g.id) giftMap[String(g.id)] = g;
+        }
+        console.log(`[gift-sheet] Eager load cache: ${giftList.length} quà (sẽ refresh từ network)`);
+    }
+})();
+
 // Fallback fetch trực tiếp Google Sheet khi license-server trả empty
 // (workaround cho lúc env SHEET_ID ở VPS chưa update đúng).
 // Schema: A=id | B=name | C=link | D=webm (bỏ qua) | E=diamond
@@ -1134,8 +1177,9 @@ async function fetchGiftSheetDirect() {
 async function loadGiftSheet() {
     if (!isWorkerConfigured()) {
         console.error('[gift-sheet] LICENSE_WORKER_URL chưa cấu hình — không thể tải gift sheet');
-        giftList = []; giftMap = {};
-        io.emit('giftSheet', giftList);
+        // Vẫn giữ giftList hiện tại (có thể đã eager-load từ cache đĩa) — không
+        // emit empty list, vì empty sẽ ghi đè state tốt của client.
+        if (giftList.length === 0) io.emit('giftSheet', giftList);
         return giftList;
     }
     console.log('[gift-sheet] Tải danh sách quà qua license-server...');
@@ -1162,6 +1206,20 @@ async function loadGiftSheet() {
             console.error('[gift-sheet] Fallback cũng fail:', e.message);
         }
     }
+    // Cả license-server lẫn Google Sheet đều fail (firewall, AV, no internet)
+    // → fall back về cache đĩa nếu có. Không ghi đè giftList hiện tại bằng [].
+    if (listFromServer.length === 0) {
+        const cached = loadGiftCacheFromDisk();
+        if (cached.length > 0) {
+            console.warn(`[gift-sheet] Network fail toàn bộ → dùng cache đĩa: ${cached.length} quà`);
+            listFromServer = cached;
+        } else {
+            console.error('[gift-sheet] Network fail VÀ không có cache → giữ giftList hiện tại');
+            // Không reset. giftList giữ nguyên (có thể có data eager-load lúc init, hoặc rỗng nếu install mới).
+            io.emit('giftSheet', giftList);
+            return giftList;
+        }
+    }
     // Sort theo Kim Cương ASC (thấp → cao). Áp dụng cho cả nguồn license-server
     // lẫn fallback Google Sheet trực tiếp.
     giftList = listFromServer.slice().sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
@@ -1169,6 +1227,9 @@ async function loadGiftSheet() {
     for (const g of giftList) {
         if (g && g.id) giftMap[String(g.id)] = g;
     }
+    // Ghi cache đĩa MỖI lần load thành công — máy chỉ cần online 1 lần là gift
+    // sheet persist mãi mãi cho các lần khởi động sau (kể cả offline).
+    saveGiftCacheToDisk(giftList);
     console.log(`[gift-sheet] Đã tải ${giftList.length} quà (sort theo Kim Cương ASC).`);
     io.emit('giftSheet', giftList);
     return giftList;

@@ -643,7 +643,14 @@
             let triggerAction = config.triggers && config.triggers[String(g.giftId)];
             if (DISABLED_TRIGGER_ACTIONS.has(triggerAction)) triggerAction = null;
             if (triggerAction) {
-                // Quà kích hoạt — KHÔNG rơi vào hũ
+                // Quà kích hoạt — mặc định KHÔNG rơi vào hũ.
+                // Global opt-in (config.features.dropWithTrigger): khi bật → vẫn đổ icon quà
+                // gốc vào hũ cho TẤT CẢ effects. Chạy trên CẢ panel + OBS overlay (đều nhận
+                // gift event) để 2 mặt sync render.
+                if (config.features && config.features.dropWithTrigger) {
+                    for (let i = 0; i < n; i++) spawnQueue.push(g);
+                    if (!spawnTicker) spawnTicker = setInterval(processQueue, 45);
+                }
                 // Mirror mode (OBS): KHÔNG chạy trigger ở local. Đợi App broadcast gameCmd với
                 // outcome đã được resolve để OBS replay đồng bộ. Vẫn record tipper + welcome cho
                 // visual UI consistency.

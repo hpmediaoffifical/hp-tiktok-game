@@ -97,12 +97,16 @@
     }
 
     // ===== Feature toggles map =====
-    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers','defaultHpAvatar'];
+    const FEATURE_KEYS = ['audio','welcome','crown','leaderboard','sessionTotals','goalBar','combo','tierBorder','bigGiftFx','autoShake','randomEvents','thiefAuto','police','topHangers','defaultHpAvatar','dropWithTrigger'];
     const FEATURE_INPUT = {
         audio:'ft-audio', welcome:'ft-welcome', crown:'ft-crown', leaderboard:'ft-leaderboard',
         sessionTotals:'ft-totals', goalBar:'ft-goalbar', combo:'ft-combo', tierBorder:'ft-tier',
         bigGiftFx:'ft-bigfx', autoShake:'ft-autoshake', randomEvents:'ft-random', thiefAuto:'ft-thiefauto',
-        police:'ft-police', topHangers:'ft-tophangers', defaultHpAvatar:'ft-default-hp'
+        police:'ft-police', topHangers:'ft-tophangers', defaultHpAvatar:'ft-default-hp',
+        // 🪂 Global toggle: khi quà kích hoạt hiệu ứng, vẫn thả icon quà gốc vào
+        // hũ (mặc định OFF = chỉ chạy effect, không thả). 1 nút cho TẤT CẢ effects
+        // → không phải setup per-effect.
+        dropWithTrigger:'ft-drop-with-trigger'
     };
 
     // ===== DOM =====
