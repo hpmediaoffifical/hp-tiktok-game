@@ -1251,8 +1251,9 @@
             state.round.moveCount[side] = (state.round.moveCount[side] || 0) + 1;
 
             // === ROLLING MODE: nếu quá tokensPerSide, xoá quân CŨ NHẤT của bên này ===
-            // Vô hiệu draw-detection (bàn không bao giờ đầy vì quân cũ tự mất)
-            if (cfg.rolling?.enabled) {
+            // Vô hiệu draw-detection (bàn không bao giờ đầy vì quân cũ tự mất).
+            // KHI cfg.rolling.unlimited === true → bỏ qua xoá, chơi đến khi thắng/hoà bình thường.
+            if (cfg.rolling?.enabled && !cfg.rolling?.unlimited) {
                 const limit = Math.max(1, cfg.rolling.tokensPerSide || 3);
                 const sideMoves = state.round.moves.filter(m => m.side === side);
                 while (sideMoves.length > limit) {
@@ -1292,9 +1293,11 @@
             }
 
             // === DRAW detection — bàn đầy không ai thắng ===
-            // Rolling mode KHÔNG bao giờ draw (quân cũ tự mất → bàn không đầy)
+            // Rolling mode CỐ ĐỊNH KHÔNG bao giờ draw (quân cũ tự mất → bàn không đầy).
+            // Rolling TỰ DO (unlimited) thì VẪN có draw — quân tích đầy bàn.
             const totalCells = cfg.board.cols * cfg.board.rows;
-            if (!cfg.rolling?.enabled && state.round.moves.length >= totalCells) {
+            const rollingActive = cfg.rolling?.enabled && !cfg.rolling?.unlimited;
+            if (!rollingActive && state.round.moves.length >= totalCells - state.walls.cells.length) {
                 state.round.drawn = true;
                 state.phase = 'draw';   // chờ Idol quyết định
                 // Vẫn commit moveCount vào totalMoves (đã chơi → tính)

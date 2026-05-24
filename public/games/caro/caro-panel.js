@@ -840,6 +840,24 @@
             const id = t.dataset.caroTab;
             panes.forEach(p => p.classList.toggle('active', p.dataset.caroPane === id));
         }));
+        // Sub-tabs trong Cấu hình
+        wireSubTabs();
+    }
+    function wireSubTabs() {
+        const setupPane = $('[data-caro-pane="setup"]');
+        if (!setupPane) return;
+        const subTabs = $$('.caro-subtab', setupPane);
+        const accs = $$('[data-sub]', setupPane);
+        const showSub = (subId) => {
+            subTabs.forEach(t => t.classList.toggle('active', t.dataset.caroSubtab === subId));
+            accs.forEach(a => {
+                if (a.dataset.sub === subId) a.setAttribute('data-sub-active', '');
+                else a.removeAttribute('data-sub-active');
+            });
+        };
+        subTabs.forEach(t => t.addEventListener('click', () => showSub(t.dataset.caroSubtab)));
+        // Default: basic
+        showSub('basic');
     }
 
     // ---------- Setup tab ----------
@@ -1207,6 +1225,13 @@
             rollTokV.textContent = rollTok.value;
             updateCfg({ rolling: { tokensPerSide: +rollTok.value } });
         });
+        // === Rolling TỰ DO — unlimited mode ===
+        $('#caro-rolling-unlimited')?.addEventListener('change', (e) => {
+            updateCfg({ rolling: { unlimited: e.target.checked } });
+            // Ẩn/hiện slider số quân khi tự do
+            const tokensRow = $('#caro-rolling-tokens-row');
+            if (tokensRow) tokensRow.style.display = e.target.checked ? 'none' : '';
+        });
         // Custom gift picker — registration
         giftPickers.reg = createGiftPicker($('#caro-reg-gift'), (id) => {
             updateCfg({ registration: { giftId: id } });
@@ -1383,6 +1408,9 @@
         // Rolling mode
         if ($('#caro-rolling-enabled')) {
             $('#caro-rolling-enabled').checked = !!cfg.rolling?.enabled;
+            if ($('#caro-rolling-unlimited')) $('#caro-rolling-unlimited').checked = !!cfg.rolling?.unlimited;
+            const tokensRow = $('#caro-rolling-tokens-row');
+            if (tokensRow) tokensRow.style.display = cfg.rolling?.unlimited ? 'none' : '';
             $('#caro-rolling-tokens').value = cfg.rolling?.tokensPerSide ?? 3;
             $('#caro-rolling-tokens-v').textContent = cfg.rolling?.tokensPerSide ?? 3;
         }
@@ -1413,7 +1441,7 @@
         // Mode
         const modes = [];
         if (cfg.practiceMode) modes.push('🧪 Thử');
-        if (cfg.rolling?.enabled) modes.push(`♻️ Tích ${cfg.rolling.tokensPerSide}`);
+        if (cfg.rolling?.enabled) modes.push(cfg.rolling?.unlimited ? '♾ Tự do' : `♻️ Tích ${cfg.rolling.tokensPerSide}`);
         $h('acc-hint-mode', modes.length ? modes.join(' · ') : '—');
         // Display
         const dispBits = [`Scale ${cfg.display.scale}%`];

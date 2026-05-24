@@ -543,10 +543,17 @@
                                 <button class="tab" data-caro-tab="undo">🔄 Hoàn nước</button>
                             </div>
 
-                            <!-- ⚙ Setup — accordion nhóm theo chức năng -->
+                            <!-- ⚙ Setup — sub-tabs nhóm theo chức năng, mỗi tab vài accordion -->
                             <div class="tab-pane active" data-caro-pane="setup">
+                                <!-- Sub-tab nav -->
+                                <div class="caro-subtabs">
+                                    <button class="caro-subtab active" data-caro-subtab="basic">📐 Cơ bản</button>
+                                    <button class="caro-subtab" data-caro-subtab="gameplay">🎮 Gameplay</button>
+                                    <button class="caro-subtab" data-caro-subtab="fx">✨ Hiệu ứng</button>
+                                    <button class="caro-subtab" data-caro-subtab="audio">🔊 Âm thanh</button>
+                                </div>
                                 <!-- 📐 BÀN CỜ -->
-                                <details class="caro-acc" open>
+                                <details class="caro-acc" data-sub="basic" open>
                                     <summary>📐 Bàn cờ <span class="acc-hint" id="acc-hint-board">12×12 · Win 5</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -571,7 +578,7 @@
                                 </details>
 
                                 <!-- 🏆 MATCH -->
-                                <details class="caro-acc" open>
+                                <details class="caro-acc" data-sub="basic" open>
                                     <summary>🏆 Match <span class="acc-hint" id="acc-hint-match">BO3 · 🩵 CREATOR đi</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -600,7 +607,7 @@
                                 </details>
 
                                 <!-- 🧪 CHẾ ĐỘ ĐẶC BIỆT -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="gameplay">
                                     <summary>🧪 Chế độ đặc biệt <span class="acc-hint" id="acc-hint-mode">—</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -616,6 +623,12 @@
                                             </label>
                                         </div>
                                         <div class="cfg-row">
+                                            <label class="toggle-row" id="caro-rolling-unlimited-row">
+                                                <input type="checkbox" id="caro-rolling-unlimited" />
+                                                <span>♾ <b>TỰ DO</b> — không giới hạn, đánh đến khi thắng/hoà</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row" id="caro-rolling-tokens-row">
                                             <label>Số quân/bên</label>
                                             <input type="range" id="caro-rolling-tokens" min="2" max="10" step="1" />
                                             <span class="cfg-val" id="caro-rolling-tokens-v">3</span>
@@ -624,7 +637,7 @@
                                 </details>
 
                                 <!-- 🎨 HIỂN THỊ -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="basic">
                                     <summary>🎨 Hiển thị <span class="acc-hint" id="acc-hint-display">Scale 100%</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -653,7 +666,7 @@
                                 </details>
 
                                 <!-- 🔊 ÂM THANH -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="audio">
                                     <summary>🔊 Âm thanh <span class="acc-hint" id="acc-hint-audio">Bật · 50%</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -776,7 +789,7 @@
                                 </details>
 
                                 <!-- 📜 LUẬT HÔM NAY — chỉ là banner hiển thị, không đụng game logic -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="gameplay">
                                     <summary>📜 Luật hôm nay <span class="acc-hint" id="acc-hint-dailyrule">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -808,7 +821,7 @@
                                 </details>
 
                                 <!-- 🌫 SƯƠNG MÙ — chỉ hiện N quân gần nhất -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="gameplay">
                                     <summary>🌫 Sương mù (fog of war) <span class="acc-hint" id="acc-hint-fog">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -827,7 +840,7 @@
                                 </details>
 
                                 <!-- 🧱 TƯỜNG CHẮN — đặt trước trận, tồn tại suốt match -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="gameplay">
                                     <summary>🧱 Tường chắn (gift) <span class="acc-hint" id="acc-hint-walls">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -855,7 +868,7 @@
                                 </details>
 
                                 <!-- 😀 AVATAR MODE — thay quân tròn bằng avatar TikTok cho hài hước -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="fx">
                                     <summary>😀 Avatar mode (vui) <span class="acc-hint" id="acc-hint-avatar">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -875,7 +888,7 @@
                                 </details>
 
                                 <!-- 💡 GỢI Ý "SẮP THUA KHÔNG" — gift trigger threat check -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="fx">
                                     <summary>💡 Gợi ý "sắp thua không" <span class="acc-hint" id="acc-hint-threathint">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">
@@ -911,7 +924,7 @@
                                 </details>
 
                                 <!-- 🎵 NHẠC NỀN -->
-                                <details class="caro-acc">
+                                <details class="caro-acc" data-sub="audio">
                                     <summary>🎵 Nhạc nền <span class="acc-hint" id="acc-hint-music">Tắt</span></summary>
                                     <div class="caro-acc-body">
                                         <div class="cfg-row">

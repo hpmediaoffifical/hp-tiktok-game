@@ -4190,6 +4190,48 @@ body.game-caro #caught-popup {
 .caro-actions { display: flex; flex-direction: column; gap: 8px; }
 .caro-actions .block { width: 100%; padding: 10px; font-weight: 600; }
 
+/* Caro Sub-tabs trong Cấu hình — pill-shaped, nhỏ hơn main tabs */
+.caro-subtabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--caro-border);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+.caro-subtab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 6px 8px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all .15s ease;
+}
+.caro-subtab:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+.caro-subtab.active {
+    color: var(--caro-cyan);
+    background: rgba(37, 244, 238, 0.12);
+    border-color: rgba(37, 244, 238, 0.4);
+    font-weight: 700;
+}
+/* Hide accordions không thuộc sub-tab active */
+[data-caro-pane="setup"] .caro-acc[data-sub]:not([data-sub-active]) {
+    display: none;
+}
+
 /* Card-tabs Caro: bù khoảng cách dưới hàng tab → phase pill không dính sát */
 #view-caro .caro-card .card-tabs { margin-bottom: 12px; }
 #view-caro .caro-card .tab-pane { padding-top: 4px; }
