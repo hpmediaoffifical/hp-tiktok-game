@@ -137,6 +137,34 @@
         if (idolThreat.yes) return idolThreat;
         return checkThreatForSide(moves, 'user', cols, rows, winLength);
     }
+    // === MATCH ANALYZER — replay moves, đếm "missed blocks" ===
+    // Cho mỗi nước của side X, check TRƯỚC nước đó side đối thủ có threat.
+    // Nếu yes + nước X không gần line threat → tính 1 missed block.
+    function analyzeMatch(moves, cols, rows, winLength) {
+        const result = { totalMoves: moves.length, missedByCreator: 0, missedByUser: 0, criticalMoves: [] };
+        for (let i = 1; i < moves.length; i++) {
+            const movesBefore = moves.slice(0, i);
+            const playerMove = moves[i];
+            const opponent = playerMove.side === 'idol' ? 'user' : 'idol';
+            const oppThreat = checkThreatForSide(movesBefore, opponent, cols, rows, winLength);
+            if (oppThreat.yes) {
+                const blocks = (oppThreat.line || []).some(c =>
+                    Math.abs(c.c - playerMove.c) + Math.abs(c.r - playerMove.r) <= 1
+                );
+                if (!blocks) {
+                    result.criticalMoves.push({
+                        moveIdx: i + 1,
+                        side: playerMove.side,
+                        threatPattern: oppThreat.pattern,
+                        threatedBy: opponent
+                    });
+                    if (playerMove.side === 'idol') result.missedByCreator++;
+                    else result.missedByUser++;
+                }
+            }
+        }
+        return result;
+    }
 
     // ---------- Win detection ----------
     // Trả về { line: [{c,r}, ...] } nếu có winLength liên tiếp, ngược lại null.
@@ -185,6 +213,32 @@
             },
             // Nhạc gay cấn — phát khi 1 trong 2 bên có open-4/open-3
             tenseMusic: { enabled: false, url: '' },
+            // Tường chắn (walls) — đặt trước trận, tồn tại suốt match.
+            // count = số tường tổng. Mỗi quà = 1 cơ hội user comment đặt 1 tường.
+            // Creator cũng có thể click manual (tổng creator + user-via-gift ≤ count).
+            walls: { enabled: false, giftId: '', count: 3 },
+            // Sương mù — chỉ hiện N quân gần nhất, quân cũ ẩn/mờ
+            fogOfWar: { enabled: false, visibleCount: 5 },
+            // Luật hôm nay — chỉ banner hiển thị, không đụng game logic.
+            // Creator tự chọn preset HOẶC nhập custom text.
+            dailyRule: { enabled: false, text: '' },
+            // Đầu hàng — Creator concede, User thắng kèm badge "Honor Victory"
+            surrender: { enabled: true, cooldownSec: 60 },
+            // Crowd reactions — tiếng đám đông ooooh/cheer khi có threat/win
+            crowd: { enabled: false },
+            // TTS voice announcer — đọc các sự kiện game qua Web Speech API
+            tts: {
+                enabled: false,
+                volume: 80,
+                rate: 1.1,
+                voice: '',                 // tên voice (vd 'Microsoft An Online (Natural)')
+                events: {
+                    move: false,           // đọc mỗi nước cờ (có thể spam)
+                    win: true,             // đọc khi thắng/thua
+                    roundStart: true,      // đọc khi hiệp bắt đầu
+                    threat: true           // cảnh báo gần thắng
+                }
+            },
             // Nhạc nền — Web Audio synth (calm/arcade/epic/lofi/final) hoặc custom URL/file.
             music: { enabled: false, track: 'calm', volume: 30, customUrl: '', autoPlayOnRound: true },
             // Gợi ý "Tôi có sắp thua không?" — user tặng quà → check threat của CREATOR.
@@ -249,6 +303,14 @@
                 active: false,
                 lastMove: null,              // { c, r, side, ts } — nước cờ User vừa đặt
                 expireAt: 0                  // ms epoch
+            },
+            // Tường chắn — phase 'placing' diễn ra TRƯỚC khi vào 'playing'.
+            walls: {
+                phase: 'idle',               // 'idle' | 'placing' | 'ready'
+                placedBy: '',                // uniqueId của user được chọn (chỉ user này comment đặt được)
+                opportunitiesUser: 0,        // số quà đã tặng (= số cơ hội user còn lại để comment)
+                cells: [],                   // [{c,r}] — ô đã có tường
+                target: 0                    // tổng tường cần (= cfg.walls.count)
             }
         };
     }
@@ -378,9 +440,12 @@
             // matchEnd: banner thay thế header (KHÔNG vẽ header thường để tránh chồng)
             if (state.phase !== 'matchEnd') drawHeader();
             drawBoard();
+            drawWalls();   // walls vẽ TRƯỚC stones, dưới lớp quân
             drawStones();
             drawWinLine();
             drawFooter();
+            // Banner đặt tường (đang trong phase placing)
+            if (state.walls?.phase === 'placing') drawWallPlacingBanner();
             if (state.phase === 'matchEnd') drawMatchEnd();
             // Banner ghi danh đã merge vào footer status — không vẽ banner riêng (tránh che cột labels).
             if (state.phase === 'roundEnd') drawRoundEnd();
@@ -475,6 +540,12 @@
             ctx.strokeText(subTxt, STAGE_W / 2, 170 + yS);
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.fillText(subTxt, STAGE_W / 2, 170 + yS);
+            // Daily rule banner (nếu enabled + có text)
+            if (cfg.dailyRule?.enabled && cfg.dailyRule?.text) {
+                ctx.font = '800 22px Inter, Arial, sans-serif';
+                drawOutlinedText('📜 LUẬT HÔM NAY: ' + cfg.dailyRule.text,
+                    STAGE_W / 2, 200 + yS, '#FFD166', 'rgba(0,0,0,0.85)', 2);
+            }
             ctx.restore();
         }
 
@@ -595,6 +666,73 @@
             ctx.restore();
         }
 
+        // === WALLS — vẽ ô bị chặn bằng gạch xám ===
+        function drawWalls() {
+            if (!state.walls?.cells?.length) return;
+            const lay = boardLayout();
+            ctx.save();
+            for (const w of state.walls.cells) {
+                const x = lay.ox + w.c * lay.cellSize;
+                const y = lay.oy + w.r * lay.cellSize;
+                const pad = 3;
+                // Background gạch xám
+                ctx.fillStyle = 'rgba(60, 65, 80, 0.92)';
+                ctx.shadowColor = 'rgba(255, 209, 102, 0.5)';
+                ctx.shadowBlur = 12;
+                ctx.fillRect(x + pad, y + pad, lay.cellSize - pad * 2, lay.cellSize - pad * 2);
+                ctx.shadowBlur = 0;
+                // Pattern gạch (4 ngói nhỏ)
+                ctx.fillStyle = 'rgba(120, 130, 150, 0.5)';
+                const half = (lay.cellSize - pad * 2) / 2;
+                ctx.fillRect(x + pad, y + pad, half - 2, half - 2);
+                ctx.fillRect(x + pad + half + 2, y + pad + half + 2, half - 2, half - 2);
+                // Icon 🧱 ở giữa
+                ctx.font = `${Math.floor(lay.cellSize * 0.55)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#FFD166';
+                ctx.shadowColor = 'rgba(0,0,0,0.7)';
+                ctx.shadowBlur = 4;
+                ctx.fillText('🧱', x + lay.cellSize / 2, y + lay.cellSize / 2);
+                ctx.shadowBlur = 0;
+            }
+            ctx.restore();
+        }
+
+        // === BANNER đặt tường — hiện trong phase 'placing' ===
+        function drawWallPlacingBanner() {
+            const lay = boardLayout();
+            const cx = STAGE_W / 2;
+            const cardY = 80;
+            const cardH = 140;
+            const cardW = STAGE_W - 100;
+            const cardX = (STAGE_W - cardW) / 2;
+            ctx.save();
+            roundRect(ctx, cardX, cardY, cardW, cardH, 18);
+            ctx.fillStyle = 'rgba(15, 20, 32, 0.94)';
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#FFD166';
+            ctx.shadowColor = '#FFD166';
+            ctx.shadowBlur = 24;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Title
+            ctx.font = '900 44px Inter, Arial, sans-serif';
+            drawOutlinedText('🧱 ĐẶT TƯỜNG CHẮN', cx, cardY + 40, '#FFFFFF', 'rgba(0,0,0,0.9)', 2);
+            // Counter
+            const placed = state.walls.cells.length;
+            const target = state.walls.target;
+            const oppLeft = state.walls.opportunitiesUser;
+            ctx.font = '700 28px Inter, Arial, sans-serif';
+            drawOutlinedText(`${placed}/${target} tường — User còn ${oppLeft} cơ hội · Creator được click thêm`,
+                cx, cardY + 90, '#FFD166', 'rgba(0,0,0,0.85)', 1.5);
+            ctx.restore();
+        }
+
         function drawStones() {
             const lay = boardLayout();
             const now = Date.now();
@@ -626,7 +764,15 @@
             const idolName = hostInfo?.nickname || hostInfo?.uniqueId || 'CREATOR';
             const userName = state.opponent?.nickname || state.opponent?.uniqueId || 'USER';
 
+            // === FOG OF WAR — chỉ vẽ N nước gần nhất ===
+            const fogEnabled = !!cfg.fogOfWar?.enabled;
+            const fogVisibleCount = Math.max(1, cfg.fogOfWar?.visibleCount || 5);
+            const totalMoves = state.round.moves.length;
+            const fogStartIdx = fogEnabled ? Math.max(0, totalMoves - fogVisibleCount) : 0;
+
             for (let i = 0; i < state.round.moves.length; i++) {
+                // Skip nước cũ nếu fog enabled (giữ index để các tính toán khác vẫn đúng)
+                if (i < fogStartIdx) continue;
                 const m = state.round.moves[i];
                 const isLast = i === state.round.moves.length - 1;
                 const isFadingOut = (i === oldestIdolIdx || i === oldestUserIdx);
@@ -1022,6 +1168,13 @@
                 ctx.textAlign = 'center';
                 ctx.fillText('⚡ Hoà điểm — thắng nhờ ít nước hơn', STAGE_W / 2, cardY + 270);
             }
+            // Honor Victory badge (User thắng nhờ Creator surrender)
+            if (state.round.surrenderedBy === 'idol' && winner === 'user') {
+                ctx.font = '900 28px Inter, Arial, sans-serif';
+                ctx.textAlign = 'center';
+                drawOutlinedText('🏳️ HONOR VICTORY · CREATOR đầu hàng',
+                    STAGE_W / 2, cardY + 270, '#FFD166', 'rgba(0,0,0,0.85)', 2);
+            }
             ctx.restore();
         }
 
@@ -1055,6 +1208,8 @@
             state.registration = Object.assign(defaultState().registration, snap.registration || {});
             // Hint state — preserve cho overlay render banner
             state.hint = Object.assign(defaultState().hint, snap.hint || {});
+            // Walls state — preserve cho overlay render gạch + banner
+            state.walls = Object.assign(defaultState().walls, snap.walls || {});
 
             // Sound cue cho overlay: nếu hiệp đang chơi và có nước MỚI thêm vào
             if (mirrorMode) {
@@ -1083,6 +1238,8 @@
             if (state.round.winner) return { ok: false, reason: 'round_over' };
             // Out of bounds?
             if (c < 0 || c >= cfg.board.cols || r < 0 || r >= cfg.board.rows) return { ok: false, reason: 'oob' };
+            // Có tường chắn?
+            if (_isWalled(c, r)) return { ok: false, reason: 'walled' };
             // Occupied?
             if (state.round.moves.some(m => m.c === c && m.r === r)) return { ok: false, reason: 'occupied' };
 
@@ -1428,8 +1585,13 @@
                 profilePic: entry.profilePic,
                 totalDiamond: entry.totalDiamond
             };
-            state.phase = 'playing';
-            startRound(1);
+            // Nếu walls enabled → vào phase placing TRƯỚC khi vào playing
+            if (cfg.walls?.enabled && state.walls.phase === 'idle') {
+                wallStart(entry.uniqueId);
+            } else {
+                state.phase = 'playing';
+                startRound(1);
+            }
             return true;
         }
 
@@ -1445,9 +1607,79 @@
                 profilePic: '',
                 totalDiamond: 0
             };
-            state.phase = 'playing';
-            startRound(1);
+            // Nếu walls enabled → vào phase placing trước khi playing
+            if (cfg.walls?.enabled && state.walls.phase === 'idle') {
+                wallStart(uid);
+            } else {
+                state.phase = 'playing';
+                startRound(1);
+            }
             return true;
+        }
+
+        // ============================================================
+        // TƯỜNG CHẮN — đặt trước trận, tồn tại suốt match
+        // ============================================================
+        // Khi opponent vừa được pick, nếu walls.enabled → vào phase 'placing'.
+        // - Mỗi quà chỉ định tới → wallsAddGiftOpportunity(uid) tăng opportunitiesUser
+        //   (chỉ designated user mới đặt được; user khác tặng tăng cơ hội cho designated user)
+        // - User comment toạ độ → wallPlace(c, r, 'user-comment')
+        // - Creator click manual → wallPlace(c, r, 'creator-click') (không cần quà)
+        // - Khi len(cells) === target → walls.phase = 'ready', tự startRound
+        function wallStart(designatedUid) {
+            state.walls.phase = 'placing';
+            state.walls.placedBy = String(designatedUid || '').toLowerCase().replace(/^@+/, '');
+            state.walls.opportunitiesUser = 0;
+            state.walls.cells = [];
+            state.walls.target = Math.max(1, Math.min(10, cfg.walls?.count || 3));
+            render();
+            fire('walls', { phase: 'placing', target: state.walls.target });
+            fire('change');
+        }
+        function wallAddGiftOpportunity(uid) {
+            // Quà chỉ định tới → tăng cơ hội cho user được chọn
+            if (state.walls.phase !== 'placing') return { ok: false, reason: 'not_placing' };
+            if (state.walls.cells.length >= state.walls.target) return { ok: false, reason: 'full' };
+            state.walls.opportunitiesUser += 1;
+            render();
+            fire('walls', { phase: 'opportunity', from: uid, opportunitiesUser: state.walls.opportunitiesUser });
+            fire('change');
+            return { ok: true };
+        }
+        function wallPlace(c, r, source) {
+            if (state.walls.phase !== 'placing') return { ok: false, reason: 'not_placing' };
+            if (c < 0 || c >= cfg.board.cols || r < 0 || r >= cfg.board.rows) return { ok: false, reason: 'oob' };
+            // Ô đã có tường?
+            if (state.walls.cells.some(w => w.c === c && w.r === r)) return { ok: false, reason: 'already_walled' };
+            // Source 'user-comment' cần opportunitiesUser > 0
+            if (source === 'user-comment') {
+                if (state.walls.opportunitiesUser <= 0) return { ok: false, reason: 'no_opportunity' };
+                state.walls.opportunitiesUser -= 1;
+            }
+            // Source 'creator-click' không cần opportunity (Creator được click trực tiếp,
+            // nhưng vẫn giới hạn bởi target tổng)
+            // Check tổng walls đã đạt target
+            if (state.walls.cells.length >= state.walls.target) return { ok: false, reason: 'full' };
+            state.walls.cells.push({ c, r });
+            // Nếu đã đủ target → ready, auto-startRound
+            if (state.walls.cells.length >= state.walls.target) {
+                state.walls.phase = 'ready';
+                // Auto-start match nếu opponent đã có
+                if (state.opponent && state.phase !== 'playing') {
+                    state.phase = 'playing';
+                    startRound(1);
+                }
+                fire('walls', { phase: 'ready', cells: state.walls.cells });
+            } else {
+                fire('walls', { phase: 'placed', c, r, source, remaining: state.walls.target - state.walls.cells.length });
+            }
+            render();
+            fire('change');
+            return { ok: true };
+        }
+        // Helper: kiểm tra ô có wall không (placeStone dùng)
+        function _isWalled(c, r) {
+            return state.walls?.cells?.some(w => w.c === c && w.r === r);
         }
 
         // Auto-update profilePic của opponent từ chat events (Free-ID flow)
@@ -1512,6 +1744,41 @@
             state = defaultState();
             render();
             fire('change');
+        }
+
+        // === ĐẦU HÀNG — Creator concede match, User thắng có badge Honor Victory ===
+        // Cooldown để chống troll (Creator không spam surrender liên tục).
+        let _lastSurrenderTs = 0;
+        function surrender() {
+            if (!cfg.surrender?.enabled) return { ok: false, reason: 'disabled' };
+            if (state.phase !== 'playing') return { ok: false, reason: 'not_playing' };
+            const now = Date.now();
+            const cdMs = (cfg.surrender?.cooldownSec || 60) * 1000;
+            if (now - _lastSurrenderTs < cdMs) {
+                return { ok: false, reason: 'cooldown', remain: Math.ceil((cdMs - (now - _lastSurrenderTs)) / 1000) };
+            }
+            _lastSurrenderTs = now;
+            // User thắng kiểu surrender — same flow như placeStone win nhưng KHÔNG có winLine
+            state.round.winner = 'user';
+            state.round.winLine = null;
+            state.round.surrenderedBy = 'idol';   // flag cho overlay render badge
+            state.phase = 'roundEnd';
+            state.match.score.user += 1;
+            if (!state.match.totalMoves) state.match.totalMoves = { idol: 0, user: 0 };
+            state.match.totalMoves.idol += state.round.moveCount.idol;
+            state.match.totalMoves.user += state.round.moveCount.user;
+            render();
+            fire('sound', { side: 'user', kind: 'win' });
+            fire('win', { side: 'user', surrender: true });
+            fire('change');
+            // Check match end
+            const need = Math.floor(cfg.match.bestOf / 2) + 1;
+            if (state.match.score.user >= need) {
+                state.phase = 'matchEnd';
+                render();
+                fire('change');
+            }
+            return { ok: true };
         }
 
         // ---------- Render loop ----------
@@ -1588,6 +1855,15 @@
             // registration
             openRegistration, closeRegistration, addGift, pickOpponent, pickOpponentManual,
             _setOpponentAvatar,
+            // Walls
+            wallStart, wallAddGiftOpportunity, wallPlace,
+            // Surrender
+            surrender,
+            // Match analyzer
+            analyzeMatch: () => {
+                const effWin = Math.max(3, Math.min(cfg.board.winLength, Math.min(cfg.board.cols, cfg.board.rows)));
+                return analyzeMatch(state.round.moves, cfg.board.cols, cfg.board.rows, effWin);
+            },
             // hint "có đang thua không"
             requestThreatHint,
             // tense music — panel poll mỗi nước để start/stop nhạc gây cấn

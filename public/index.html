@@ -676,6 +676,54 @@
                                                 <button class="ghost small" id="caro-sfx-draw" title="Phát âm hoà">🤝 Hoà</button>
                                             </div>
                                         </div>
+                                        <!-- TTS Voice Announcer -->
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-tts-enabled" />
+                                                <span>🎤 TTS đọc sự kiện (tiếng Việt)</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Giọng đọc</label>
+                                            <select id="caro-tts-voice" class="caro-music-select"></select>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Tốc độ</label>
+                                            <input type="range" id="caro-tts-rate" min="0.5" max="2" step="0.1" />
+                                            <span class="cfg-val" id="caro-tts-rate-v">1.1x</span>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Âm lượng</label>
+                                            <input type="range" id="caro-tts-volume" min="0" max="100" step="5" />
+                                            <span class="cfg-val" id="caro-tts-volume-v">80%</span>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Đọc các sự kiện</label>
+                                            <div class="caro-tts-events">
+                                                <label class="toggle-row"><input type="checkbox" id="caro-tts-evt-win" /><span>Thắng/Thua</span></label>
+                                                <label class="toggle-row"><input type="checkbox" id="caro-tts-evt-round" /><span>Hiệp bắt đầu</span></label>
+                                                <label class="toggle-row"><input type="checkbox" id="caro-tts-evt-threat" /><span>Cảnh báo gần thắng</span></label>
+                                                <label class="toggle-row"><input type="checkbox" id="caro-tts-evt-move" /><span>Mỗi nước cờ (spam)</span></label>
+                                            </div>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Test giọng</label>
+                                            <button class="ghost small" id="caro-tts-test">🎤 Test đọc</button>
+                                        </div>
+                                        <!-- Crowd reactions toggle + test -->
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-crowd-enabled" />
+                                                <span>👥 Tiếng đám đông tự động (ooooh khi nguy hiểm, cheer khi thắng)</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Test tiếng đám đông</label>
+                                            <div class="caro-sfx-test">
+                                                <button class="ghost small" id="caro-sfx-gasp">😮 Test gasp</button>
+                                                <button class="ghost small" id="caro-sfx-cheer">🎉 Test cheer</button>
+                                            </div>
+                                        </div>
                                         <!-- Custom sound clips do user upload -->
                                         <div class="cfg-row cfg-row-wide">
                                             <label>🎧 Âm thanh tự upload</label>
@@ -723,6 +771,85 @@
                                                 <button class="ghost small" id="caro-tense-test">▶ Test</button>
                                                 <button class="ghost small" id="caro-tense-clear">✕ Xoá</button>
                                             </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- 📜 LUẬT HÔM NAY — chỉ là banner hiển thị, không đụng game logic -->
+                                <details class="caro-acc">
+                                    <summary>📜 Luật hôm nay <span class="acc-hint" id="acc-hint-dailyrule">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-dailyrule-enabled" />
+                                                <span>📜 Bật banner luật trên overlay</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Preset</label>
+                                            <select id="caro-dailyrule-preset" class="caro-music-select">
+                                                <option value="">— Tự nhập ở dưới —</option>
+                                                <option value="🎯 Hôm nay: BO5, bàn 12×12">🎯 BO5 bàn lớn</option>
+                                                <option value="⚡ Tốc độ: User phải comment trong 15s">⚡ Tốc độ</option>
+                                                <option value="🔥 Cấm hàng ngang — chỉ tính dọc/chéo">🔥 Cấm hàng ngang</option>
+                                                <option value="🛡 Chấp 3 nước đầu cho User">🛡 Chấp 3 nước</option>
+                                                <option value="🎲 Random: mỗi 3 nước tặng quà = đổi luật">🎲 Đổi luật giữa trận</option>
+                                                <option value="🏆 BO7 — ai thắng nhận badge VIP">🏆 Champion BO7</option>
+                                                <option value="✨ Đêm trắng: stream 2 tiếng không nghỉ">✨ Đêm trắng</option>
+                                                <option value="🎨 Tự do sáng tạo">🎨 Sáng tạo</option>
+                                            </select>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Hoặc text tự nhập</label>
+                                            <input type="text" id="caro-dailyrule-text" placeholder="Vd: Hôm nay khán giả nào hạ Creator được tặng 100k!" maxlength="80" />
+                                        </div>
+                                        <div class="caro-music-hint">Banner màu vàng "📜 LUẬT HÔM NAY: ..." hiện trên OBS dưới header. Chỉ trang trí, không thay đổi game logic.</div>
+                                    </div>
+                                </details>
+
+                                <!-- 🌫 SƯƠNG MÙ — chỉ hiện N quân gần nhất -->
+                                <details class="caro-acc">
+                                    <summary>🌫 Sương mù (fog of war) <span class="acc-hint" id="acc-hint-fog">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-fog-enabled" />
+                                                <span>🌫 Bật — chỉ hiện N quân gần nhất, quân cũ ẩn</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Số quân hiện</label>
+                                            <input type="range" id="caro-fog-count" min="2" max="20" step="1" />
+                                            <span class="cfg-val" id="caro-fog-count-v">5</span>
+                                        </div>
+                                        <div class="caro-music-hint">Test trí nhớ — User và Creator phải nhớ vị trí quân cũ vì không hiện trên bàn nữa.</div>
+                                    </div>
+                                </details>
+
+                                <!-- 🧱 TƯỜNG CHẮN — đặt trước trận, tồn tại suốt match -->
+                                <details class="caro-acc">
+                                    <summary>🧱 Tường chắn (gift) <span class="acc-hint" id="acc-hint-walls">Tắt</span></summary>
+                                    <div class="caro-acc-body">
+                                        <div class="cfg-row">
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="caro-walls-enabled" />
+                                                <span>🧱 Bật chế độ tường chắn trước trận</span>
+                                            </label>
+                                        </div>
+                                        <div class="cfg-row cfg-row-wide">
+                                            <label>Quà trigger 1 cơ hội đặt tường</label>
+                                            <div id="caro-walls-gift" class="caro-gift-picker" data-target="walls"></div>
+                                        </div>
+                                        <div class="cfg-row">
+                                            <label>Số tường tối đa</label>
+                                            <input type="range" id="caro-walls-count" min="1" max="10" step="1" />
+                                            <span class="cfg-val" id="caro-walls-count-v">3</span>
+                                        </div>
+                                        <div class="caro-music-hint">
+                                            <b>Flow:</b> Sau khi chọn đối thủ → vào pha "đặt tường" trước khi vào trận.<br>
+                                            • Khán giả tặng quà → User được chọn có 1 cơ hội comment toạ độ (vd "5C") → đặt tường<br>
+                                            • Creator click trực tiếp ô trên bàn → đặt tường (giới hạn theo số tường tối đa)<br>
+                                            • Khi đủ số tường → tự động bắt đầu trận. Tường tồn tại suốt match.
                                         </div>
                                     </div>
                                 </details>
@@ -874,6 +1001,8 @@
                                 <hr class="caro-sep" />
                                 <div class="caro-actions">
                                     <button class="ghost block" id="caro-btn-reset-round" title="Xoá bàn cờ và chơi lại hiệp này (không đổi tỉ số)">🔁 Reset hiệp này</button>
+                                    <button class="ghost block" id="caro-btn-analyze" title="Phân tích các nước missed-block trong hiệp này">🔍 Phân tích trận</button>
+                                    <button class="danger block" id="caro-btn-surrender" title="Đầu hàng — User thắng hiệp này, có badge Honor Victory">🏳️ Đầu hàng</button>
                                 </div>
 
                                 <hr class="caro-sep" />

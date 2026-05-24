@@ -89,6 +89,85 @@
                 // Yên tâm — 1 nốt êm dịu
                 this.tone(ctx, 523, now, 0.4, 0.2 * vol, 'sine');
             }
+            // === CROWD REACTIONS — noise-based, mô phỏng tiếng đám đông ===
+            else if (kind === 'crowd-gasp') {
+                // "Ooooh" — gấp đôi noise dải tần cao, rồi rớt
+                this.crowdNoise(ctx, now, 0.6, 800, 4, 0.18 * vol, 'gasp');
+            }
+            else if (kind === 'crowd-cheer') {
+                // "Yeahhhh" — noise burst dài + chord nền
+                this.crowdNoise(ctx, now, 1.2, 600, 2, 0.22 * vol, 'cheer');
+                // Layer chord vui
+                [523, 659, 784].forEach(f => this.tone(ctx, f, now + 0.05, 0.5, 0.12 * vol, 'sine'));
+            }
+            else if (kind === 'crowd-mutter') {
+                // Mutter — low murmur cho hoà / không khí
+                this.crowdNoise(ctx, now, 0.8, 200, 2, 0.12 * vol, 'mutter');
+            }
+        },
+        // Crowd noise helper — bandpass filter trên noise buffer
+        crowdNoise(ctx, t, dur, freqCenter, q, vol, style) {
+            // Tạo noise buffer 2 giây nếu chưa có
+            if (!this._noiseBuf) {
+                const len = ctx.sampleRate * 2;
+                this._noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+                const data = this._noiseBuf.getChannelData(0);
+                for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+            }
+            const src = ctx.createBufferSource();
+            src.buffer = this._noiseBuf;
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = freqCenter;
+            filter.Q.value = q;
+            // Pitch envelope theo style
+            if (style === 'gasp') {
+                filter.frequency.setValueAtTime(freqCenter * 0.7, t);
+                filter.frequency.exponentialRampToValueAtTime(freqCenter * 1.5, t + dur * 0.3);
+                filter.frequency.exponentialRampToValueAtTime(freqCenter * 0.8, t + dur);
+            } else if (style === 'cheer') {
+                filter.frequency.setValueAtTime(freqCenter, t);
+                filter.frequency.exponentialRampToValueAtTime(freqCenter * 1.4, t + 0.15);
+            }
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(vol, t + 0.05);
+            gain.gain.linearRampToValueAtTime(vol * 0.9, t + dur * 0.7);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+            src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+            src.start(t); src.stop(t + dur + 0.1);
+        }
+    };
+
+    // ============ TTSAnnouncer — đọc các sự kiện game qua Web Speech API ============
+    const TTSAnnouncer = {
+        voices: [],
+        ensureVoices() {
+            if (!('speechSynthesis' in window)) return [];
+            this.voices = window.speechSynthesis.getVoices();
+            return this.voices;
+        },
+        // Lọc giọng tiếng Việt
+        viVoices() {
+            this.ensureVoices();
+            return this.voices.filter(v => v.lang.toLowerCase().startsWith('vi'));
+        },
+        speak(text) {
+            if (!cfg?.tts?.enabled) return;
+            if (!('speechSynthesis' in window)) return;
+            // Stop nếu đang đọc (tránh queue lên dài)
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'vi-VN';
+            u.volume = Math.max(0, Math.min(1, (cfg.tts.volume ?? 80) / 100));
+            u.rate = Math.max(0.5, Math.min(2.0, cfg.tts.rate ?? 1.1));
+            // Tìm voice match
+            this.ensureVoices();
+            const matchedVoice = cfg.tts.voice
+                ? this.voices.find(v => v.name === cfg.tts.voice)
+                : this.viVoices()[0];
+            if (matchedVoice) u.voice = matchedVoice;
+            window.speechSynthesis.speak(u);
         }
     };
 
@@ -600,6 +679,19 @@
                 else pushState();
                 return;
             }
+            // === WALL PLACING — Creator click ô để đặt tường ===
+            const stWall = game.getState();
+            if (stWall.walls?.phase === 'placing') {
+                const res = game.wallPlace(ev.cell.c, ev.cell.r, 'creator-click');
+                if (res.ok) {
+                    const remaining = stWall.walls.target - stWall.walls.cells.length - 1;
+                    logSystem(`🧱 CREATOR đặt tường tại ${ev.cell.c+1}${String.fromCharCode(65+ev.cell.r)} · còn ${remaining}`);
+                    pushState();
+                } else {
+                    flashWarn(`Wall fail: ${res.reason}`);
+                }
+                return;
+            }
             // === Mode chính thức: chỉ Idol mới tap, cần đúng phase ===
             const st = game.getState();
             if (st.phase !== 'playing') {
@@ -639,10 +731,16 @@
             }
         });
         game.on('win', (info) => {
-            logSystem(`🏆 ${info.side === 'idol' ? 'CREATOR' : (game.getState().opponent?.nickname || 'USER')} thắng!`);
+            const winnerName = info.side === 'idol' ? 'CREATOR' : (game.getState().opponent?.nickname || 'USER');
+            logSystem(`🏆 ${winnerName} thắng!`);
             pushState();
-            // Stop tense music + play match-end music
+            // TTS announce
+            if (cfg?.tts?.enabled && cfg?.tts?.events?.win) {
+                TTSAnnouncer.speak(`${winnerName} thắng hiệp này`);
+            }
+            // Stop tense music + play match-end music + crowd cheer
             TenseMusic.stop();
+            if (cfg?.crowd?.enabled) SoundManager.play('crowd-cheer');
             const isCreatorWin = info.side === 'idol';
             const customUrl = isCreatorWin ? cfg?.audio?.winMusic : cfg?.audio?.loseMusic;
             if (customUrl) {
@@ -659,15 +757,35 @@
                 MatchEndMusic.play(cfg.audio.drawMusic);
             }
         });
-        // Sau MỖI nước → check tense threat, start/stop nhạc gay cấn
+        // Sau MỖI nước → check tense threat, start/stop nhạc gay cấn + crowd reaction
+        let _lastThreatYes = false;
         game.on('placed', () => {
-            if (!cfg?.tenseMusic?.enabled || !cfg?.tenseMusic?.url) {
-                TenseMusic.stop();
-                return;
+            // Tense music
+            if (cfg?.tenseMusic?.enabled && cfg?.tenseMusic?.url) {
+                const threat = game.checkAnyThreat();
+                if (threat.yes) TenseMusic.start(cfg.tenseMusic.url);
+                else TenseMusic.stop();
             }
-            const threat = game.checkAnyThreat();
-            if (threat.yes) TenseMusic.start(cfg.tenseMusic.url);
-            else TenseMusic.stop();
+            // Crowd "ooooh" gasp khi MỚI XUẤT HIỆN threat (transition no→yes)
+            if (cfg?.crowd?.enabled || cfg?.tts?.enabled) {
+                const threat = game.checkAnyThreat();
+                if (threat.yes && !_lastThreatYes) {
+                    if (cfg?.crowd?.enabled) SoundManager.play('crowd-gasp');
+                    if (cfg?.tts?.enabled && cfg?.tts?.events?.threat) {
+                        TTSAnnouncer.speak('Cẩn thận! Sắp thua rồi');
+                    }
+                }
+                _lastThreatYes = threat.yes;
+            }
+            // TTS đọc nước cờ (optional, mặc định off vì spam)
+            if (cfg?.tts?.enabled && cfg?.tts?.events?.move) {
+                const st = game.getState();
+                const last = st.round.moves[st.round.moves.length - 1];
+                if (last) {
+                    const who = last.side === 'idol' ? 'CREATOR' : (st.opponent?.nickname || 'User');
+                    TTSAnnouncer.speak(`${who} đặt ${last.c + 1} ${String.fromCharCode(65 + last.r)}`);
+                }
+            }
         });
         // Hint event — fire khi banner show AND clear → đẩy state lên overlay đồng bộ
         game.on('hint', (info) => {
@@ -783,6 +901,67 @@
         $('#caro-sfx-win-creator')?.addEventListener('click', () => SoundManager.play('win', 'idol'));
         $('#caro-sfx-lose-creator')?.addEventListener('click', () => SoundManager.play('win', 'user'));   // user thắng = creator thua
         $('#caro-sfx-draw')?.addEventListener('click', () => SoundManager.play('draw'));
+        $('#caro-sfx-gasp')?.addEventListener('click', () => SoundManager.play('crowd-gasp'));
+        $('#caro-sfx-cheer')?.addEventListener('click', () => SoundManager.play('crowd-cheer'));
+        $('#caro-crowd-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ crowd: { enabled: e.target.checked } });
+        });
+
+        // === TTS Voice Announcer wiring ===
+        $('#caro-tts-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ tts: { enabled: e.target.checked } });
+        });
+        const ttsRate = $('#caro-tts-rate'), ttsRateV = $('#caro-tts-rate-v');
+        ttsRate?.addEventListener('input', () => {
+            ttsRateV.textContent = ttsRate.value + 'x';
+            updateCfg({ tts: { rate: +ttsRate.value } });
+        });
+        const ttsVol = $('#caro-tts-volume'), ttsVolV = $('#caro-tts-volume-v');
+        ttsVol?.addEventListener('input', () => {
+            ttsVolV.textContent = ttsVol.value + '%';
+            updateCfg({ tts: { volume: +ttsVol.value } });
+        });
+        $('#caro-tts-voice')?.addEventListener('change', (e) => {
+            updateCfg({ tts: { voice: e.target.value } });
+        });
+        ['win', 'round', 'threat', 'move'].forEach(evt => {
+            $(`#caro-tts-evt-${evt}`)?.addEventListener('change', (e) => {
+                const events = {};
+                events[evt === 'round' ? 'roundStart' : evt] = e.target.checked;
+                updateCfg({ tts: { events } });
+            });
+        });
+        $('#caro-tts-test')?.addEventListener('click', () => {
+            TTSAnnouncer.speak('Xin chào, đây là giọng đọc tự động của Caro');
+        });
+        // Populate voice select khi voice list load (async trên 1 số browser)
+        const populateTTSVoices = () => {
+            const sel = $('#caro-tts-voice');
+            if (!sel) return;
+            const voices = TTSAnnouncer.ensureVoices();
+            const vi = voices.filter(v => v.lang.toLowerCase().startsWith('vi'));
+            const others = voices.filter(v => !v.lang.toLowerCase().startsWith('vi')).slice(0, 30);
+            sel.innerHTML = '';
+            const addOpt = (v, group) => {
+                const opt = document.createElement('option');
+                opt.value = v.name;
+                opt.textContent = `${group} · ${v.name} (${v.lang})`;
+                sel.appendChild(opt);
+            };
+            if (vi.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '— Không tìm thấy giọng tiếng Việt —';
+                sel.appendChild(opt);
+            }
+            vi.forEach(v => addOpt(v, '🇻🇳 VN'));
+            others.forEach(v => addOpt(v, '🌐'));
+            sel.value = cfg?.tts?.voice || (vi[0]?.name || '');
+        };
+        populateTTSVoices();
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = populateTTSVoices;
+        }
 
         // === Match-end music (Win / Lose / Draw) — chọn file từ máy ===
         const wireMatchEndMusic = (kind) => {
@@ -946,6 +1125,46 @@
             flashOk(`Đang phát: ${file.name}`);
         });
 
+        // === Luật hôm nay — banner config ===
+        $('#caro-dailyrule-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ dailyRule: { enabled: e.target.checked } });
+        });
+        $('#caro-dailyrule-preset')?.addEventListener('change', (e) => {
+            const v = e.target.value;
+            if (v) {
+                updateCfg({ dailyRule: { text: v } });
+                $('#caro-dailyrule-text').value = v;
+            }
+        });
+        $('#caro-dailyrule-text')?.addEventListener('change', (e) => {
+            updateCfg({ dailyRule: { text: e.target.value.trim() } });
+        });
+
+        // === Sương mù (fog of war) — config wiring ===
+        $('#caro-fog-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ fogOfWar: { enabled: e.target.checked } });
+        });
+        const fogCount = $('#caro-fog-count'), fogCountV = $('#caro-fog-count-v');
+        fogCount?.addEventListener('input', () => {
+            fogCountV.textContent = fogCount.value;
+            updateCfg({ fogOfWar: { visibleCount: +fogCount.value } });
+        });
+
+        // === Tường chắn — config wiring ===
+        $('#caro-walls-enabled')?.addEventListener('change', (e) => {
+            updateCfg({ walls: { enabled: e.target.checked } });
+        });
+        const wallsCount = $('#caro-walls-count'), wallsCountV = $('#caro-walls-count-v');
+        wallsCount?.addEventListener('input', () => {
+            wallsCountV.textContent = wallsCount.value;
+            updateCfg({ walls: { count: +wallsCount.value } });
+        });
+        if ($('#caro-walls-gift')) {
+            giftPickers.walls = createGiftPicker($('#caro-walls-gift'), (id) => {
+                updateCfg({ walls: { giftId: id } });
+            });
+        }
+
         // === Avatar mode — TỰ LẤY từ TikTok, không cần config URL/file ===
         $('#caro-avatar-enabled')?.addEventListener('change', (e) => {
             updateCfg({ avatarMode: { enabled: e.target.checked } });
@@ -1085,6 +1304,18 @@
         $('#caro-audio-enabled').checked = cfg.audio?.enabled !== false;
         $('#caro-audio-volume').value = cfg.audio?.volume ?? 50;
         $('#caro-audio-volume-v').textContent = (cfg.audio?.volume ?? 50) + '%';
+        if ($('#caro-crowd-enabled')) $('#caro-crowd-enabled').checked = !!cfg.crowd?.enabled;
+        if ($('#caro-tts-enabled')) {
+            $('#caro-tts-enabled').checked = !!cfg.tts?.enabled;
+            $('#caro-tts-rate').value = cfg.tts?.rate ?? 1.1;
+            $('#caro-tts-rate-v').textContent = (cfg.tts?.rate ?? 1.1) + 'x';
+            $('#caro-tts-volume').value = cfg.tts?.volume ?? 80;
+            $('#caro-tts-volume-v').textContent = (cfg.tts?.volume ?? 80) + '%';
+            $('#caro-tts-evt-win').checked = cfg.tts?.events?.win !== false;
+            $('#caro-tts-evt-round').checked = cfg.tts?.events?.roundStart !== false;
+            $('#caro-tts-evt-threat').checked = cfg.tts?.events?.threat !== false;
+            $('#caro-tts-evt-move').checked = !!cfg.tts?.events?.move;
+        }
         renderSfxClips();   // Render danh sách clip user đã upload
         // Match-end music labels + tense music
         ['win', 'lose', 'draw'].forEach(kind => {
@@ -1114,6 +1345,23 @@
             $('#caro-hint-cooldown-v').textContent = (cfg.hint?.cooldownSec ?? 10) + 's';
             $('#caro-hint-show').value = cfg.hint?.showSeconds ?? 3;
             $('#caro-hint-show-v').textContent = (cfg.hint?.showSeconds ?? 3) + 's';
+        }
+        // Daily rule config
+        if ($('#caro-dailyrule-enabled')) {
+            $('#caro-dailyrule-enabled').checked = !!cfg.dailyRule?.enabled;
+            $('#caro-dailyrule-text').value = cfg.dailyRule?.text || '';
+        }
+        // Fog of war config
+        if ($('#caro-fog-enabled')) {
+            $('#caro-fog-enabled').checked = !!cfg.fogOfWar?.enabled;
+            $('#caro-fog-count').value = cfg.fogOfWar?.visibleCount ?? 5;
+            $('#caro-fog-count-v').textContent = cfg.fogOfWar?.visibleCount ?? 5;
+        }
+        // Walls config
+        if ($('#caro-walls-enabled')) {
+            $('#caro-walls-enabled').checked = !!cfg.walls?.enabled;
+            $('#caro-walls-count').value = cfg.walls?.count ?? 3;
+            $('#caro-walls-count-v').textContent = cfg.walls?.count ?? 3;
         }
         // User-undo config
         if ($('#caro-uu-enabled')) {
@@ -1176,6 +1424,17 @@
         // Avatar mode
         $h('acc-hint-avatar', cfg.avatarMode?.enabled
             ? (cfg.avatarMode?.creatorAvatar ? 'Bật · có ảnh CREATOR' : 'Bật · CREATOR dùng quân tròn')
+            : 'Tắt');
+        // Walls
+        const wallsGift = (window.__giftSheet || []).find(g => String(g.id) === String(cfg.walls?.giftId));
+        $h('acc-hint-walls', cfg.walls?.enabled
+            ? `${wallsGift?.name || '⚠️ chưa chọn quà'} · ${cfg.walls?.count || 3} tường`
+            : 'Tắt');
+        // Fog of war
+        $h('acc-hint-fog', cfg.fogOfWar?.enabled ? `Hiện ${cfg.fogOfWar?.visibleCount || 5} quân` : 'Tắt');
+        // Daily rule
+        $h('acc-hint-dailyrule', cfg.dailyRule?.enabled
+            ? (cfg.dailyRule?.text ? cfg.dailyRule.text.slice(0, 25) + (cfg.dailyRule.text.length > 25 ? '…' : '') : 'Chưa nhập')
             : 'Tắt');
         // Threat hint
         const hintGift = (window.__giftSheet || []).find(g => String(g.id) === String(cfg.hint?.giftId));
@@ -1348,6 +1607,42 @@
         };
         $('#caro-btn-reset-round')?.addEventListener('click', resetRoundHandler);
         $('#caro-btn-reset-round-header')?.addEventListener('click', resetRoundHandler);
+
+        // === PHÂN TÍCH TRẬN — show missed-blocks report ===
+        $('#caro-btn-analyze')?.addEventListener('click', () => {
+            const r = game.analyzeMatch();
+            if (r.totalMoves === 0) { flashWarn('Chưa có nước nào để phân tích'); return; }
+            const lines = [];
+            lines.push(`📊 Tổng số nước: ${r.totalMoves}`);
+            lines.push(`🩵 CREATOR bỏ lỡ block: ${r.missedByCreator}`);
+            lines.push(`🩷 USER bỏ lỡ block: ${r.missedByUser}`);
+            if (r.criticalMoves.length > 0) {
+                lines.push('');
+                lines.push('Nước critical:');
+                r.criticalMoves.slice(0, 10).forEach(cm => {
+                    const who = cm.side === 'idol' ? 'CREATOR' : 'User';
+                    lines.push(`  Nước ${cm.moveIdx}: ${who} không chặn ${cm.threatPattern} của ${cm.threatedBy === 'idol' ? 'CREATOR' : 'User'}`);
+                });
+            }
+            alert(lines.join('\n'));
+        });
+
+        // === ĐẦU HÀNG — Creator concede match ===
+        $('#caro-btn-surrender')?.addEventListener('click', () => {
+            const st = game.getState();
+            if (st.phase !== 'playing') { flashWarn('Chưa trong trận'); return; }
+            const opName = st.opponent?.nickname || 'User';
+            if (!window.confirm(`Đầu hàng hiệp này?\n${opName} sẽ thắng + nhận badge Honor Victory.\nTỉ số sẽ tăng cho user.`)) return;
+            const res = game.surrender();
+            if (!res.ok) {
+                if (res.reason === 'cooldown') flashWarn(`Cooldown — đợi ${res.remain}s nữa`);
+                else flashWarn(`Đầu hàng fail: ${res.reason}`);
+                return;
+            }
+            logSystem(`🏳️ CREATOR đầu hàng — ${opName} thắng (Honor Victory)`);
+            flashOk(`${opName} won by surrender`);
+            pushState();
+        });
     }
 
     // ============ DRAW MODAL — bàn đầy không ai thắng ============
@@ -1548,6 +1843,27 @@
             if (data.profilePicture && game._setOpponentAvatar) {
                 game._setOpponentAvatar(data.uniqueId, data.profilePicture);
             }
+            // === WALL PLACING PHASE — user được chọn comment toạ độ để đặt tường ===
+            if (st.walls?.phase === 'placing') {
+                const senderUid = (data.uniqueId || '').toLowerCase();
+                const designatedUid = (st.walls.placedBy || '').toLowerCase();
+                if (senderUid === designatedUid && st.walls.opportunitiesUser > 0) {
+                    const text = data.comment || '';
+                    const coord = game.parseCoord(text);
+                    if (coord) {
+                        const res = game.wallPlace(coord.c, coord.r, 'user-comment');
+                        if (res.ok) {
+                            logSystem(`🧱 ${data.nickname || senderUid} đặt tường tại ${coord.c+1}${String.fromCharCode(65+coord.r)}`);
+                            appendComment(data, text, 'accepted');
+                            pushState();
+                        } else {
+                            appendComment(data, text, 'rejected');
+                            logSystem(`⚠️ Wall fail: ${res.reason}`);
+                        }
+                    }
+                }
+                return;   // KHÔNG chạy logic placeStone khi đang placing walls
+            }
             if (st.phase !== 'playing') return;
             if (!st.opponent) return;
             // Chỉ xử lý comment từ ĐÚNG opponent
@@ -1644,6 +1960,20 @@
                 logSystem(`💤 ${g.nickname || g.uniqueId} hỏi gợi ý — cooldown ${res.remain}s`);
             }
         }
+        // === Walls — quà chỉ định tăng cơ hội cho user được chọn comment đặt tường ===
+        const wallsGiftId = String(cfg?.walls?.giftId ?? '').trim();
+        const isWallsGift = cfg?.walls?.enabled && giftIdIn !== '' && wallsGiftId !== '' && giftIdIn === wallsGiftId;
+        if (isWallsGift && game && st0?.walls?.phase === 'placing') {
+            const res = game.wallAddGiftOpportunity(g.uniqueId);
+            if (res.ok) {
+                const stW = game.getState();
+                logSystem(`🎁 ${g.nickname || g.uniqueId} tặng quà tường → @${stW.walls.placedBy} có ${stW.walls.opportunitiesUser} cơ hội`);
+                flashOk(`+1 cơ hội tường cho @${stW.walls.placedBy}`);
+                pushState();
+            } else {
+                logSystem(`🧱 Wall opportunity fail: ${res.reason}`);
+            }
+        }
         // === User-undo bằng quà — chỉ opponent đang chơi mới hoàn được nước của mình ===
         const uuGiftId = String(cfg?.userUndo?.giftId ?? '').trim();
         const isUuGift = cfg?.userUndo?.enabled && giftIdIn !== '' && uuGiftId !== '' && giftIdIn === uuGiftId;
@@ -1730,6 +2060,10 @@
         if (giftPickers.uu) {
             giftPickers.uu.setList(list);
             giftPickers.uu.setValue(cfg?.userUndo?.giftId || '');
+        }
+        if (giftPickers.walls) {
+            giftPickers.walls.setList(list);
+            giftPickers.walls.setValue(cfg?.walls?.giftId || '');
         }
     }
 
