@@ -2068,9 +2068,126 @@
     }
     function escAttrInline(s) { return String(s ?? '').replace(/[<>"]/g, ''); }
 
+    // ============================================
+    // 🔗 Lịch sử TikTok ID — autocomplete + remove
+    // ============================================
+    // Chia sẻ localStorage key với cửa sổ Khởi động nhanh. Chỉ ghi khi connect
+    // THÀNH CÔNG (theo yêu cầu) — không lưu khi nhập sai/user offline/CREATOR lock.
+    const TIKTOK_HISTORY_KEY = 'hp-tiktok-id-history';
+    function loadTiktokHistory() {
+        try {
+            const raw = localStorage.getItem(TIKTOK_HISTORY_KEY);
+            if (!raw) return [];
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+        } catch (_) { return []; }
+    }
+    function saveTiktokHistory(list) {
+        try { localStorage.setItem(TIKTOK_HISTORY_KEY, JSON.stringify(list.slice(0, 20))); } catch (_) {}
+    }
+    function addTiktokHistory(id) {
+        const clean = String(id || '').replace(/^@/, '').trim().toLowerCase();
+        if (!clean) return;
+        let list = loadTiktokHistory();
+        list = list.filter(x => x.toLowerCase() !== clean);
+        list.unshift(clean);
+        saveTiktokHistory(list);
+    }
+    function removeTiktokHistory(id) {
+        const clean = String(id || '').toLowerCase();
+        saveTiktokHistory(loadTiktokHistory().filter(x => x.toLowerCase() !== clean));
+    }
+    function escRegexInline(s) { return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function renderTiktokSuggestions(query) {
+        const sugg = document.getElementById('username-sugg');
+        if (!sugg) return;
+        // Không show dropdown khi đã connect (input đang khoá hiển thị tên đã connect)
+        if (isLiveConnected) { sugg.classList.remove('show'); sugg.innerHTML = ''; return; }
+        const list = loadTiktokHistory();
+        const q = String(query || '').replace(/^@/, '').trim().toLowerCase();
+        const matches = q ? list.filter(x => x.toLowerCase().includes(q)) : list;
+        if (matches.length === 0) { sugg.classList.remove('show'); sugg.innerHTML = ''; return; }
+        sugg.innerHTML = matches.map(id => {
+            const safe = escAttrInline(id);
+            const highlighted = q
+                ? safe.replace(new RegExp('(' + escRegexInline(q) + ')', 'gi'), '<b>$1</b>')
+                : safe;
+            return `<div class="user-sugg-item" data-id="${safe}">
+                <span class="sugg-name">@${highlighted}</span>
+                <button class="sugg-del" data-act="del" data-id="${safe}" title="Xóa khỏi lịch sử">×</button>
+            </div>`;
+        }).join('');
+        sugg.classList.add('show');
+    }
+    function hideTiktokSuggestions() {
+        const sugg = document.getElementById('username-sugg');
+        if (sugg) sugg.classList.remove('show');
+    }
+    (() => {
+        const sugg = document.getElementById('username-sugg');
+        if (!sugg) return;
+        dom.usernameInput.addEventListener('focus', () => renderTiktokSuggestions(dom.usernameInput.value));
+        dom.usernameInput.addEventListener('input', () => renderTiktokSuggestions(dom.usernameInput.value));
+        // Click ngoài conn-row → ẩn
+        document.addEventListener('click', (e) => {
+            const row = document.getElementById('conn-row');
+            if (row && !row.contains(e.target)) hideTiktokSuggestions();
+        });
+        sugg.addEventListener('click', (e) => {
+            const delBtn = e.target.closest('[data-act="del"]');
+            if (delBtn) {
+                e.stopPropagation();
+                removeTiktokHistory(delBtn.dataset.id || '');
+                renderTiktokSuggestions(dom.usernameInput.value);
+                return;
+            }
+            const item = e.target.closest('.user-sugg-item');
+            if (item) {
+                dom.usernameInput.value = item.dataset.id || '';
+                hideTiktokSuggestions();
+                dom.usernameInput.focus();
+            }
+        });
+    })();
+
+    // Auto-reset khi đổi ID — sau khi connect thành công, so sánh ID mới với phiên
+    // trước. Khác → popup confirm reset toàn bộ game state (totals/leaderboard/bàn cờ/
+    // timer/quest progress) để bắt đầu phiên với streamer mới. Giữ lại comments/gift
+    // stream/unknown gifts vì là dữ liệu reference, không phải session state.
+    const LAST_SESSION_USER_KEY = 'hp-last-session-user';
+    async function maybeResetOnIdChange(newUsername) {
+        const clean = String(newUsername || '').replace(/^@/, '').trim().toLowerCase();
+        if (!clean) return;
+        let prev = '';
+        try { prev = String(localStorage.getItem(LAST_SESSION_USER_KEY) || '').toLowerCase(); } catch (_) {}
+        // Lưu username phiên hiện tại — kể cả khi không trigger reset (lần đầu cài / cùng ID)
+        try { localStorage.setItem(LAST_SESSION_USER_KEY, clean); } catch (_) {}
+        // Lần đầu (chưa có prev) hoặc cùng ID → bỏ qua
+        if (!prev || prev === clean) return;
+        const ok = await hpConfirm({
+            icon: '🔄',
+            title: 'Phát hiện đổi TikTok ID',
+            body: `Bạn vừa kết nối <b>@${escHtml(clean)}</b> — khác với phiên trước <b>@${escHtml(prev)}</b>.<br><br>Reset toàn bộ <b>tiến trình game</b> (hũ thủy tinh, caro, vote, level quest, timer) để bắt đầu phiên mới với streamer này?<br><span style="color:#8b93a8">Lịch sử bình luận / quà / unknown gifts sẽ được giữ lại.</span>`,
+            okLabel: 'Reset & bắt đầu mới',
+            cancelLabel: 'Giữ tiến trình cũ',
+            tone: 'warn'
+        });
+        if (!ok) return;
+        // Dùng lại handleQuickLaunchCmd để reset từng game — đảm bảo logic đúng theo
+        // game-specific implementation (mỗi game có cách reset riêng).
+        const games = ['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer'];
+        for (const gid of games) {
+            try { await handleQuickLaunchCmd({ gameId: gid, action: 'reset' }); }
+            catch (e) { console.warn(`[id-change-reset] ${gid} reset fail:`, e); }
+        }
+        appendSystem(`🔄 Đã reset tiến trình game cho phiên @${clean}`);
+        flashTriggerToast?.(`🔄 Reset cho phiên mới @${clean}`);
+    }
+
     async function doConnect() {
         const username = (dom.usernameInput.value || '').trim().replace(/^@/, '');
         if (!username) { dom.usernameInput.focus(); return; }
+        hideTiktokSuggestions();
         dom.btnConnect.disabled = true;
         setStatus('connecting', `Đang kết nối @${username}...`);
         try {
@@ -2097,6 +2214,10 @@
             dom.statRoom.textContent = data.roomId ? `Room ${data.roomId}` : '';
             setConnectedUI(true, data.username);
             appendSystem(`Đã kết nối @${data.username}`);
+            // Chỉ lưu lịch sử khi connect THÀNH CÔNG (yêu cầu user)
+            addTiktokHistory(data.username || username);
+            // Phát hiện đổi ID phiên — popup confirm reset toàn bộ game state để bắt đầu phiên mới
+            await maybeResetOnIdChange(data.username || username);
         } catch (e) {
             setStatus('error', 'Lỗi: ' + e.message);
             setConnectedUI(false);
@@ -2130,7 +2251,15 @@
         try {
             const res = await fetch('/api/reload-gifts', { method: 'POST' });
             const data = await res.json();
-            appendSystem(data.ok ? `Đã tải ${data.count} quà` : `Lỗi: ${data.error}`);
+            if (data.ok) {
+                // iconsRefreshed = số quà thiếu image được khôi phục từ TikTok availableGifts
+                // (chỉ chạy được khi đang connect LIVE — sheet không có ảnh thì cần phòng LIVE tra)
+                const parts = [`Đã tải ${data.count} quà`];
+                if (data.iconsRefreshed > 0) parts.push(`khôi phục ${data.iconsRefreshed} icon`);
+                appendSystem(parts.join(' · '));
+            } else {
+                appendSystem(`Lỗi: ${data.error}`);
+            }
         } finally {
             dom.btnReloadGifts.disabled = false;
         }

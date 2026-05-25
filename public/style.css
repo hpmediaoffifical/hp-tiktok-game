@@ -220,12 +220,53 @@ button, .feat, .ghost, .primary, .danger, .pill, .tab, .tab-btn {
     display: flex; align-items: center; gap: 6px;
     background: #0f1218; padding: 4px 8px; border-radius: 8px;
     border: 1px solid #1f2533;
+    position: relative;
 }
 .conn-row .at { color: #8b93a8; }
 .conn-row input {
     flex: 1; background: transparent; border: none; outline: none;
     color: #e6e8ee; font-size: 13px; padding: 6px 0;
 }
+
+/* Dropdown gợi ý ID từ lịch sử connect thành công — chia sẻ localStorage key
+   'hp-tiktok-id-history' với cửa sổ Khởi động nhanh. */
+.user-sugg {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: #0e1119;
+    border: 1px solid #2a3046;
+    border-radius: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 80;
+    display: none;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.55);
+}
+.user-sugg.show { display: block; }
+.user-sugg-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .1s ease;
+    color: #c8cee0;
+}
+.user-sugg-item:hover, .user-sugg-item.is-active { background: #1c2233; }
+.user-sugg-item .sugg-name { flex: 1; }
+.user-sugg-item .sugg-name b { color: #ff8a3d; font-weight: 700; }
+.user-sugg-item .sugg-del {
+    background: transparent; border: 0;
+    color: #6b7385;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 5px;
+    border-radius: 3px;
+    line-height: 1;
+}
+.user-sugg-item .sugg-del:hover { color: #ff6b6b; background: #2a1a1f; }
+.user-sugg::-webkit-scrollbar { width: 5px; }
+.user-sugg::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
 
 /* Live stats — 1 hàng ngang gọn, icon nhỏ + số */
 .live-stats-grid {

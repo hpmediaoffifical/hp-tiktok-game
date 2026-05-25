@@ -71,6 +71,125 @@
         margin: 0 0 4px;
     }
 
+    /* === Connect card (TikTok) === */
+    .conn-card {
+        background: linear-gradient(135deg, #18141e 0%, #1f1622 100%);
+        border: 1px solid #2a2030;
+        border-radius: 10px;
+        padding: 10px 11px;
+        display: flex; flex-direction: column; gap: 8px;
+        position: relative;
+    }
+    .conn-card.is-live {
+        border-color: #ff6b3d;
+        box-shadow: 0 0 0 1px #ff6b3d44, 0 3px 12px rgba(255, 107, 61, 0.18);
+    }
+    .conn-head {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; font-weight: 700;
+    }
+    .conn-head .conn-ico { font-size: 15px; }
+    .conn-head .conn-status-chip {
+        margin-left: auto;
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 10px; font-weight: 700;
+        color: #8b93a8;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #1a1f2c;
+    }
+    .conn-head .conn-status-chip.is-live { color: #ff8a3d; background: #2a1a18; }
+    .conn-head .conn-status-chip .dot {
+        width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+        box-shadow: 0 0 5px currentColor;
+    }
+    .conn-head .conn-status-chip.is-live .dot { animation: ql-pulse 1.2s ease-in-out infinite; }
+
+    .conn-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px;
+        position: relative;
+    }
+    .conn-input-wrap { position: relative; }
+    .conn-input {
+        width: 100%;
+        background: #0e1119;
+        border: 1px solid #2a3046;
+        border-radius: 6px;
+        color: #e3e7f1;
+        padding: 7px 9px;
+        font-size: 12px;
+        font-family: inherit;
+        outline: none;
+    }
+    .conn-input::placeholder { color: #5b6378; }
+    .conn-input:focus { border-color: #4a5a7a; }
+    .conn-btn {
+        border: 0; border-radius: 6px;
+        padding: 7px 12px;
+        font-size: 12px; font-weight: 700;
+        cursor: pointer;
+        color: #fff;
+        background: #23a85f;
+        transition: background .12s ease, transform .05s ease;
+        white-space: nowrap;
+    }
+    .conn-btn:active { transform: scale(0.97); }
+    .conn-btn:hover { background: #2bbf6e; }
+    .conn-btn:disabled { background: #1f3a2a; color: #6b7785; cursor: not-allowed; }
+    .conn-btn.is-disc { background: #c63d3d; }
+    .conn-btn.is-disc:hover { background: #d94747; }
+
+    /* Suggestion dropdown */
+    .conn-sugg {
+        position: absolute;
+        top: calc(100% + 3px);
+        left: 0; right: 0;
+        background: #0e1119;
+        border: 1px solid #2a3046;
+        border-radius: 6px;
+        max-height: 180px;
+        overflow-y: auto;
+        z-index: 50;
+        display: none;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    }
+    .conn-sugg.show { display: block; }
+    .conn-sugg-item {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 9px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background .1s ease;
+    }
+    .conn-sugg-item:hover, .conn-sugg-item.is-active {
+        background: #1c2233;
+    }
+    .conn-sugg-item .sugg-name { flex: 1; color: #c8cee0; }
+    .conn-sugg-item .sugg-name b { color: #ff8a3d; font-weight: 700; }
+    .conn-sugg-item .sugg-del {
+        background: transparent; border: 0;
+        color: #6b7385;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0 4px;
+        border-radius: 3px;
+        line-height: 1;
+    }
+    .conn-sugg-item .sugg-del:hover { color: #ff6b6b; background: #2a1a1f; }
+    .conn-sugg::-webkit-scrollbar { width: 5px; }
+    .conn-sugg::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
+
+    .conn-err {
+        font-size: 11px;
+        color: #ff8080;
+        margin: 2px 0 0;
+        line-height: 1.35;
+        display: none;
+    }
+    .conn-err.show { display: block; }
+
     /* Card grid — single column, compact */
     .ql-card {
         background: #161a23;
@@ -107,29 +226,33 @@
         50%      { transform: scale(1.4); box-shadow: 0 0 12px currentColor; }
     }
 
-    .ql-card-actions { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+    /* Toggle nút Bắt đầu/Dừng gộp thành 1 icon, ↺ Reset bên cạnh */
+    .ql-card-actions { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
     .ql-btn {
         border: 0; border-radius: 6px;
-        padding: 7px 8px;
-        font-size: 11px; font-weight: 700;
+        padding: 8px 8px;
+        font-size: 13px; font-weight: 700;
         cursor: pointer;
         color: #fff;
         transition: background .12s ease, transform .05s ease;
+        display: inline-flex; align-items: center; justify-content: center;
+        gap: 4px;
+        line-height: 1;
     }
     .ql-btn:active { transform: scale(0.97); }
-    .ql-btn-start { background: #23a85f; }
-    .ql-btn-start:hover { background: #2bbf6e; }
-    .ql-btn-start:disabled { background: #1f3a2a; color: #6b7785; cursor: not-allowed; }
-    .ql-btn-stop  { background: #c63d3d; }
-    .ql-btn-stop:hover  { background: #d94747; }
-    .ql-btn-stop:disabled  { background: #3a2026; color: #6b7785; cursor: not-allowed; }
+    .ql-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+    /* Toggle: state ▶ (chưa chạy → bắt đầu) màu xanh; state ⏸ (đang chạy → dừng) màu cam */
+    .ql-btn-toggle.is-play   { background: #23a85f; }
+    .ql-btn-toggle.is-play:hover   { background: #2bbf6e; }
+    .ql-btn-toggle.is-pause  { background: #d97a2b; }
+    .ql-btn-toggle.is-pause:hover  { background: #e58a3a; }
     .ql-btn-reset {
         background: #3a4359; color: #c8cee0;
-        padding: 7px 10px;
-        min-width: 36px;
+        padding: 8px 12px;
+        min-width: 42px;
+        font-size: 14px;
     }
     .ql-btn-reset:hover { background: #4a5470; }
-    .ql-btn-reset:disabled { background: #1f2533; color: #5b6378; cursor: not-allowed; }
 
     footer {
         flex-shrink: 0;
@@ -153,18 +276,144 @@
     main::-webkit-scrollbar-track { background: transparent; }
     main::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
     main::-webkit-scrollbar-thumb:hover { background: #3a4359; }
+
+    /* === Cài đặt — chọn game nào hiển thị trong cửa sổ === */
+    .settings-overlay {
+        position: fixed; inset: 0;
+        background: rgba(5, 7, 12, 0.78);
+        backdrop-filter: blur(3px);
+        z-index: 200;
+        display: none;
+        align-items: center; justify-content: center;
+        padding: 16px;
+    }
+    .settings-overlay.show { display: flex; }
+    .settings-card {
+        background: #141822;
+        border: 1px solid #2a3046;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 380px;
+        max-height: 90vh;
+        display: flex; flex-direction: column;
+        box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+        overflow: hidden;
+    }
+    .settings-head {
+        padding: 12px 14px;
+        border-bottom: 1px solid #1f2533;
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px; font-weight: 700;
+    }
+    .settings-head .stg-close {
+        margin-left: auto;
+        background: transparent;
+        border: 1px solid #2a3046;
+        color: #c8cee0;
+        padding: 4px 8px;
+        border-radius: 5px;
+        font-size: 11px;
+        cursor: pointer;
+    }
+    .settings-head .stg-close:hover { background: #1f2533; }
+    .settings-hint {
+        padding: 8px 14px 0;
+        font-size: 10px;
+        color: #6b7385;
+        line-height: 1.4;
+    }
+    .settings-body {
+        flex: 1; min-height: 0;
+        overflow-y: auto;
+        padding: 8px 14px 12px;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .stg-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 9px;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: background .1s ease;
+        user-select: none;
+    }
+    .stg-row:hover { background: #1c2233; }
+    .stg-row input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 18px; height: 18px;
+        border: 1.5px solid #4a5470;
+        border-radius: 5px;
+        background: #0e1119;
+        cursor: pointer;
+        position: relative;
+        flex-shrink: 0;
+        transition: background .15s ease, border-color .15s ease;
+    }
+    .stg-row input[type="checkbox"]:checked {
+        background: #23a85f;
+        border-color: #23a85f;
+    }
+    .stg-row input[type="checkbox"]:checked::after {
+        content: '✓';
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1;
+    }
+    .stg-row .stg-ico { font-size: 18px; line-height: 1; flex-shrink: 0; }
+    .stg-row .stg-name { font-size: 13px; font-weight: 600; color: #e3e7f1; flex: 1; }
+    .settings-body::-webkit-scrollbar { width: 5px; }
+    .settings-body::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
     </style>
 </head>
 <body>
     <header>
         <h1>🚀 Khởi động nhanh</h1>
         <div class="actions">
+            <button id="btn-settings" class="hdr-btn" title="Cài đặt — chọn game hiển thị">⚙</button>
             <button id="btn-pin" class="hdr-btn is-on" title="Luôn hiện trên cùng (Always on top)"><span class="ico">📌</span><span>Pin</span></button>
             <button id="btn-close" class="hdr-btn" title="Đóng cửa sổ">✕</button>
         </div>
     </header>
+
+    <!-- Cài đặt: tích chọn game nào hiển thị trong cửa sổ. Một số game không có nút
+         Bắt đầu (vd Hũ Thủy Tinh chỉ chạy tự động) → user có thể ẩn để gọn. -->
+    <div id="settings-overlay" class="settings-overlay">
+        <div class="settings-card">
+            <div class="settings-head">
+                <span>⚙ Cài đặt hiển thị</span>
+                <button id="btn-settings-close" class="stg-close">Đóng</button>
+            </div>
+            <p class="settings-hint">Tích chọn game muốn hiển thị trong cửa sổ Khởi động nhanh. Game đã tắt vẫn chạy ở app chính — chỉ ẩn khỏi danh sách này.</p>
+            <div id="settings-body" class="settings-body"></div>
+        </div>
+    </div>
     <main>
-        <p class="hint"><b>▶ Bắt đầu</b> · <b>⏸ Dừng</b> (giữ tiến trình) · <b>↺</b> Reset (chạy lại từ đầu).</p>
+        <!-- 🔗 Kết nối TikTok — nhập ID + autocomplete từ lịch sử -->
+        <div id="conn-card" class="conn-card">
+            <div class="conn-head">
+                <span class="conn-ico">🔗</span>
+                <span>Kết nối TikTok</span>
+                <span id="conn-chip" class="conn-status-chip">
+                    <span class="dot"></span>
+                    <span id="conn-chip-txt">Chưa kết nối</span>
+                </span>
+            </div>
+            <div class="conn-row">
+                <div class="conn-input-wrap">
+                    <input id="conn-input" class="conn-input" type="text"
+                           placeholder="@username TikTok…" autocomplete="off" spellcheck="false" />
+                    <div id="conn-sugg" class="conn-sugg" role="listbox"></div>
+                </div>
+                <button id="conn-btn" class="conn-btn">Kết nối</button>
+            </div>
+            <p id="conn-err" class="conn-err"></p>
+        </div>
+
+        <p class="hint"><b>▶ / ⏸</b> Bắt đầu / Dừng (giữ tiến trình) · <b>↺</b> Reset (chạy lại từ đầu).</p>
         <div id="grid"></div>
     </main>
     <footer>
@@ -180,14 +429,44 @@
         const connEl    = document.getElementById('conn-state');
         const connTxt   = document.getElementById('conn-text');
 
+        // 🔗 Kết nối TikTok
+        const connCard   = document.getElementById('conn-card');
+        const connChip   = document.getElementById('conn-chip');
+        const connChipTx = document.getElementById('conn-chip-txt');
+        const connInput  = document.getElementById('conn-input');
+        const connBtn    = document.getElementById('conn-btn');
+        const connSugg   = document.getElementById('conn-sugg');
+        const connErr    = document.getElementById('conn-err');
+
         // Whitelist game ổn định — phải khớp STABLE_GAMES trong app.js
         const STABLE_IDS = ['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer', 'liveTranslate'];
         const LT_LS_KEY  = 'hp-live-translate-tool-enabled';
+        const HISTORY_KEY = 'hp-tiktok-id-history';   // localStorage: lịch sử ID đã connect
+        const VISIBLE_KEY = 'hp-quick-launch-visible-games';   // localStorage: array các gameId hiển thị
+        // Default: hiện tất cả; user có thể tắt từng game qua ⚙ Cài đặt
+        function loadVisibleGames() {
+            try {
+                const raw = localStorage.getItem(VISIBLE_KEY);
+                if (!raw) return null;   // null = chưa cấu hình → mặc định hiện hết
+                const arr = JSON.parse(raw);
+                return Array.isArray(arr) ? arr : null;
+            } catch (_) { return null; }
+        }
+        function saveVisibleGames(ids) {
+            try { localStorage.setItem(VISIBLE_KEY, JSON.stringify(ids || [])); } catch (_) {}
+        }
+        function isGameVisible(gameId) {
+            const v = loadVisibleGames();
+            if (v === null) return true;   // chưa cấu hình → hiển thị mặc định
+            return v.includes(gameId);
+        }
 
         let games = [];   // [{ id, name, icon, config, virtual }]
-        // running[gameId] = true khi game đang trong phiên active (vote chạy đồng hồ, timer chạy,
-        // quest đếm lùi, caro mở ghi danh, liveTranslate đang dịch+TTS). Subscribe socket để sync.
         const running = Object.create(null);
+
+        // TikTok connection state — sync qua socket 'status'
+        let tiktokConnected = false;
+        let tiktokUsername  = '';
 
         // Socket — listen gameConfig updates để sync khi user toggle ở app chính
         const socket = io({ reconnection: true, reconnectionDelay: 600 });
@@ -199,12 +478,13 @@
             g.config = config;
             updateCard(gameId);
         });
+        // Sync trạng thái TikTok LIVE giữa app chính + cửa sổ Khởi động nhanh
+        socket.on('status', (s) => {
+            tiktokConnected = !!s?.connected;
+            tiktokUsername  = s?.username || '';
+            updateConnUi();
+        });
 
-        // Subscribe các socket event báo trạng thái Đang chạy của từng game:
-        //   votecomment:state.active     (server emit khi start/stop/timer hết giờ)
-        //   timer:state.running          (iframe THỜI GIAN broadcast khi start/pause/resume)
-        //   levelquest:state.timerActive (iframe LEVEL QUEST broadcast khi toggleQuestTimer)
-        //   quickLaunch:status           (app chính emit cho caro + liveTranslate)
         function setRunning(gameId, isRunning) {
             const prev = !!running[gameId];
             const next = !!isRunning;
@@ -219,12 +499,175 @@
 
         const isEnabled = (g) => !g.config || !('enabled' in g.config) || g.config.enabled !== false;
 
+        // ============================================
+        // 🔗 Kết nối TikTok — lịch sử + autocomplete
+        // ============================================
+        function loadHistory() {
+            try {
+                const raw = localStorage.getItem(HISTORY_KEY);
+                if (!raw) return [];
+                const arr = JSON.parse(raw);
+                return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+            } catch (_) { return []; }
+        }
+        function saveHistory(list) {
+            try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20))); } catch (_) {}
+        }
+        function addToHistory(id) {
+            const clean = String(id || '').replace(/^@/, '').trim().toLowerCase();
+            if (!clean) return;
+            let list = loadHistory();
+            list = list.filter(x => x.toLowerCase() !== clean);
+            list.unshift(clean);
+            saveHistory(list);
+        }
+        function removeFromHistory(id) {
+            const clean = String(id || '').toLowerCase();
+            const list = loadHistory().filter(x => x.toLowerCase() !== clean);
+            saveHistory(list);
+        }
+        function renderSuggestions(query) {
+            const list = loadHistory();
+            const q = String(query || '').replace(/^@/, '').trim().toLowerCase();
+            // Khi input rỗng → show toàn bộ lịch sử; khi có chữ → filter chứa substring
+            const matches = q
+                ? list.filter(x => x.toLowerCase().includes(q))
+                : list;
+            if (matches.length === 0) { connSugg.classList.remove('show'); connSugg.innerHTML = ''; return; }
+            connSugg.innerHTML = matches.map(id => {
+                const safe = escapeHtml(id);
+                const highlighted = q
+                    ? safe.replace(new RegExp('(' + escapeRegex(q) + ')', 'gi'), '<b>$1</b>')
+                    : safe;
+                return `
+                    <div class="conn-sugg-item" data-id="${safe}">
+                        <span class="sugg-name">@${highlighted}</span>
+                        <button class="sugg-del" data-act="del" data-id="${safe}" title="Xóa khỏi lịch sử">×</button>
+                    </div>`;
+            }).join('');
+            connSugg.classList.add('show');
+        }
+        function hideSuggestions() { connSugg.classList.remove('show'); }
+
+        connInput.addEventListener('focus', () => {
+            if (!tiktokConnected) renderSuggestions(connInput.value);
+        });
+        connInput.addEventListener('input', () => {
+            renderSuggestions(connInput.value);
+            showConnErr('');
+        });
+        connInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); doConnectClick(); }
+            else if (e.key === 'Escape') { hideSuggestions(); }
+        });
+        // Click ngoài → ẩn dropdown
+        document.addEventListener('click', (e) => {
+            if (!connCard.contains(e.target)) hideSuggestions();
+        });
+        // Click vào suggestion: chọn ID hoặc xóa khỏi history
+        connSugg.addEventListener('click', (e) => {
+            const delBtn = e.target.closest('[data-act="del"]');
+            if (delBtn) {
+                e.stopPropagation();
+                removeFromHistory(delBtn.dataset.id || '');
+                renderSuggestions(connInput.value);
+                return;
+            }
+            const item = e.target.closest('.conn-sugg-item');
+            if (item) {
+                connInput.value = item.dataset.id || '';
+                hideSuggestions();
+                connInput.focus();
+            }
+        });
+
+        function showConnErr(msg) {
+            connErr.textContent = msg || '';
+            connErr.classList.toggle('show', !!msg);
+        }
+        function updateConnUi() {
+            connCard.classList.toggle('is-live', tiktokConnected);
+            connChip.classList.toggle('is-live', tiktokConnected);
+            if (tiktokConnected) {
+                connChipTx.textContent = 'Đã kết nối @' + tiktokUsername;
+                connInput.value = tiktokUsername;
+                connInput.disabled = true;
+                connBtn.textContent = 'Ngắt';
+                connBtn.classList.add('is-disc');
+                connBtn.disabled = false;
+                hideSuggestions();
+                showConnErr('');
+            } else {
+                connChipTx.textContent = 'Chưa kết nối';
+                connInput.disabled = false;
+                connBtn.textContent = 'Kết nối';
+                connBtn.classList.remove('is-disc');
+                connBtn.disabled = false;
+            }
+        }
+        async function fetchLastUsername() {
+            // Auto-fill ID đã connect trước đó (server lưu trong app-config.json)
+            try {
+                const r = await fetch('/api/last-user');
+                const d = await r.json();
+                if (d?.username && !connInput.value) {
+                    connInput.value = d.username;
+                    addToHistory(d.username);   // gộp vào lịch sử nếu chưa có
+                }
+            } catch (_) {}
+        }
+        async function doConnectClick() {
+            if (tiktokConnected) { await doDisconnect(); return; }
+            await doConnect();
+        }
+        async function doConnect() {
+            const username = (connInput.value || '').trim().replace(/^@/, '');
+            if (!username) { connInput.focus(); showConnErr('Vui lòng nhập TikTok ID'); return; }
+            connBtn.disabled = true;
+            connBtn.textContent = '⏳ Đang kết nối…';
+            showConnErr('');
+            hideSuggestions();
+            try {
+                const res = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await res.json();
+                if (res.status === 403 && data._creatorLocked) {
+                    showConnErr(data.error || 'Username không khớp với key CREATOR');
+                    if (data.boundTiktokId) connInput.value = data.boundTiktokId;
+                    return;
+                }
+                if (!data.ok) throw new Error(data.error || 'Lỗi không xác định');
+                addToHistory(data.username || username);
+                // status event từ server sẽ tự cập nhật UI (tiktokConnected=true)
+            } catch (e) {
+                showConnErr('Lỗi: ' + (e.message || e));
+            } finally {
+                if (!tiktokConnected) {
+                    connBtn.disabled = false;
+                    connBtn.textContent = 'Kết nối';
+                }
+            }
+        }
+        async function doDisconnect() {
+            if (!confirm('Ngắt kết nối khỏi @' + tiktokUsername + '?\nOBS overlay sẽ ngừng nhận sự kiện.')) return;
+            connBtn.disabled = true;
+            connBtn.textContent = '⏳…';
+            try { await fetch('/api/disconnect', { method: 'POST' }); }
+            catch (e) { showConnErr('Lỗi: ' + e.message); }
+        }
+        connBtn.addEventListener('click', doConnectClick);
+
+        // ============================================
+        // Game cards
+        // ============================================
         async function loadGames() {
             try {
                 const r = await fetch('/api/games');
                 const list = await r.json();
                 games = list.filter(g => STABLE_IDS.includes(g.id));
-                // Thêm liveTranslate virtual (giống app.js loadGames)
                 games.push({
                     id: 'liveTranslate',
                     name: 'DỊCH VÀ ĐỌC LIVE',
@@ -232,7 +675,6 @@
                     virtual: true,
                     config: { enabled: localStorage.getItem(LT_LS_KEY) !== 'false' }
                 });
-                // Sắp xếp theo STABLE_IDS order (giữ thứ tự nhất quán với app chính)
                 games.sort((a, b) => STABLE_IDS.indexOf(a.id) - STABLE_IDS.indexOf(b.id));
                 render();
             } catch (e) {
@@ -242,14 +684,13 @@
 
         function render() {
             gridEl.innerHTML = '';
-            for (const g of games) gridEl.appendChild(buildCard(g));
+            for (const g of games) {
+                if (!isGameVisible(g.id)) continue;   // user đã tích tắt ở ⚙ Cài đặt
+                gridEl.appendChild(buildCard(g));
+            }
         }
 
         function stateOf(g) {
-            // Tách 3 trạng thái rõ ràng:
-            //   running = đang chạy phiên thật của game (vd vote đang đếm giờ)
-            //   ready   = sidebar ⏻ ON, chưa start session
-            //   off     = sidebar ⏻ OFF
             const enabled = isEnabled(g);
             if (running[g.id]) return { cls: 'live', label: 'Đang chạy' };
             if (enabled)       return { cls: 'on',   label: 'Sẵn sàng' };
@@ -260,6 +701,11 @@
             const card = document.createElement('div');
             card.className = 'ql-card is-' + st.cls;
             card.dataset.gameId = g.id;
+            const isRun = !!running[g.id];
+            const toggleAct = isRun ? 'stop' : 'start';
+            const toggleCls = isRun ? 'is-pause' : 'is-play';
+            const toggleIco = isRun ? '⏸' : '▶';
+            const toggleTip = isRun ? 'Dừng / tạm dừng phiên (giữ tiến trình)' : 'Bắt đầu / tiếp tục phiên';
             card.innerHTML = `
                 <div class="ql-card-head">
                     <span class="ql-card-ico">${g.icon}</span>
@@ -272,16 +718,13 @@
                     </div>
                 </div>
                 <div class="ql-card-actions">
-                    <button class="ql-btn ql-btn-start" data-act="start" title="Bắt đầu / tiếp tục phiên">▶ Bắt đầu</button>
-                    <button class="ql-btn ql-btn-stop"  data-act="stop"  title="Dừng / tạm dừng phiên (giữ tiến trình)">⏸ Dừng</button>
+                    <button class="ql-btn ql-btn-toggle ${toggleCls}" data-act="${toggleAct}" title="${toggleTip}">${toggleIco}</button>
                     <button class="ql-btn ql-btn-reset" data-act="reset" title="Reset — chạy lại từ đầu, xóa tiến trình">↺</button>
                 </div>
             `;
             card.addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-act]');
                 if (!btn) return;
-                // 3 nút là action thật của game (Bắt đầu/Dừng/Reset). Reset = restart from scratch,
-                // khác Dừng (chỉ pause giữ tiến trình rồi resume khi Bắt đầu lại).
                 fireAction(g, btn.dataset.act);
             });
             return card;
@@ -291,7 +734,6 @@
             const card = gridEl.querySelector(`.ql-card[data-game-id="${gameId}"]`);
             const g = games.find(x => x.id === gameId);
             if (!card || !g) return;
-            // 3 trạng thái: live (đang chạy phiên) / on (sẵn sàng) / off (tắt ở Thư viện)
             const st = stateOf(g);
             card.classList.remove('is-live', 'is-on', 'is-off');
             card.classList.add('is-' + st.cls);
@@ -299,24 +741,29 @@
             const stateTxt = card.querySelector('.state-txt');
             if (state) state.className = 'ql-card-state ' + st.cls;
             if (stateTxt) stateTxt.textContent = st.label;
+            // Cập nhật toggle button theo trạng thái running
+            const tBtn = card.querySelector('.ql-btn-toggle');
+            if (tBtn) {
+                const isRun = !!running[gameId];
+                tBtn.classList.toggle('is-pause', isRun);
+                tBtn.classList.toggle('is-play', !isRun);
+                tBtn.dataset.act = isRun ? 'stop' : 'start';
+                tBtn.textContent = isRun ? '⏸' : '▶';
+                tBtn.title = isRun ? 'Dừng / tạm dừng phiên (giữ tiến trình)' : 'Bắt đầu / tiếp tục phiên';
+            }
         }
 
         function fireAction(g, action) {
-            // Visual flash để user biết click đã ghi nhận (action chạy async qua socket → app chính)
             const card = gridEl.querySelector(`.ql-card[data-game-id="${g.id}"]`);
-            const btnSel = { start: '.ql-btn-start', stop: '.ql-btn-stop', reset: '.ql-btn-reset' }[action];
+            const btnSel = { start: '.ql-btn-toggle', stop: '.ql-btn-toggle', reset: '.ql-btn-reset' }[action];
             const btn = btnSel ? card?.querySelector(btnSel) : null;
             if (btn) {
                 const orig = btn.textContent;
-                const flash = { start: '⏳ Đang bắt đầu…', stop: '⏳ Đang dừng…', reset: '⏳ Reset…' }[action];
+                const flash = { start: '⏳', stop: '⏳', reset: '⏳' }[action];
                 btn.textContent = flash;
                 btn.disabled = true;
                 setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 700);
             }
-            // Emit cmd → server broadcast → app chính dispatch:
-            //   start    Bắt đầu / tiếp tục phiên
-            //   stop     Dừng (pause — giữ tiến trình, Bắt đầu sẽ resume)
-            //   reset    Reset (xóa tiến trình + restart từ đầu)
             socket.emit('quickLaunch:cmd', { gameId: g.id, action });
         }
 
@@ -325,14 +772,16 @@
                 '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
             }[c]));
         }
+        function escapeRegex(s) {
+            return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
 
-        // Header buttons — bridge tới Electron qua IPC nếu có (electron preload), fallback no-op trên web
+        // Header buttons — bridge tới Electron qua IPC nếu có
         const ipc = (typeof window !== 'undefined' && window.hpQuickLaunch) ? window.hpQuickLaunch : null;
         function applyPinUi(on) {
             pinBtn.classList.toggle('is-on', !!on);
             pinBtn.title = on ? 'Luôn hiện trên cùng — bấm để tắt pin' : 'Bấm để pin trên cùng';
         }
-        // Đồng bộ trạng thái pin đã persist từ phiên trước (main process gửi qua IPC)
         ipc?.onInitPin?.(applyPinUi);
         pinBtn.addEventListener('click', () => {
             const next = !pinBtn.classList.contains('is-on');
@@ -344,7 +793,59 @@
             else window.close();
         });
 
+        // ============================================
+        // ⚙ Cài đặt hiển thị — tích chọn game hiển thị
+        // ============================================
+        const settingsBtn = document.getElementById('btn-settings');
+        const settingsOverlay = document.getElementById('settings-overlay');
+        const settingsBody = document.getElementById('settings-body');
+        const settingsClose = document.getElementById('btn-settings-close');
+        function renderSettingsBody() {
+            settingsBody.innerHTML = '';
+            // Chỉ hiện game đã load (đã filter STABLE_IDS) — không hardcode danh sách
+            // để tránh out-of-sync khi thêm/xóa game ở STABLE_IDS.
+            for (const g of games) {
+                const row = document.createElement('label');
+                row.className = 'stg-row';
+                row.innerHTML = `
+                    <input type="checkbox" data-game-id="${g.id}" ${isGameVisible(g.id) ? 'checked' : ''} />
+                    <span class="stg-ico">${g.icon}</span>
+                    <span class="stg-name">${escapeHtml(g.name)}</span>
+                `;
+                settingsBody.appendChild(row);
+            }
+        }
+        function openSettings() {
+            renderSettingsBody();
+            settingsOverlay.classList.add('show');
+        }
+        function closeSettings() { settingsOverlay.classList.remove('show'); }
+        settingsBtn.addEventListener('click', openSettings);
+        settingsClose.addEventListener('click', closeSettings);
+        // Click ngoài card → đóng
+        settingsOverlay.addEventListener('click', (e) => {
+            if (e.target === settingsOverlay) closeSettings();
+        });
+        // Tích/bỏ tích — cập nhật ngay localStorage + re-render grid
+        settingsBody.addEventListener('change', (e) => {
+            const cb = e.target.closest('input[type="checkbox"][data-game-id]');
+            if (!cb) return;
+            const cur = loadVisibleGames();
+            // Khởi tạo từ trạng thái hiện tại nếu chưa có config
+            let next = cur === null ? games.map(g => g.id) : cur.slice();
+            const gid = cb.dataset.gameId;
+            if (cb.checked) {
+                if (!next.includes(gid)) next.push(gid);
+            } else {
+                next = next.filter(x => x !== gid);
+            }
+            saveVisibleGames(next);
+            render();   // re-render grid sau mỗi lần tích — phản hồi tức thì
+        });
+
         loadGames();
+        fetchLastUsername();
+        updateConnUi();
     })();
     </script>
 </body>

@@ -40,6 +40,8 @@
                 <div class="conn-row" id="conn-row">
                     <span class="at">@</span>
                     <input id="username" type="text" placeholder="username đang LIVE" autocomplete="off" />
+                    <!-- Lịch sử ID đã từng connect thành công (chia sẻ localStorage với cửa sổ Khởi động nhanh) -->
+                    <div id="username-sugg" class="user-sugg" role="listbox"></div>
                 </div>
                 <div class="conn-actions">
                     <button id="btn-connect" class="primary block">Kết nối LIVE</button>

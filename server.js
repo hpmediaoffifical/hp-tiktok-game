@@ -3148,7 +3148,27 @@ app.post('/api/reload-gifts', async (req, res) => {
             scheduleSaveUnknown();
             io.emit('unknownGiftCleared', { all: false, removed: cleaned, total: Object.keys(unknownGifts).length });
         }
-        res.json({ ok: true, count: giftList.length, cleanedUnknown: cleaned });
+        // Đồng bộ icon từ TikTok availableGifts cho các quà còn thiếu image
+        // (Google Sheet có thể thiếu ảnh; availableGifts là nguồn chính xác hơn từ phòng LIVE đang connect)
+        let iconsRefreshed = 0;
+        if (connection && connection.availableGifts) {
+            const refreshResult = refreshUnknownGiftsFromTikTok();
+            if (refreshResult?.ok) iconsRefreshed = refreshResult.updated || 0;
+            // Đồng thời update image cho giftList chính nếu sheet entry thiếu image
+            for (const g of giftList) {
+                if (g.image) continue;
+                const tt = lookupGiftFromTikTok(String(g.id));
+                if (tt?.image) {
+                    g.image = tt.image;
+                    iconsRefreshed++;
+                }
+            }
+            if (iconsRefreshed > 0) {
+                saveGiftCacheToDisk(giftList);
+                io.emit('giftSheet', giftList);
+            }
+        }
+        res.json({ ok: true, count: giftList.length, cleanedUnknown: cleaned, iconsRefreshed });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -4261,6 +4281,15 @@ app.get('/quick-launch', (req, res) =>
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ====== Socket rooms ======
+// Cache snapshot cho relay-only events (level-quest / timer) — server cũ chỉ relay
+// lab→overlay không lưu lại, nên overlay mở SAU lab không có state, phải Reset OBS
+// mới buộc lab broadcast lại. Cache giải quyết: mỗi lần lab broadcast cfg/state,
+// server lưu vào RAM; socket mới connect → emit cache ngay.
+const relayCache = {
+    levelquest: { cfg: null, state: null },
+    timer:      { cfg: null, state: null }
+};
+
 io.on('connection', (socket) => {
     // Default emits
     socket.emit('giftSheet', giftList);
@@ -4273,6 +4302,12 @@ io.on('connection', (socket) => {
     // Quick Launch cần biết Vote Bình Luận đang chạy phiên không — gửi snapshot ngay
     // khi connect (kể cả cửa sổ Khởi động nhanh mở giữa chừng) thay vì chờ broadcast tiếp.
     socket.emit('votecomment:state', voteCommentSnapshot());
+    // LEVEL QUEST + TIMER snapshot — overlay mở SAU lab nhận state ngay, không phải
+    // Reset OBS mới buộc lab broadcast lại
+    if (relayCache.levelquest.cfg)   socket.emit('levelquest:cfg',   relayCache.levelquest.cfg);
+    if (relayCache.levelquest.state) socket.emit('levelquest:state', relayCache.levelquest.state);
+    if (relayCache.timer.cfg)        socket.emit('timer:cfg',        relayCache.timer.cfg);
+    if (relayCache.timer.state)      socket.emit('timer:state',      relayCache.timer.state);
 
     socket.on('creatorCaption:speech', (payload) => {
         processCreatorCaptionSpeech(payload).catch(e => console.warn('[creator-caption] translate failed:', e.message));
@@ -4281,13 +4316,13 @@ io.on('connection', (socket) => {
         io.emit('creatorCaption:debug', { ...(payload || {}), ts: Date.now() });
     });
 
-    // LEVEL QUEST sync — lab broadcasts cfg/state; overlays nhận để cập nhật real-time
-    socket.on('levelquest:cfg',   (data) => { socket.broadcast.emit('levelquest:cfg',   data); });
-    socket.on('levelquest:state', (data) => { socket.broadcast.emit('levelquest:state', data); });
+    // LEVEL QUEST sync — lab broadcasts cfg/state; cache + relay tới mọi overlay
+    socket.on('levelquest:cfg',   (data) => { relayCache.levelquest.cfg   = data; socket.broadcast.emit('levelquest:cfg',   data); });
+    socket.on('levelquest:state', (data) => { relayCache.levelquest.state = data; socket.broadcast.emit('levelquest:state', data); });
 
-    // TIMER (THỜI GIAN) sync — lab broadcasts cfg/state; overlays + preview nhận realtime
-    socket.on('timer:cfg',     (data) => { socket.broadcast.emit('timer:cfg',     data); });
-    socket.on('timer:state',   (data) => { socket.broadcast.emit('timer:state',   data); });
+    // TIMER (THỜI GIAN) sync — lab broadcasts cfg/state; cache + relay tới overlay/preview
+    socket.on('timer:cfg',     (data) => { relayCache.timer.cfg   = data; socket.broadcast.emit('timer:cfg',   data); });
+    socket.on('timer:state',   (data) => { relayCache.timer.state = data; socket.broadcast.emit('timer:state', data); });
     socket.on('timer:trigger', (data) => { socket.broadcast.emit('timer:trigger', data); });
 
     // 🚀 Quick Launch — cửa sổ rời emit lệnh start/stop → server forward tới app chính để

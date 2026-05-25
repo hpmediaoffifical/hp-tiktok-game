@@ -848,24 +848,24 @@
         function loadImage(g) {
             const key = g.giftId || g.image || Math.random().toString(36);
             if (imgCache.has(key)) return imgCache.get(key);
+            // Fallback chain cho quà chưa cập nhật icon: ảnh thật từ TikTok/Sheet →
+            // logo HP remote (centralized, đổi được không cần rebuild app) → logo HP local
+            // (bundled, dùng khi offline / chặn hpvn.media). Bỏ canvas circle+text vì
+            // hiển thị xấu — user ưu tiên logo HP cho mọi quà thiếu icon.
+            const FALLBACK_REMOTE = 'https://hpvn.media/logo-hp.png';
+            const FALLBACK_LOCAL  = '/hp-logo.png';
             const im = new Image();
             im.onerror = () => {
-                const oc = document.createElement('canvas');
-                oc.width = 96; oc.height = 96;
-                const oc2 = oc.getContext('2d');
-                const hue = (parseInt(g.giftId, 10) || 0) % 360;
-                oc2.fillStyle = `hsl(${hue},60%,50%)`;
-                oc2.beginPath(); oc2.arc(48, 48, 44, 0, Math.PI * 2); oc2.fill();
-                oc2.fillStyle = '#fff';
-                oc2.font = 'bold 14px Arial';
-                oc2.textAlign = 'center';
-                const label = (g.giftName || g.giftId || '?').toString().slice(0, 8);
-                oc2.fillText(label, 48, 54);
-                const fallback = new Image();
-                fallback.src = oc.toDataURL();
-                imgCache.set(key, fallback);
+                const remote = new Image();
+                remote.onerror = () => {
+                    const local = new Image();
+                    local.src = FALLBACK_LOCAL;
+                    imgCache.set(key, local);
+                };
+                remote.src = FALLBACK_REMOTE;
+                imgCache.set(key, remote);
             };
-            im.src = g.image || '';
+            im.src = g.image || FALLBACK_REMOTE;
             imgCache.set(key, im);
             return im;
         }
