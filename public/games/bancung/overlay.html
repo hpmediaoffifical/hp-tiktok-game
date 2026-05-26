@@ -1138,9 +1138,16 @@
         const $bowCharge = document.getElementById('bc-bow-charge');
         const $giftList = document.getElementById('bc-giftlist');
 
-        // Edit mode (panel popout) — drag + wheel zoom
+        // Edit mode (panel popout) — drag + wheel zoom + right-click close
         const isEdit = new URLSearchParams(location.search).get('edit') === '1';
-        if (isEdit) document.body.classList.add('bc-edit');
+        if (isEdit) {
+            document.body.classList.add('bc-edit');
+            // Right-click anywhere → close window nhanh sau khi sửa xong
+            document.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                try { window.close(); } catch (err) {}
+            });
+        }
 
         let state = null;
         let config = null;

@@ -71,7 +71,13 @@
                     <span class="soundfx-btn-ico">🎵</span><span class="soundfx-btn-text">Sound Effects</span>
                 </button>
                 <div class="side-footer">
-                    © <a href="https://hpvn.media" target="_blank" rel="noopener">HP Media</a> · <span id="footer-version">v1.0.3</span>
+                    <button id="btn-open-settings" class="side-footer-settings" title="Bản quyền · Phiên bản · Danh sách quà">
+                        <span class="side-footer-settings-ico">⚙</span>
+                        <span class="side-footer-settings-text">Cài đặt</span>
+                    </button>
+                    <div class="side-footer-copy">
+                        © <a href="https://hpvn.media" target="_blank" rel="noopener">HP Media</a> · <span id="footer-version">v1.0.3</span>
+                    </div>
                     <div class="side-footer-author">by Nguyen Hoang Phung</div>
                 </div>
             </section>
@@ -109,7 +115,6 @@
                         <button class="primary small" id="btn-lq-copy" onclick="lqCopyOverlay(this)">📋 Copy URL Overlay</button>
                         <button class="ghost small" onclick="window.open('/_prototype/level-quest.html?mode=overlay','_blank','width=1080,height=400')">🪟 Mở overlay preview</button>
                         <button class="ghost small" onclick="document.getElementById('lq-frame').contentWindow.location.reload()" title="Reload prototype">↻ Reload</button>
-                        <button id="level-quest-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                     <script>
                       // Copy với fallback cho Electron / iframe context (clipboard API có thể fail im lặng)
@@ -152,7 +157,6 @@
                         <button class="primary small" id="btn-timer-copy" onclick="timerCopyOverlay(this)">📋 Copy URL Overlay</button>
                         <button class="ghost small" onclick="window.open('/_prototype/timer.html?mode=overlay','_blank','width=900,height=420')" title="Preview window — gọn hơn để theo dõi">🪟 Mở preview window</button>
                         <button class="ghost small" onclick="document.getElementById('timer-frame').contentWindow.location.reload()" title="Reload prototype">↻ Reload</button>
-                        <button id="timer-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                     <script>
                       // Copy URL overlay vào clipboard — không hiển thị URL ra ngoài.
@@ -196,7 +200,6 @@
                         <button id="btn-reset-session-top" class="ghost small" title="Reset session: clear hũ + reset stats / leaderboard / mục tiêu">↺ HŨ MỚI</button>
                         <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Overlay OBS</button>
                         <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
-                        <button id="btn-open-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -542,7 +545,6 @@
                         <button id="caro-btn-popout" class="primary small" title="Mở cửa sổ Overlay Review trong suốt để OBS dùng Window Capture bắt sắc nét hơn link Browser Source">🪟 Overlay Review</button>
                         <button id="caro-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
                         <button id="caro-btn-save" class="primary small" title="Lưu cài đặt Caro">💾 Lưu cài đặt</button>
-                        <button id="caro-btn-settings" class="ghost small" title="Mở cài đặt chung">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -1212,7 +1214,6 @@
                         <button id="vipwelcome-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
                         <button id="vipwelcome-btn-reload" class="ghost small" title="Buộc OBS browser source reload — dùng khi đổi style mà overlay vẫn hiện cũ (do cache)">🔄 Reload overlay</button>
                         <button id="vipwelcome-btn-stop" class="danger small" title="Dừng phát + xoá hàng đợi ngay">⏹ DỪNG</button>
-                        <button id="vipwelcome-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -1307,7 +1308,6 @@
                         <input id="pktiktok-overlay-url" type="text" readonly hidden />
                         <button id="pktiktok-btn-copy" class="primary small" title="Copy URL overlay OBS">📋 Copy link</button>
                         <button id="pktiktok-btn-stop" class="danger small" title="Dừng phát ngay">⏹ DỪNG</button>
-                        <button id="pktiktok-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -1347,7 +1347,6 @@
                         <button id="vc-btn-popout" class="primary small" title="Mở overlay ra cửa sổ riêng để theo dõi trên PC — vị trí và kích thước tự lưu cho lần sau">🪟 Mở overlay PC</button>
                         <button id="vc-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link OBS</button>
                         <button id="vc-btn-reload" class="ghost small" title="Buộc overlay reload (test layout mới)">🔄 Reload</button>
-                        <button id="votecomment-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                     </div>
                 </header>
 
@@ -1561,7 +1560,6 @@
                         <button id="btn-copy-dashboard" class="primary small" title="Copy URL dashboard tổng hợp cho OBS">Copy OBS Dashboard</button>
                         <button id="btn-backup-export" class="ghost small" title="Tải file backup cấu hình game và overlay">Export backup</button>
                         <button id="btn-backup-import" class="ghost small" title="Import file backup cấu hình">Import backup</button>
-                        <button id="live-translate-btn-settings" class="ghost small" title="Mở cài đặt: bản quyền, phiên bản, danh sách quà">⚙ Cài đặt</button>
                         <input id="backup-import-file" type="file" accept="application/json,.json" hidden />
                     </div>
                 </header>

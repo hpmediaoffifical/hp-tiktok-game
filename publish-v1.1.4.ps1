@@ -1,0 +1,115 @@
+# publish-v1.1.4.ps1 — Upload + publish v1.1.4 lên license.hpvn.media
+# CÁCH DÙNG:
+#   1. Mở PowerShell tại folder repo
+#   2. Build installer truoc:
+#        npm run build:win
+#   3. Set token (1 lần, lưu trong env hoặc paste inline):
+#        $env:HP_ADMIN_TOKEN = "<paste token của bạn>"
+#   4. Chạy: .\publish-v1.1.4.ps1
+#
+# Token KHÔNG được hard-code trong file này — tránh leak khi commit git.
+
+$ErrorActionPreference = 'Stop'
+
+$VERSION  = "1.1.4"
+$FILENAME = "HP-Action-LIVE-Setup-1.1.4.exe"
+$FILEPATH = "dist\$FILENAME"
+$BASE_URL = "https://license.hpvn.media"
+
+# Lấy token từ env
+$token = $env:HP_ADMIN_TOKEN
+if (-not $token) {
+    Write-Host "Thieu env var HP_ADMIN_TOKEN" -ForegroundColor Red
+    Write-Host '   Chay truoc: $env:HP_ADMIN_TOKEN = "<token>"' -ForegroundColor Yellow
+    exit 1
+}
+
+if (-not (Test-Path $FILEPATH)) {
+    Write-Host "Khong tim thay $FILEPATH — chay 'npm run build:win' truoc" -ForegroundColor Red
+    exit 1
+}
+
+# Tinh SHA256 + size truc tiep tu file de tranh sai khi quen update
+$SHA256 = (Get-FileHash -Path $FILEPATH -Algorithm SHA256).Hash.ToLower()
+$SIZE   = (Get-Item $FILEPATH).Length
+Write-Host "File: $FILENAME" -ForegroundColor Gray
+Write-Host "Size: $SIZE bytes ($([math]::Round($SIZE/1MB,1)) MB)" -ForegroundColor Gray
+Write-Host "SHA256: $SHA256" -ForegroundColor Gray
+Write-Host ""
+
+# ============ STEP 1: Upload .exe ============
+Write-Host "Step 1/2: Upload $FILENAME len $BASE_URL..." -ForegroundColor Cyan
+$body = [IO.File]::ReadAllBytes($FILEPATH)
+try {
+    $up = Invoke-RestMethod -Uri "$BASE_URL/admin/api/upload-installer" `
+        -Method Post `
+        -Headers @{
+            "Authorization" = "Bearer $token"
+            "X-Filename"    = $FILENAME
+            "Content-Type"  = "application/octet-stream"
+        } `
+        -Body $body `
+        -TimeoutSec 600
+    if (-not $up.ok) { throw "Upload reply: $($up | ConvertTo-Json -Compress)" }
+    Write-Host "Upload OK — size=$($up.size) sha256=$($up.sha256.Substring(0,16))..." -ForegroundColor Green
+    if ($up.sha256.ToLower() -ne $SHA256.ToLower()) {
+        Write-Host "SHA256 server tinh khac voi local — kiem tra lai file!" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "Upload fail: $_" -ForegroundColor Red
+    exit 1
+}
+
+# ============ STEP 2: Publish metadata ============
+Write-Host "Step 2/2: Publish metadata version $VERSION..." -ForegroundColor Cyan
+$notes = @"
+v1.1.4 — Ban Tu Do + Fix drag-revert triet de + Settings footer
+
+TINH NANG MOI:
+- Ban Cung: che do BAN TU DO (any-gift mode). Khi bat, MOI qua khong
+  gan trong shot/heal/revive/shield se kich hoat ban — damage tinh theo
+  KC. Vd 100 KC = 1 trai tim mau, configurable.
+- Cap so mui toi da/qua (mac dinh 20) tranh combo sieu khung spam.
+
+FIX TRIET DE DRAG REVERT:
+- Bug: keo widget trong overlay popout, click "Luu Tat Ca" -> vi tri
+  revert ve cu (race condition broadcast chua kip toi panel).
+- Fix: panel fetch latest tu server TRUOC khi POST, merge drag fields
+  (heartsXY, bowXY, impactXY, giftListXY, thermo XY) tu server. Bao
+  toan popout drag du race xay ra.
+
+UX:
+- Overlay popout edit mode: bam CHUOT PHAI bat ky dau de DONG cua so
+  nhanh sau khi sua xong.
+- Footer sidebar: nut "Cai dat" thiet ke lai — full-width, gradient
+  pink, hover glow. Phia duoi co separator + copyright + author.
+- Loai bo nut "Cai dat" o header tung game (8 game) — gio chi 1 noi
+  truy cap o footer. UI gon hon nhieu.
+"@
+
+$publishBody = @{
+    version  = $VERSION
+    filename = $FILENAME
+    sha256   = $SHA256
+    size     = $SIZE
+    notes    = $notes
+} | ConvertTo-Json
+
+try {
+    $pub = Invoke-RestMethod -Uri "$BASE_URL/admin/api/publish-version" `
+        -Method Post `
+        -Headers @{
+            "Authorization" = "Bearer $token"
+            "Content-Type"  = "application/json"
+        } `
+        -Body $publishBody
+    if (-not $pub.ok) { throw "Publish reply: $($pub | ConvertTo-Json -Compress)" }
+    Write-Host "Published version=$($pub.info.version)" -ForegroundColor Green
+} catch {
+    Write-Host "Publish fail: $_" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "DONE — v1.1.4 da san sang. User mo app cu se thay modal cap nhat." -ForegroundColor Magenta
+Write-Host "   URL kiem tra: $BASE_URL/api/version" -ForegroundColor Gray

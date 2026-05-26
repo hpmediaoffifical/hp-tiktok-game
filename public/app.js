@@ -2558,6 +2558,9 @@
         window.open('/soundfx', '_blank');
     });
 
+    // ⚙ Cài đặt: handler đã có ở dưới (line ~4160) — openSettingsPopup() mở #settings-popup
+    // có sẵn (BẢN QUYỀN / PHIÊN BẢN / DANH SÁCH QUÀ). Không cần custom modal riêng.
+
     // Feature toggles
     for (const key of FEATURE_KEYS) {
         const el = document.getElementById(FEATURE_INPUT[key]);

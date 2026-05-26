@@ -157,6 +157,20 @@
         // 💾 Lưu tất cả — flush ngay, không đợi debounce
         $('#nd-btn-save')?.addEventListener('click', async () => {
             try {
+                // FIX RACE drag-revert: fetch latest từ server để giữ drag fields user vừa kéo
+                try {
+                    const latestR = await fetch('/api/games/nhietdo/config');
+                    if (latestR.ok) {
+                        const latest = await latestR.json();
+                        const DRAG_FIELDS = ['xPercent','yPercent','scale',
+                            'giftListXPercent','giftListYPercent','giftListScale'];
+                        if (latest.display && cfg.display) {
+                            for (const f of DRAG_FIELDS) {
+                                if (latest.display[f] !== undefined) cfg.display[f] = latest.display[f];
+                            }
+                        }
+                    }
+                } catch (e) {}
                 await persistConfig();
                 toastOk('✓ Đã lưu tất cả cài đặt');
             } catch (e) {

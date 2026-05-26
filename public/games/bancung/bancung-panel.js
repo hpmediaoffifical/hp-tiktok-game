@@ -202,6 +202,26 @@
         });
         $('#bc-btn-save')?.addEventListener('click', async () => {
             try {
+                // FIX RACE drag-revert: trước khi POST cfg toàn cục, fetch latest từ server
+                // để giữ lại các drag fields user vừa kéo trong popout overlay (không bị panel
+                // POST đè vì cfg local chưa kịp sync từ broadcast).
+                try {
+                    const latestR = await fetch('/api/games/bancung/config');
+                    if (latestR.ok) {
+                        const latest = await latestR.json();
+                        const DRAG_FIELDS = [
+                            'heartsXPercent','heartsYPercent','heartsScale',
+                            'bowXPercent','bowYPercent','bowScale',
+                            'impactXPercent','impactYPercent',
+                            'giftListXPercent','giftListYPercent','giftListScale'
+                        ];
+                        if (latest.display && cfg.display) {
+                            for (const f of DRAG_FIELDS) {
+                                if (latest.display[f] !== undefined) cfg.display[f] = latest.display[f];
+                            }
+                        }
+                    }
+                } catch (e) {}
                 await persistConfig();
                 toastOk('✓ Đã lưu tất cả cài đặt');
             } catch (e) {
