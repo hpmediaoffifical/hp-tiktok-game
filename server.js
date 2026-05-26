@@ -2807,40 +2807,11 @@ app.post('/api/games/:id/config', (req, res) => {
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     const prevConfig = appConfig.games[g.id] || {};
     const prevEnabled = prevConfig.enabled !== false;
-    // DEEP-MERGE for nhietdo + bancung display sub-object: drag-position fields được popout
-    // overlay update riêng — không bị overwrite khi panel POST với cfg cũ (race condition).
-    // Các fields TỪ POPOUT (giftListXY, heartsXY, bowXY, impactXY, xPercent/yPercent thermo)
-    // luôn dùng giá trị mới nhất từ server thay vì giá trị panel có.
+    // Deep-merge display sub-object cho nhietdo/bancung — phòng case partial POST
+    // (panel chỉ gửi subset of display fields). Whoever posts last wins per-field.
     const incoming = req.body || {};
     if ((g.id === 'nhietdo' || g.id === 'bancung') && incoming.display && prevConfig.display) {
-        const DRAG_FIELDS = [
-            'xPercent','yPercent','scale',                      // nhietdo thermometer
-            'heartsXPercent','heartsYPercent','heartsScale',    // bancung hearts
-            'bowXPercent','bowYPercent','bowScale',             // bancung bow
-            'impactXPercent','impactYPercent',                   // bancung impact
-            'giftListXPercent','giftListYPercent','giftListScale' // both gift list
-        ];
-        // Check if incoming.display lacks drag fields that prev has — likely a stale panel POST
-        // covering only some drag fields. Use latest server values for drag fields.
-        const mergedDisplay = { ...prevConfig.display, ...incoming.display };
-        // For drag fields: trust whichever value is MORE RECENT.
-        // Since we can't know recency from data, use a simple heuristic: if request body
-        // came from popout (has full set of drag fields close to recent server values), accept.
-        // If from panel (potentially stale), prefer server's current value for drag fields.
-        // Practical fix: if incoming has the field but is identical to OLD prev (no change),
-        // it's likely panel echo'ing back — keep server's latest.
-        // Cleaner: just always merge — popout's drag updates field-by-field, panel's POSTs
-        // also include the same values. As long as both clients sync from broadcasts, this works.
-        // The bug shows panel posts STALE values. So skip drag fields from panel POST if they
-        // match a "default" or "earlier-load" state. Simplest: if X-Source header == 'popout',
-        // accept drag fields; otherwise use server's existing value.
-        const fromPopout = req.headers['x-source'] === 'popout';
-        if (!fromPopout) {
-            for (const k of DRAG_FIELDS) {
-                if (prevConfig.display[k] !== undefined) mergedDisplay[k] = prevConfig.display[k];
-            }
-        }
-        incoming.display = mergedDisplay;
+        incoming.display = { ...prevConfig.display, ...incoming.display };
     }
     appConfig.games[g.id] = { ...appConfig.games[g.id], ...incoming };
     if (g.id === 'vipwelcome') {
