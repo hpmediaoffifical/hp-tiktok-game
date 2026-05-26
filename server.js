@@ -311,8 +311,9 @@ function makeDefaultNhietDoConfig() {
             tickerScale: 65,
             showGiftList: true,
             giftListXPercent: 4,
-            giftListYPercent: 30,    // hơi xuống dưới hàng tim
-            giftListScale: 100
+            giftListYPercent: 30,
+            giftListScale: 100,
+            giftListLayout: 'vertical'
         }
     };
 }
@@ -411,7 +412,9 @@ function makeDefaultBanCungConfig() {
             showGiftList: true,
             giftListXPercent: 4,
             giftListYPercent: 30,
-            giftListScale: 100
+            giftListScale: 100,
+            giftListLayout: 'vertical',   // 'vertical' | 'horizontal'
+            showHpNumber: true            // số máu "5.6 / 10 ❤" dưới hàng trái tim
         }
     };
 }

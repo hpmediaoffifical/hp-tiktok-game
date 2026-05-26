@@ -6439,6 +6439,47 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
 .bc-preset-emoji { font-size: 28px; }
 .bc-preset-name { font-size: 16px; font-weight: 800; color: #fff; }
 .bc-preset-desc { font-size: 11px; color: #8b93a8; line-height: 1.3; }
+
+/* Gift row v2 — flex layout với custom label + swap button */
+.bc-gift-row-v2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #11131a;
+    border: 1px solid #2a2e3a;
+    border-radius: 8px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+}
+.bc-gift-row-v2 .nd-gift-icon { flex: 0 0 40px; }
+.bc-gift-row-v2 .bc-gr-name {
+    flex: 0 1 140px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.bc-gift-row-v2 .bc-gr-custom {
+    flex: 1 1 140px;
+    min-width: 110px;
+    background: #0c0e15;
+    color: #ff8ec0;
+    border: 1.5px solid #2a2e3a;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    outline: none;
+    transition: border-color 150ms;
+}
+.bc-gift-row-v2 .bc-gr-custom:focus { border-color: #ff5fa3; box-shadow: 0 0 6px rgba(255,95,163,0.4); }
+.bc-gift-row-v2 .bc-gr-custom::placeholder { color: #4a4f5c; font-weight: 500; }
+.bc-gift-row-v2 .bc-gift-swap,
+.bc-gift-row-v2 .nd-gift-swap { flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
+.bc-gift-row-v2 .bc-gift-del,
+.bc-gift-row-v2 .nd-gift-del { flex: 0 0 auto; padding: 4px 8px; }
 /* Pretty scrollbar */
 .bc-panes::-webkit-scrollbar { width: 8px; }
 .bc-panes::-webkit-scrollbar-track { background: #0c0e15; border-radius: 4px; }

@@ -409,22 +409,23 @@
                 ? `<img class="nd-gift-icon" src="${escapeHtml(g.giftImage)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🎁',className:'nd-gift-icon'}))" />`
                 : `<span class="nd-gift-icon">🎁</span>`;
             const valField = valueField ? `
-                <label class="nd-inline">${escapeHtml(valueOpts.label || '')}
+                <label class="nd-inline" style="flex:0 0 auto">${escapeHtml(valueOpts.label || '')}
                     <input type="number" class="bc-gift-val" min="${valueOpts.min ?? 0}" ${valueOpts.max != null ? `max="${valueOpts.max}"` : ''} step="${valueOpts.step ?? 1}" value="${g[valueField] ?? valueOpts.default ?? 1}" />
                     ${valueOpts.suffix || ''}
                 </label>
-            ` : '<span class="nd-hint" style="padding:0">(Không có tham số — kích hoạt khi chết)</span>';
+            ` : '';
             return `
-                <div class="nd-gift-row" data-idx="${i}">
+                <div class="bc-gift-row-v2" data-idx="${i}">
                     ${img}
-                    <span class="nd-gift-name">${escapeHtml(g.giftName || ('Quà #' + g.giftId))}</span>
-                    <span class="nd-gift-id">ID: ${escapeHtml(g.giftId || '?')}</span>
+                    <span class="bc-gr-name" title="${escapeHtml(g.giftName || '')}">${escapeHtml(g.giftName || ('Quà #' + g.giftId))}</span>
+                    <input class="bc-gr-custom" type="text" placeholder="🏷 Tên hiển thị" value="${escapeHtml(g.customLabel || '')}" title="Tên hiện trên overlay (bỏ trống = dùng tên gốc)" />
                     ${valField}
-                    <button class="danger small bc-gift-del">🗑</button>
+                    <button class="ghost small bc-gift-swap" title="Đổi quà khác">↻ Đổi</button>
+                    <button class="danger small bc-gift-del" title="Xoá">🗑</button>
                 </div>
             `;
         }).join('');
-        wrap.querySelectorAll('.nd-gift-row').forEach(row => {
+        wrap.querySelectorAll('.bc-gift-row-v2').forEach(row => {
             const idx = parseInt(row.dataset.idx, 10);
             if (valueField) {
                 row.querySelector('.bc-gift-val')?.addEventListener('input', e => {
@@ -433,9 +434,18 @@
                     schedulePersist();
                 });
             }
+            row.querySelector('.bc-gr-custom')?.addEventListener('input', e => {
+                cfg[key][idx].customLabel = e.target.value;
+                schedulePersist();
+            });
+            row.querySelector('.bc-gift-swap')?.addEventListener('click', () => openGiftPicker(
+                key === 'shotGifts' ? 'shot' :
+                key === 'healGifts' ? 'heal' :
+                key === 'reviveGifts' ? 'revive' : 'shield',
+                idx
+            ));
             row.querySelector('.bc-gift-del')?.addEventListener('click', () => {
                 cfg[key].splice(idx, 1);
-                // Re-render same list
                 if (key === 'shotGifts') renderShotList();
                 else if (key === 'healGifts') renderHealList();
                 else if (key === 'reviveGifts') renderReviveList();
@@ -447,6 +457,7 @@
 
     // ----- Gift picker modal (reuses .nd-gp-* styles) -----
     let _pickerMode = 'shot';
+    let _pickerSwapIdx = -1;   // -1 = add new; >=0 = swap existing index
     const PICKER_CONFIG = {
         shot:   { title: '🏹 Chọn quà BẮN CUNG',   key: 'shotGifts',   defaults: { shots: 1 } },
         heal:   { title: '💚 Chọn quà HỒI MÁU',    key: 'healGifts',   defaults: { healHearts: 2 } },
@@ -454,8 +465,9 @@
         shield: { title: '🛡 Chọn quà GIÁP',       key: 'shieldGifts', defaults: { durationSec: 5 } }
     };
 
-    async function openGiftPicker(mode) {
+    async function openGiftPicker(mode, swapIdx) {
         _pickerMode = mode || 'shot';
+        _pickerSwapIdx = (typeof swapIdx === 'number') ? swapIdx : -1;
         if (!Array.isArray(window.__giftSheet) || !window.__giftSheet.length) {
             try {
                 const r = await fetch('/api/gifts');
@@ -466,7 +478,7 @@
         el.hidden = false;
         el.querySelector('.nd-gp-search').value = '';
         const titleEl = el.querySelector('.nd-gp-title');
-        if (titleEl) titleEl.textContent = PICKER_CONFIG[_pickerMode].title;
+        if (titleEl) titleEl.textContent = (_pickerSwapIdx >= 0 ? '↻ ĐỔI: ' : '') + PICKER_CONFIG[_pickerMode].title;
         renderPickerList('');
         setTimeout(() => el.querySelector('.nd-gp-search').focus(), 30);
     }
@@ -512,18 +524,35 @@
         list.querySelectorAll('.nd-gp-row').forEach(r => {
             r.addEventListener('click', () => {
                 const id = r.dataset.gid;
-                if (used.has(id)) return;
                 const c = PICKER_CONFIG[_pickerMode];
                 cfg[c.key] = cfg[c.key] || [];
-                cfg[c.key].push(Object.assign({
-                    giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi
-                }, c.defaults));
+                if (_pickerSwapIdx >= 0 && cfg[c.key][_pickerSwapIdx]) {
+                    // SWAP: thay quà cũ — giữ valueField (shots/healHearts/etc) + customLabel
+                    const old = cfg[c.key][_pickerSwapIdx];
+                    cfg[c.key][_pickerSwapIdx] = Object.assign(
+                        { giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi },
+                        c.defaults,
+                        { customLabel: old.customLabel || '' },
+                        // preserve numeric value field (shots/healHearts/durationSec)
+                        Object.keys(c.defaults).reduce((acc, k) => {
+                            if (old[k] !== undefined) acc[k] = old[k];
+                            return acc;
+                        }, {})
+                    );
+                } else {
+                    // ADD new: skip nếu đã có
+                    if (used.has(id)) return;
+                    cfg[c.key].push(Object.assign({
+                        giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi
+                    }, c.defaults));
+                }
                 if (_pickerMode === 'shot') renderShotList();
                 else if (_pickerMode === 'heal') renderHealList();
                 else if (_pickerMode === 'revive') renderReviveList();
                 else if (_pickerMode === 'shield') renderShieldList();
                 persistConfig();
                 _pickerEl.hidden = true;
+                _pickerSwapIdx = -1;
             });
         });
     }
@@ -642,6 +671,13 @@
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-podium" ${d.showPodium !== false ? 'checked' : ''} /> 🏆 Podium top-3 cuối phiên</label>
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-survival" ${d.showSurvivalTimer !== false ? 'checked' : ''} /> ⏱ Đồng hồ sống sót (góc trên-phải)</label>
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-giftlist" ${d.showGiftList !== false ? 'checked' : ''} /> 🎁 Danh sách quà chỉ định trên overlay (kéo trong edit mode)</label>
+                <label class="nd-inline"><input type="checkbox" id="bc-fx-hpnum" ${d.showHpNumber !== false ? 'checked' : ''} /> 🔢 Số máu dưới hàng trái tim (5.6/10 ❤)</label>
+                <label class="nd-inline">Bố cục danh sách quà
+                    <select id="bc-fx-layout">
+                        <option value="vertical" ${(d.giftListLayout || 'vertical') === 'vertical' ? 'selected' : ''}>↕ Dọc</option>
+                        <option value="horizontal" ${d.giftListLayout === 'horizontal' ? 'selected' : ''}>↔ Ngang</option>
+                    </select>
+                </label>
             </div>
 
             <div class="nd-card">
@@ -696,8 +732,10 @@
          ['bc-fx-shake-low','heartShakeLowHp'],['bc-fx-slowmo','slowMotionOnKill'],['bc-fx-vp-shake','viewportShakeOnHit'],
          ['bc-fx-deathcam','deathCamZoom'],['bc-fx-killing','showKillingBlow'],['bc-fx-podium','showPodium'],
          ['bc-fx-survival','showSurvivalTimer'],['bc-fx-giftlist','showGiftList'],
+         ['bc-fx-hpnum','showHpNumber'],
          ['bc-gp-combo','comboEnabled'],['bc-gp-hs','headshotEnabled'],['bc-gp-charge','bowChargeEnabled']]
         .forEach(([id, key]) => $('#' + id, host)?.addEventListener('change', e => { d[key] = !!e.target.checked; schedulePersist(); }));
+        $('#bc-fx-layout', host)?.addEventListener('change', e => { d.giftListLayout = e.target.value; schedulePersist(); });
         // Range inputs
         wireRange('bc-gp-crit', 'criticalChance', '%');
         wireRange('bc-gp-hs-chance', 'headshotChance', '%');

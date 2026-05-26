@@ -87,7 +87,8 @@
                 showGiftList: true,
                 giftListXPercent: 4,
                 giftListYPercent: 30,
-                giftListScale: 100
+                giftListScale: 100,
+                giftListLayout: 'vertical'
             }
         };
     }

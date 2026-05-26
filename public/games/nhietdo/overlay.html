@@ -509,6 +509,16 @@
         display: flex; flex-direction: column;
         gap: 8px;
         transform-origin: top left;
+        flex-wrap: wrap;
+    }
+    .nd-giftlist.layout-horizontal {
+        flex-direction: row;
+        max-width: 92vw;
+    }
+    .nd-giftlist.layout-horizontal .nd-gl-counter {
+        align-self: center;
+        margin-right: 8px;
+        margin-bottom: 0;
     }
     .nd-gl-card {
         width: 88px;
@@ -920,12 +930,13 @@
                     else if (!ambUrl) $amb.removeAttribute('src');
                 }
             }
-            // Gift list overlay — render + apply position/scale (reuse outer `d`)
+            // Gift list overlay — render + apply position/scale/layout (reuse outer `d`)
             document.body.classList.toggle('no-giftlist', d.showGiftList === false);
             if ($giftList) {
                 $giftList.style.left = (d.giftListXPercent ?? 4) + '%';
                 $giftList.style.top = (d.giftListYPercent ?? 28) + '%';
                 $giftList.style.transform = 'scale(' + ((d.giftListScale ?? 100) / 100) + ')';
+                $giftList.classList.toggle('layout-horizontal', d.giftListLayout === 'horizontal');
             }
             renderGiftList();
         }
@@ -940,10 +951,11 @@
                 const img = g.giftImage
                     ? `<img src="${escapeHtmlNd(g.giftImage)}" onerror="this.outerHTML='<span class=&quot;nd-gl-emoji-fallback&quot;>🎁</span>'" />`
                     : `<span class="nd-gl-emoji-fallback">🎁</span>`;
+                const displayLabel = (g.customLabel && g.customLabel.trim()) || g.giftName || ('#' + g.giftId);
                 return `<div class="nd-gl-card ${kind}" title="${escapeHtmlNd(g.giftName || '')}">
                     ${tagText ? `<div class="nd-gl-tag">${escapeHtmlNd(tagText)}</div>` : ''}
                     <div class="nd-gl-icon-wrap">${img}</div>
-                    <div class="nd-gl-label">${escapeHtmlNd(g.giftName || ('#' + g.giftId))}</div>
+                    <div class="nd-gl-label">${escapeHtmlNd(displayLabel)}</div>
                 </div>`;
             };
             const sections = [

@@ -810,6 +810,17 @@
         max-height: 80vh;
         overflow: visible;
         transform-origin: top left;
+        flex-wrap: wrap;
+    }
+    .bc-giftlist.layout-horizontal {
+        flex-direction: row;
+        max-width: 92vw;
+        max-height: none;
+    }
+    .bc-giftlist.layout-horizontal .bc-gl-counter {
+        align-self: center;
+        margin-right: 8px;
+        margin-bottom: 0;
     }
     .bc-gl-card {
         width: 88px;
@@ -891,6 +902,7 @@
         font-size: 12px; border-radius: 4px; white-space: nowrap;
     }
     body.no-giftlist .bc-giftlist { display: none; }
+    body.no-hpnum .bc-hearts-num { display: none; }
     body.bc-stopped .bc-giftlist { /* vẫn hiện cho OBS preview */ }
 
     /* ===== TOP CONTRIBUTOR LEADERBOARD ===== */
@@ -1206,12 +1218,14 @@
             if ($survival) $survival.style.display = (d.showSurvivalTimer === false) ? 'none' : '';
             // Bow charge ring visibility
             if ($bowCharge) $bowCharge.classList.toggle('active', d.bowChargeEnabled === true);
-            // Gift list visibility + position + scale
+            // Gift list visibility + position + scale + layout
             document.body.classList.toggle('no-giftlist', d.showGiftList === false);
+            document.body.classList.toggle('no-hpnum', d.showHpNumber === false);
             if ($giftList) {
                 $giftList.style.left = (d.giftListXPercent ?? 4) + '%';
                 $giftList.style.top = (d.giftListYPercent ?? 30) + '%';
                 $giftList.style.transform = 'scale(' + ((d.giftListScale ?? 100) / 100) + ')';
+                $giftList.classList.toggle('layout-horizontal', d.giftListLayout === 'horizontal');
             }
             renderGiftList();
             // Bow auto-aim toward impact zone — calculated AFTER layout settles
@@ -1226,10 +1240,11 @@
                     ? `<img src="${escapeHtml(g.giftImage)}" onerror="this.outerHTML='<span class=&quot;bc-gl-emoji-fallback&quot;>🎁</span>'" />`
                     : `<span class="bc-gl-emoji-fallback">🎁</span>`;
                 const tag = tagText ? `<div class="bc-gl-tag">${escapeHtml(tagText)}</div>` : '';
+                const displayLabel = (g.customLabel && g.customLabel.trim()) || g.giftName || ('#' + g.giftId);
                 return `<div class="bc-gl-card ${kind}" title="${escapeHtml(g.giftName || '')}">
                     ${tag}
                     <div class="bc-gl-icon-wrap">${img}</div>
-                    <div class="bc-gl-label">${escapeHtml(g.giftName || ('#' + g.giftId))}</div>
+                    <div class="bc-gl-label">${escapeHtml(displayLabel)}</div>
                 </div>`;
             };
             const sections = [

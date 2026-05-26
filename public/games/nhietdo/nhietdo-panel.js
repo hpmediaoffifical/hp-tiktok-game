@@ -338,6 +338,12 @@
                 <label class="nd-inline"><input type="checkbox" id="nd-shakeAtMax" ${d.shakeAtMax !== false ? 'checked' : ''} /> Rung màn khi ≥ 95°C</label>
                 <label class="nd-inline"><input type="checkbox" id="nd-showTopContrib" ${d.showTopContrib !== false ? 'checked' : ''} /> 🏆 Bảng top contributor</label>
                 <label class="nd-inline"><input type="checkbox" id="nd-showGiftList" ${d.showGiftList !== false ? 'checked' : ''} /> 🎁 Danh sách quà chỉ định trên overlay (kéo trong edit mode)</label>
+                <label class="nd-inline">Bố cục danh sách quà
+                    <select id="nd-giftListLayout">
+                        <option value="vertical" ${(d.giftListLayout || 'vertical') === 'vertical' ? 'selected' : ''}>↕ Dọc</option>
+                        <option value="horizontal" ${d.giftListLayout === 'horizontal' ? 'selected' : ''}>↔ Ngang</option>
+                    </select>
+                </label>
                 <label class="nd-inline">Góc bảng top
                     <select id="nd-topPos">
                         <option value="top-left" ${(d.topContribPos || 'top-left') === 'top-left' ? 'selected' : ''}>Trên-trái</option>
@@ -388,6 +394,7 @@
         wireToggle('nd-shakeAtMax', 'shakeAtMax');
         wireToggle('nd-showTopContrib', 'showTopContrib');
         wireToggle('nd-showGiftList', 'showGiftList');
+        $('#nd-giftListLayout', host)?.addEventListener('change', e => { d.giftListLayout = e.target.value; schedulePersist(); });
         $('#nd-topPos', host)?.addEventListener('change', e => { d.topContribPos = e.target.value; schedulePersist(); });
     }
 
@@ -455,20 +462,29 @@
             return;
         }
         wrap.innerHTML = list.map((g, i) => `
-            <div class="nd-gift-row" data-idx="${i}">
+            <div class="bc-gift-row-v2" data-idx="${i}">
                 ${g.giftImage ? `<img class="nd-gift-icon" src="${escapeHtml(g.giftImage)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🎁',className:'nd-gift-icon'}))" />` : `<span class="nd-gift-icon">🎁</span>`}
-                <span class="nd-gift-name">${escapeHtml(g.giftName || ('Quà #' + g.giftId))}</span>
-                <span class="nd-gift-id">ID: ${escapeHtml(g.giftId || '?')}</span>
-                <label class="nd-inline">${sign}<input type="number" class="nd-gift-deg" min="0" step="0.5" value="${g.degrees ?? 5}" /> °C / lần</label>
-                <button class="danger small nd-gift-del">🗑</button>
+                <span class="bc-gr-name" title="${escapeHtml(g.giftName || '')}">${escapeHtml(g.giftName || ('Quà #' + g.giftId))}</span>
+                <input class="bc-gr-custom" type="text" placeholder="🏷 Tên hiển thị" value="${escapeHtml(g.customLabel || '')}" title="Tên hiện trên overlay (bỏ trống = dùng tên gốc)" />
+                <label class="nd-inline" style="flex:0 0 auto">${sign}<input type="number" class="nd-gift-deg" min="0" step="0.5" value="${g.degrees ?? 5}" /> °C</label>
+                <button class="ghost small nd-gift-swap" title="Đổi quà khác">↻ Đổi</button>
+                <button class="danger small nd-gift-del" title="Xoá">🗑</button>
             </div>
         `).join('');
-        wrap.querySelectorAll('.nd-gift-row').forEach(row => {
+        wrap.querySelectorAll('.bc-gift-row-v2').forEach(row => {
             const idx = parseInt(row.dataset.idx, 10);
             row.querySelector('.nd-gift-deg')?.addEventListener('input', e => {
                 cfg[key][idx].degrees = Math.max(0, parseFloat(e.target.value) || 0);
                 schedulePersist();
             });
+            row.querySelector('.bc-gr-custom')?.addEventListener('input', e => {
+                cfg[key][idx].customLabel = e.target.value;
+                schedulePersist();
+            });
+            row.querySelector('.nd-gift-swap')?.addEventListener('click', () => openGiftPicker(
+                key === 'specificGifts' ? 'heating' : 'cooling',
+                idx
+            ));
             row.querySelector('.nd-gift-del')?.addEventListener('click', () => {
                 cfg[key].splice(idx, 1);
                 rerender();
@@ -477,8 +493,10 @@
         });
     }
     let _pickerMode = 'heating';   // 'heating' | 'cooling'
-    async function openGiftPicker(mode) {
+    let _pickerSwapIdx = -1;
+    async function openGiftPicker(mode, swapIdx) {
         _pickerMode = mode || 'heating';
+        _pickerSwapIdx = (typeof swapIdx === 'number') ? swapIdx : -1;
         if (!Array.isArray(window.__giftSheet) || !window.__giftSheet.length) {
             try {
                 const r = await fetch('/api/gifts');
@@ -489,7 +507,7 @@
         el.hidden = false;
         el.querySelector('.nd-gp-search').value = '';
         const titleEl = el.querySelector('.nd-gp-title');
-        if (titleEl) titleEl.textContent = _pickerMode === 'cooling' ? '❄ Chọn quà LÀM MÁT' : '🔥 Chọn quà TĂNG nhiệt';
+        if (titleEl) titleEl.textContent = (_pickerSwapIdx >= 0 ? '↻ ĐỔI: ' : '') + (_pickerMode === 'cooling' ? '❄ Chọn quà LÀM MÁT' : '🔥 Chọn quà TĂNG nhiệt');
         renderPickerList('');
         setTimeout(() => el.querySelector('.nd-gp-search').focus(), 30);
     }
@@ -535,12 +553,23 @@
         list.querySelectorAll('.nd-gp-row').forEach(r => {
             r.addEventListener('click', () => {
                 const id = r.dataset.gid;
-                if (used.has(id)) return;
                 cfg[targetKey] = cfg[targetKey] || [];
-                cfg[targetKey].push({ giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi, degrees: 5 });
+                if (_pickerSwapIdx >= 0 && cfg[targetKey][_pickerSwapIdx]) {
+                    // SWAP — giữ degrees + customLabel
+                    const old = cfg[targetKey][_pickerSwapIdx];
+                    cfg[targetKey][_pickerSwapIdx] = {
+                        giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi,
+                        degrees: old.degrees ?? 5,
+                        customLabel: old.customLabel || ''
+                    };
+                } else {
+                    if (used.has(id)) return;
+                    cfg[targetKey].push({ giftId: id, giftName: r.dataset.gn, giftImage: r.dataset.gi, degrees: 5 });
+                }
                 if (_pickerMode === 'cooling') renderCoolingList(); else renderHeatingList();
                 persistConfig();
                 _pickerEl.hidden = true;
+                _pickerSwapIdx = -1;
             });
         });
     }
