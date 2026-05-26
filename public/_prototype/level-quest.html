@@ -1374,6 +1374,11 @@ function initSocket(){
   // LAB → broadcast cfg/state; OVERLAY → listen + apply (OVERLAY là client read-only)
   _sock.on('levelquest:cfg',   applyRemoteCfg);
   _sock.on('levelquest:state', applyRemoteState);
+
+  // Universal overlay reload — server emit khi user mở game / bắt đầu phiên → OBS tự refresh
+  _sock.on('overlay:reload', (data) => {
+    if (!data || !data.gameId || data.gameId === 'level-quest') location.reload();
+  });
 }
 
 /* ============================================================

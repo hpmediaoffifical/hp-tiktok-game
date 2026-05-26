@@ -773,6 +773,15 @@ app.whenReady().then(async () => {
     }
     createMainWindow();
     buildTray();
+    // Auto-mở cửa sổ Khởi động nhanh sau khi main window sẵn sàng.
+    // Mặc định BẬT. User có thể tắt qua prefs file (quick-launch.json: autoOpen: false).
+    setTimeout(() => {
+        try {
+            const prefs = loadQuickLaunchPrefs();
+            if (prefs.autoOpen === false) return;   // user explicitly disabled
+            openQuickLaunchWindow();
+        } catch (e) {}
+    }, 1500);
 });
 
 // ============================================================
@@ -843,7 +852,52 @@ function openNhietDoPopoutWindow({ pin = false, edit = false } = {}) {
     else nhietDoPopoutWindow = win;
 }
 
-app.on('before-quit', () => { isQuitting = true; try { unregisterSfxHotkeys(); } catch (_) {} });
+// ============================================================
+// BẮN CUNG — global hotkeys (work even when app not focused)
+// Server.js calls global.__bancungApplyHotkeys(cfg) khi config update.
+// Mỗi hotkey fired → POST tới /api/games/bancung/control (cùng REST như UI).
+// ============================================================
+let _bancungAccels = [];
+function unregisterBancungHotkeys() {
+    for (const a of _bancungAccels) { try { globalShortcut.unregister(a); } catch (_) {} }
+    _bancungAccels = [];
+}
+async function _bancungCallApi(body) {
+    try {
+        const fetch = require('node-fetch');
+        await fetch(`${APP_URL}/api/games/bancung/control`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    } catch (e) { console.warn('[bancung-hotkey] api fail:', e.message); }
+}
+function applyBancungHotkeys(cfg) {
+    unregisterBancungHotkeys();
+    const d = cfg?.display || {};
+    if (cfg?.enabled === false || cfg?.sessionActive === false) return;
+    if (d.globalHotkeys !== true) return;   // only when explicitly enabled
+    // Auto-prefix with CommandOrControl+Shift+ so single keys (X, H, B, R) become
+    // Ctrl+Shift+X etc. Tránh chặn typing thông thường ở app khác.
+    const PREFIX = 'CommandOrControl+Shift+';
+    const reg = (key, body) => {
+        if (!key) return;
+        const accel = PREFIX + key.toUpperCase();
+        try {
+            if (globalShortcut.register(accel, () => _bancungCallApi(body))) {
+                _bancungAccels.push(accel);
+            }
+        } catch (e) { console.warn('[bancung-hotkey] register fail:', accel, e.message); }
+    };
+    reg(d.hotkeyFire,   { cmd: 'damage', shots: 1, uniqueId: 'idol', nickname: 'IDOL' });
+    reg(d.hotkeyHeal,   { cmd: 'heal', hearts: 1 });
+    reg(d.hotkeyShield, { cmd: 'shield', durationSec: 5 });
+    reg(d.hotkeyRevive, { cmd: 'revive' });
+    reg(d.hotkeyKill,   { cmd: 'killshot' });
+    if (_bancungAccels.length) console.log(`[bancung] global hotkeys registered (Ctrl+Shift+): ${_bancungAccels.join(', ')}`);
+}
+global.__bancungApplyHotkeys = applyBancungHotkeys;
+
+app.on('before-quit', () => { isQuitting = true; try { unregisterSfxHotkeys(); unregisterBancungHotkeys(); } catch (_) {} });
 app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (_) {} });
 app.on('window-all-closed', () => {
     // Theo behavior cũ: macOS auto-quit, Windows giữ ở tray.

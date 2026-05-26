@@ -1,0 +1,1715 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP Bắn Cung — Overlay</title>
+<style>
+    /* OBS browser source: 1080×1920 transparent. Mọi positioning là % của khung này. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+        width: 100%; height: 100%;
+        background: transparent;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        overflow: hidden;
+        color: #fff;
+        user-select: none;
+    }
+    body {
+        --bow-color: #8b5a2b;
+        --string-color: #f0e8d0;
+        --arrow-color: #a0794a;
+        --skin-glow: transparent;
+        --flash-strength: 0.6;
+        --death-opacity: 0.75;
+    }
+
+    /* ===== EFFECT LAYERS — bao toàn khung ===== */
+    /* Red flash on hit */
+    .bc-redflash {
+        position: fixed; inset: 0;
+        background: radial-gradient(ellipse at center, rgba(255,40,40,0.55), rgba(180,0,0,0.85) 80%);
+        pointer-events: none;
+        opacity: 0;
+        z-index: 40;
+        mix-blend-mode: screen;
+    }
+    .bc-redflash.flash {
+        animation: bc-redflash-anim 900ms ease-out;
+    }
+    @keyframes bc-redflash-anim {
+        0%   { opacity: 0; }
+        10%  { opacity: var(--flash-strength); }
+        35%  { opacity: calc(var(--flash-strength) * 0.85); }
+        70%  { opacity: calc(var(--flash-strength) * 0.35); }
+        100% { opacity: 0; }
+    }
+
+    /* Death dim overlay — fade in slow */
+    .bc-deathveil {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0);
+        pointer-events: none;
+        z-index: 45;
+        transition: background 800ms ease;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+    }
+    body.bc-dead .bc-deathveil {
+        background: rgba(0,0,0, var(--death-opacity));
+    }
+    .bc-dead-label {
+        font-size: 90px;
+        font-weight: 900;
+        color: #ff3a3a;
+        letter-spacing: 8px;
+        text-shadow: 0 4px 0 #5e0000, 0 0 30px rgba(255,40,40,0.7);
+        opacity: 0;
+        transform: scale(0.5);
+        transition: opacity 400ms ease, transform 400ms ease;
+    }
+    .bc-dead-countdown {
+        margin-top: 20px;
+        font-size: 60px;
+        font-weight: 900;
+        color: #ffd54a;
+        text-shadow: 0 2px 0 #4a3000, 0 0 18px rgba(255,213,74,0.7);
+        opacity: 0;
+        font-variant-numeric: tabular-nums;
+        transition: opacity 400ms ease 200ms;
+    }
+    .bc-dead-hint {
+        margin-top: 20px;
+        font-size: 28px;
+        color: #fff;
+        opacity: 0;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+        transition: opacity 400ms ease 400ms;
+    }
+    body.bc-dead .bc-dead-label,
+    body.bc-dead .bc-dead-countdown,
+    body.bc-dead .bc-dead-hint {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    /* ===== HEARTS ROW ===== */
+    .bc-hearts-stage {
+        position: fixed;
+        left: 50%; top: 14%;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        pointer-events: none;
+        transition: left 250ms ease, top 250ms ease;
+    }
+    .bc-hearts-inner {
+        transform-origin: center center;
+        transition: transform 250ms ease;
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    .bc-hearts-row {
+        display: flex; gap: 8px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+    }
+    .bc-heart {
+        width: 64px; height: 64px;
+        position: relative;
+        background-size: contain; background-repeat: no-repeat; background-position: center;
+        filter:
+            drop-shadow(0 0 3px rgba(0,0,0,0.85))
+            drop-shadow(0 3px 6px rgba(0,0,0,0.7));
+    }
+    /* Heart styles — chubby plump variants, no thin outlines */
+    /* Pixel: classic 8-bit Zelda heart but with wider body for visibility */
+    body.bc-heart-pixel .bc-heart {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 13' shape-rendering='crispEdges'><path d='M1 3h2v1h1v1h1v1h1v1h1v-1h1v-1h1v-1h1v-1h2v1h1v4h-1v1h-1v1h-1v1h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1h-1v-1h-1v-1h-1v-1h-1v-4h1z' fill='%23ff2842'/><path d='M1 3h1v1h-1zM2 3h1v1h-1v-1zM12 3h1v1h-1zM3 4h1v1h-1zM4 5h1v1h-1z' fill='%23ff7088'/></svg>");
+    }
+    /* Glossy: chubby rounded heart with strong highlight, no stroke */
+    body.bc-heart-glossy .bc-heart {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 34'><defs><radialGradient id='g' cx='35%25' cy='28%25' r='80%25'><stop offset='0' stop-color='%23ffb8c8'/><stop offset='0.45' stop-color='%23ff2c5a'/><stop offset='1' stop-color='%237a0820'/></radialGradient></defs><path d='M18 32 C18 32 2 22 2 12 C2 6 6 2 10.5 2 C14 2 16.5 4 18 7 C19.5 4 22 2 25.5 2 C30 2 34 6 34 12 C34 22 18 32 18 32 Z' fill='url(%23g)'/><ellipse cx='12.5' cy='10' rx='4' ry='2.6' fill='white' opacity='0.7'/><ellipse cx='23' cy='8' rx='1.8' ry='1.2' fill='white' opacity='0.5'/></svg>");
+    }
+    /* Fire: warm gradient, plump no stroke */
+    body.bc-heart-fire .bc-heart {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 34'><defs><radialGradient id='f' cx='50%25' cy='55%25' r='75%25'><stop offset='0' stop-color='%23fff09a'/><stop offset='0.35' stop-color='%23ff6e2e'/><stop offset='1' stop-color='%23801010'/></radialGradient></defs><path d='M18 32 C18 32 2 22 2 12 C2 6 6 2 10.5 2 C14 2 16.5 4 18 7 C19.5 4 22 2 25.5 2 C30 2 34 6 34 12 C34 22 18 32 18 32 Z' fill='url(%23f)'/><ellipse cx='12' cy='10' rx='3.6' ry='2.4' fill='%23fffbe0' opacity='0.65'/></svg>");
+    }
+    /* Crystal: gem-like with two facets, plump */
+    body.bc-heart-crystal .bc-heart {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 34'><defs><linearGradient id='c' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0' stop-color='%23c8f4ff'/><stop offset='0.5' stop-color='%2325f4ee'/><stop offset='1' stop-color='%2310738c'/></linearGradient></defs><path d='M18 32 C18 32 2 22 2 12 C2 6 6 2 10.5 2 C14 2 16.5 4 18 7 C19.5 4 22 2 25.5 2 C30 2 34 6 34 12 C34 22 18 32 18 32 Z' fill='url(%23c)'/><path d='M10 6 L13 12 L8 14 Z' fill='white' opacity='0.7'/><path d='M25 5 L27 8 L24 10 Z' fill='white' opacity='0.45'/></svg>");
+    }
+    /* Half heart — fade right half via mask so background shows through */
+    .bc-heart.half {
+        -webkit-mask-image: linear-gradient(90deg, #000 0 50%, transparent 50% 100%);
+                mask-image: linear-gradient(90deg, #000 0 50%, transparent 50% 100%);
+    }
+    .bc-heart.empty {
+        opacity: 0.35;
+        filter: grayscale(1) brightness(0.45)
+                drop-shadow(0 0 3px rgba(0,0,0,0.85))
+                drop-shadow(0 3px 6px rgba(0,0,0,0.7));
+    }
+    .bc-heart.recently-lost {
+        animation: bc-heart-pop 600ms ease-out;
+    }
+    @keyframes bc-heart-pop {
+        0%   { transform: scale(1.4); filter: drop-shadow(0 0 12px #ff5050) brightness(1.4); }
+        100% { transform: scale(1); }
+    }
+    .bc-hearts-num {
+        font-size: 22px;
+        font-weight: 900;
+        color: #fff;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+        background: rgba(0,0,0,0.45);
+        padding: 4px 14px;
+        border-radius: 12px;
+        font-variant-numeric: tabular-nums;
+    }
+    .bc-hearts-num .ratio { color: #ff8e8e; }
+    /* Shield glow around hearts when shielded */
+    .bc-hearts-row.shielded {
+        border-color: #25f4ee;
+        box-shadow: 0 0 30px rgba(37,244,238,0.85), 0 4px 16px rgba(0,0,0,0.45);
+        animation: bc-shield-pulse 1.4s ease-in-out infinite alternate;
+    }
+    @keyframes bc-shield-pulse {
+        0%   { box-shadow: 0 0 18px rgba(37,244,238,0.6), 0 4px 16px rgba(0,0,0,0.45); }
+        100% { box-shadow: 0 0 36px rgba(37,244,238,1), 0 4px 16px rgba(0,0,0,0.45); }
+    }
+    .bc-shield-badge {
+        position: absolute;
+        top: -16px; right: -10px;
+        font-size: 26px;
+        animation: bc-shield-bob 1s ease-in-out infinite alternate;
+        filter: drop-shadow(0 0 6px #25f4ee);
+    }
+    @keyframes bc-shield-bob {
+        0%   { transform: translateY(0) rotate(-10deg); }
+        100% { transform: translateY(-4px) rotate(10deg); }
+    }
+
+    /* ===== BOW WIDGET ===== */
+    .bc-bow-stage {
+        position: fixed;
+        left: 85%; top: 80%;
+        transform: translate(-50%, -50%);
+        z-index: 25;
+        pointer-events: none;
+        transition: left 250ms ease, top 250ms ease;
+    }
+    .bc-bow-inner {
+        transform-origin: center center;
+        transition: transform 250ms ease;
+    }
+    .bc-bow {
+        position: relative;
+        width: 220px; height: 200px;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        filter: drop-shadow(0 0 4px rgba(0,0,0,0.85)) drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+        transform-origin: center center;
+        transition: transform 300ms cubic-bezier(0.4, 0, 0.3, 1);
+    }
+    .bc-bow svg { width: 100%; height: 100%; overflow: visible; }
+    .bc-bow-arc {
+        stroke: var(--bow-color);
+        stroke-width: 8;
+        fill: none;
+        filter: drop-shadow(0 0 6px var(--skin-glow));
+    }
+    .bc-bow-string {
+        stroke: var(--string-color);
+        stroke-width: 2;
+        fill: none;
+        transition: d 200ms ease-out;
+    }
+    .bc-bow-arrow {
+        transition: transform 180ms ease-out;
+    }
+    .bc-bow-arrow .shaft {
+        stroke: var(--arrow-color);
+        stroke-width: 3;
+        fill: var(--arrow-color);
+        filter: drop-shadow(0 0 4px var(--skin-glow));
+    }
+    .bc-bow-arrow .head {
+        fill: var(--arrow-color);
+        stroke: var(--arrow-color);
+        stroke-width: 1;
+    }
+    .bc-bow-arrow .fletch {
+        fill: var(--string-color);
+    }
+    /* Charging state — pull string back */
+    .bc-bow.charging .bc-bow-string {
+        d: path('M30 30 L 120 100 L 30 170');
+    }
+    .bc-bow.charging .bc-bow-arrow {
+        transform: translateX(-30px);
+    }
+    .bc-bow.firing .bc-bow-arrow {
+        transform: translateX(180px) scale(0.4);
+        opacity: 0;
+        transition: transform 280ms ease-in, opacity 200ms ease-in 100ms;
+    }
+    .bc-bow.firing .bc-bow-string {
+        d: path('M30 30 L 60 100 L 30 170');
+        animation: bc-string-vibrate 240ms ease-out;
+    }
+    @keyframes bc-string-vibrate {
+        0% { transform: translateX(0); }
+        25% { transform: translateX(3px); }
+        50% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
+        100% { transform: translateX(0); }
+    }
+    /* Skin name label removed — was confusing when bow rotates */
+
+    /* ===== FLYING ARROWS LAYER ===== */
+    .bc-arrows-layer {
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: 30;
+    }
+    .bc-fly-arrow {
+        position: absolute;
+        transform-origin: center center;
+        will-change: transform, left, top;
+        filter: drop-shadow(0 0 8px var(--skin-glow, transparent));
+    }
+    .bc-fly-arrow svg {
+        width: 220px; height: 52px;
+        overflow: visible;
+    }
+    .bc-fly-arrow .shaft {
+        stroke: var(--arrow-color);
+        stroke-width: 6;
+        fill: var(--arrow-color);
+    }
+    .bc-fly-arrow .head { fill: var(--arrow-color); stroke: var(--arrow-color); stroke-width: 2; }
+    .bc-fly-arrow .fletch { fill: var(--string-color); }
+    .bc-fly-trail {
+        position: absolute;
+        height: 4px;
+        background: linear-gradient(90deg, transparent, var(--skin-glow, rgba(255,255,255,0.6)) 80%);
+        border-radius: 2px;
+        opacity: 0.7;
+        transform-origin: left center;
+        pointer-events: none;
+    }
+
+    /* ===== ARROW TRAIL — long streak behind flying arrow ===== */
+    .bc-arrow-trail {
+        position: absolute;
+        height: 5px;
+        background: linear-gradient(90deg, transparent, var(--skin-glow, rgba(255,255,255,0.85)));
+        border-radius: 3px;
+        transform-origin: right center;
+        opacity: 0.9;
+        pointer-events: none;
+        filter: blur(1px);
+        box-shadow: 0 0 8px var(--skin-glow, rgba(255,255,255,0.5));
+    }
+
+    /* ===== ARROW USERNAME — flies behind arrow ===== */
+    .bc-arrow-username {
+        position: absolute;
+        font-size: 16px;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 8px var(--skin-glow, transparent);
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        background: rgba(0,0,0,0.55);
+        padding: 2px 8px;
+        border-radius: 8px;
+        transform: translate(-50%, -50%);
+    }
+
+    /* ===== PARTICLE IMPACT — feathers/dust on hit ===== */
+    .bc-particle {
+        position: absolute;
+        width: 6px; height: 6px;
+        background: var(--arrow-color, #ffd54a);
+        border-radius: 50%;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 6px var(--skin-glow, currentColor);
+    }
+    .bc-particle.feather {
+        width: 12px; height: 4px;
+        border-radius: 50%;
+        background: var(--string-color, #ffffff);
+        opacity: 0.85;
+    }
+
+    /* ===== HEART SHAKE — when HP < 30% ===== */
+    body.bc-low-hp .bc-hearts-inner {
+        animation: bc-low-hp-pulse 0.9s ease-in-out infinite;
+    }
+    @keyframes bc-low-hp-pulse {
+        0%, 100% { transform: scale(var(--hp-scale, 1)) translateX(0); filter: none; }
+        25% { transform: scale(var(--hp-scale, 1)) translateX(-3px); }
+        50% { transform: scale(var(--hp-scale, 1)) translateX(3px); filter: drop-shadow(0 0 8px #ff3030); }
+        75% { transform: scale(var(--hp-scale, 1)) translateX(-2px); }
+    }
+
+    /* ===== SLO-MO ON KILLING BLOW ===== */
+    body.bc-slowmo .bc-fly-arrow,
+    body.bc-slowmo .bc-redflash {
+        animation-duration: 1400ms !important;
+        transition-duration: 1400ms !important;
+    }
+    body.bc-slowmo .bc-fly-arrow * { animation-duration: 1400ms !important; }
+    body.bc-slowmo .bc-arrow-trail { animation-duration: 1400ms !important; }
+    body.bc-slowmo {
+        animation: bc-slowmo-tint 1400ms ease-in-out forwards;
+    }
+    @keyframes bc-slowmo-tint {
+        0%   { filter: none; }
+        25%  { filter: brightness(0.7) saturate(1.6); }
+        50%  { filter: brightness(0.85) saturate(1.4); }
+        100% { filter: none; }
+    }
+
+    /* ===== VIEWPORT SHAKE on hit ===== */
+    body.bc-shake { animation: bc-vp-shake 280ms linear; }
+    @keyframes bc-vp-shake {
+        0%   { transform: translate(0, 0); }
+        15%  { transform: translate(-8px, 6px); }
+        30%  { transform: translate(7px, -5px); }
+        45%  { transform: translate(-5px, 4px); }
+        60%  { transform: translate(4px, -3px); }
+        80%  { transform: translate(-2px, 2px); }
+        100% { transform: translate(0, 0); }
+    }
+
+    /* ===== DEATH CAM — dim + zoom out via scale on stage container ===== */
+    body.bc-dead .bc-hearts-stage,
+    body.bc-dead .bc-bow-stage {
+        transform-origin: center center;
+        animation: bc-deathcam-zoom 1200ms cubic-bezier(0.6, 0, 0.4, 1) forwards;
+    }
+    @keyframes bc-deathcam-zoom {
+        0%   { filter: none; }
+        100% { filter: grayscale(0.85) brightness(0.6); }
+    }
+
+    /* ===== KILLING-BLOW callout — name + avatar bottom-center spotlight ===== */
+    .bc-killing-blow {
+        position: fixed;
+        left: 50%; bottom: 25%;
+        transform: translateX(-50%) scale(0.5);
+        z-index: 60;
+        pointer-events: none;
+        background: linear-gradient(135deg, #4a0a14 0%, #8b0000 50%, #4a0a14 100%);
+        border: 3px solid #ff3a3a;
+        border-radius: 16px;
+        padding: 20px 36px;
+        display: flex; align-items: center; gap: 18px;
+        box-shadow: 0 0 50px rgba(255,40,40,0.7), 0 10px 30px rgba(0,0,0,0.8);
+        opacity: 0;
+    }
+    .bc-killing-blow.show {
+        animation: bc-killing-blow 3200ms ease-out forwards;
+    }
+    @keyframes bc-killing-blow {
+        0%   { opacity: 0; transform: translateX(-50%) scale(0.4) rotate(-6deg); }
+        15%  { opacity: 1; transform: translateX(-50%) scale(1.1) rotate(2deg); }
+        25%  { transform: translateX(-50%) scale(1) rotate(0deg); }
+        85%  { opacity: 1; transform: translateX(-50%) scale(1) rotate(0deg); }
+        100% { opacity: 0; transform: translateX(-50%) scale(0.95); }
+    }
+    .bc-kb-avatar {
+        width: 70px; height: 70px;
+        border-radius: 50%;
+        border: 3px solid #ffd54a;
+        object-fit: cover;
+        background: #1a0810;
+        box-shadow: 0 0 20px #ff3a3a;
+    }
+    .bc-kb-text {
+        display: flex; flex-direction: column; gap: 2px;
+    }
+    .bc-kb-title {
+        font-size: 26px; font-weight: 900; color: #ffd54a;
+        letter-spacing: 3px;
+        text-shadow: 0 2px 0 #4a0a00, 0 0 10px #ff8a30;
+    }
+    .bc-kb-name {
+        font-size: 32px; font-weight: 900; color: #fff;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        white-space: nowrap;
+        max-width: 380px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* ===== COMBO METER — top-right counter ===== */
+    .bc-combo {
+        position: fixed;
+        right: 24px; top: 60%;
+        transform: translateY(-50%);
+        z-index: 32;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 250ms;
+        text-align: center;
+    }
+    .bc-combo.show { opacity: 1; }
+    .bc-combo-num {
+        font-size: 84px;
+        font-weight: 900;
+        color: #fff;
+        line-height: 1;
+        text-shadow: 0 0 18px #ff5b2e, 0 4px 0 #4a1a00, 0 6px 24px rgba(0,0,0,0.7);
+        font-variant-numeric: tabular-nums;
+    }
+    .bc-combo-label {
+        font-size: 22px;
+        font-weight: 900;
+        color: #ffd54a;
+        letter-spacing: 2px;
+        text-shadow: 0 2px 0 #4a1a00, 0 0 10px #ff5b2e;
+    }
+    .bc-combo.pop .bc-combo-num {
+        animation: bc-combo-pop 380ms ease-out;
+    }
+    @keyframes bc-combo-pop {
+        0%   { transform: scale(1); }
+        50%  { transform: scale(1.4); color: #ffd54a; text-shadow: 0 0 24px #ffd54a, 0 4px 0 #4a1a00; }
+        100% { transform: scale(1); }
+    }
+
+    /* ===== CRITICAL / HEADSHOT BANNER — quick popup at impact ===== */
+    .bc-hit-banner {
+        position: absolute;
+        transform: translate(-50%, -50%) scale(0.5);
+        z-index: 36;
+        pointer-events: none;
+        opacity: 0;
+        font-weight: 900;
+        letter-spacing: 2px;
+        white-space: nowrap;
+    }
+    .bc-hit-banner.show { animation: bc-hit-banner 900ms ease-out forwards; }
+    @keyframes bc-hit-banner {
+        0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-8deg); }
+        20%  { opacity: 1; transform: translate(-50%, -80%) scale(1.2) rotate(2deg); }
+        40%  { transform: translate(-50%, -120%) scale(1) rotate(0deg); }
+        100% { opacity: 0; transform: translate(-50%, -200%) scale(0.9); }
+    }
+    .bc-hit-banner.critical {
+        font-size: 36px;
+        color: #fff;
+        text-shadow: 0 0 18px #ffd54a, 0 3px 0 #b80000, 0 4px 20px rgba(0,0,0,0.8);
+    }
+    .bc-hit-banner.headshot {
+        font-size: 32px;
+        color: #ffd54a;
+        text-shadow: 0 0 18px #ff5b2e, 0 3px 0 #4a1a00;
+    }
+    .bc-hit-banner.firstblood {
+        font-size: 28px;
+        color: #ff3a3a;
+        text-shadow: 0 0 18px #ff5b2e, 0 3px 0 #4a0a00;
+    }
+
+    /* ===== BOW CHARGE METER — ring around bow widget ===== */
+    .bc-bow-charge {
+        position: absolute;
+        inset: -16px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 250ms;
+    }
+    .bc-bow-charge.active { opacity: 1; }
+    .bc-bow-charge svg {
+        width: 100%; height: 100%;
+        overflow: visible;
+    }
+    .bc-bow-charge .ring-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.18);
+        stroke-width: 6;
+    }
+    .bc-bow-charge .ring-fill {
+        fill: none;
+        stroke: var(--skin-glow, #ffd54a);
+        stroke-width: 6;
+        stroke-linecap: round;
+        transform: rotate(-90deg);
+        transform-origin: center;
+        transition: stroke-dasharray 300ms ease-out;
+        filter: drop-shadow(0 0 8px var(--skin-glow, #ffd54a));
+    }
+    .bc-bow-charge.full .ring-fill {
+        animation: bc-charge-pulse 0.7s ease-in-out infinite alternate;
+    }
+    @keyframes bc-charge-pulse {
+        0%   { opacity: 0.7; }
+        100% { opacity: 1; filter: drop-shadow(0 0 18px var(--skin-glow, #ffd54a)); }
+    }
+
+    /* ===== SHIELD ACTIVE INDICATOR — pill below hearts ===== */
+    .bc-shield-active {
+        position: absolute;
+        left: 50%; bottom: -42px;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, #25f4ee 0%, #1ac6c0 100%);
+        color: #042235;
+        font-weight: 900;
+        font-size: 16px;
+        padding: 6px 16px;
+        border-radius: 14px;
+        border: 2px solid #fff;
+        box-shadow: 0 0 18px rgba(37,244,238,0.85);
+        white-space: nowrap;
+        animation: bc-shield-active-pulse 1s ease-in-out infinite alternate;
+        z-index: 25;
+    }
+    @keyframes bc-shield-active-pulse {
+        0%   { box-shadow: 0 0 12px rgba(37,244,238,0.6); }
+        100% { box-shadow: 0 0 28px rgba(37,244,238,1); }
+    }
+
+    /* ===== SURVIVAL TIMER — top-right ===== */
+    .bc-survival {
+        position: fixed;
+        right: 24px; top: 24px;
+        z-index: 31;
+        pointer-events: none;
+        background: rgba(20, 10, 14, 0.6);
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(255,180,80,0.4);
+        border-radius: 10px;
+        padding: 6px 14px;
+        font-family: 'Consolas', monospace;
+        text-align: right;
+    }
+    .bc-survival-label {
+        font-size: 11px;
+        color: #ffae8c;
+        letter-spacing: 1px;
+        font-weight: 700;
+    }
+    .bc-survival-time {
+        font-size: 24px;
+        color: #fff;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 8px #ff8e3a;
+    }
+    .bc-survival-record {
+        font-size: 11px;
+        color: #ffd54a;
+        font-weight: 700;
+    }
+
+    /* ===== TOP-3 PODIUM — end-of-session overlay ===== */
+    .bc-podium {
+        position: fixed; inset: 0;
+        z-index: 70;
+        pointer-events: none;
+        background: rgba(0,0,0,0.85);
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 24px;
+        opacity: 0;
+        backdrop-filter: blur(8px);
+    }
+    .bc-podium.show {
+        animation: bc-podium-show 6000ms ease-out forwards;
+    }
+    @keyframes bc-podium-show {
+        0%   { opacity: 0; }
+        8%   { opacity: 1; }
+        90%  { opacity: 1; }
+        100% { opacity: 0; }
+    }
+    .bc-podium-title {
+        font-size: 46px;
+        font-weight: 900;
+        color: #ffd54a;
+        text-shadow: 0 4px 0 #4a3000, 0 0 24px #ff8e3a;
+        letter-spacing: 4px;
+    }
+    .bc-podium-row {
+        display: flex; align-items: flex-end; gap: 24px;
+    }
+    .bc-podium-slot {
+        display: flex; flex-direction: column;
+        align-items: center; gap: 8px;
+        opacity: 0; transform: translateY(40px);
+    }
+    .bc-podium.show .bc-podium-slot { animation: bc-podium-slot 800ms ease-out forwards; }
+    .bc-podium.show .bc-podium-slot:nth-child(1) { animation-delay: 800ms; }
+    .bc-podium.show .bc-podium-slot:nth-child(2) { animation-delay: 400ms; }
+    .bc-podium.show .bc-podium-slot:nth-child(3) { animation-delay: 1200ms; }
+    @keyframes bc-podium-slot { to { opacity: 1; transform: translateY(0); } }
+    .bc-podium-avatar {
+        width: 100px; height: 100px;
+        border-radius: 50%;
+        border: 4px solid;
+        object-fit: cover;
+        background: #2a1a14;
+    }
+    .bc-podium-slot.rank-1 .bc-podium-avatar { border-color: #ffd700; box-shadow: 0 0 30px #ffd700; }
+    .bc-podium-slot.rank-2 .bc-podium-avatar { border-color: #c0c0c0; box-shadow: 0 0 20px #c0c0c0; }
+    .bc-podium-slot.rank-3 .bc-podium-avatar { border-color: #cd7f32; box-shadow: 0 0 20px #cd7f32; }
+    .bc-podium-medal { font-size: 36px; }
+    .bc-podium-name { font-size: 20px; font-weight: 900; color: #fff; max-width: 220px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bc-podium-dmg { font-size: 16px; color: #ff8e3a; font-weight: 800; }
+    .bc-podium-stage {
+        width: 120px;
+        background: linear-gradient(180deg, #ff5b2e, #4a1a00);
+        border-radius: 10px 10px 0 0;
+        display: flex; align-items: flex-start; justify-content: center;
+        padding-top: 12px;
+        color: #fff; font-size: 32px; font-weight: 900;
+        text-shadow: 0 2px 0 rgba(0,0,0,0.5);
+        border: 2px solid rgba(255,255,255,0.2);
+        border-bottom: none;
+    }
+    .bc-podium-slot.rank-1 .bc-podium-stage { height: 180px; background: linear-gradient(180deg, #ffd700, #b8860b); }
+    .bc-podium-slot.rank-2 .bc-podium-stage { height: 130px; background: linear-gradient(180deg, #c0c0c0, #707070); }
+    .bc-podium-slot.rank-3 .bc-podium-stage { height: 100px; background: linear-gradient(180deg, #cd7f32, #6b3a18); }
+    .bc-podium-survival {
+        margin-top: 14px;
+        font-size: 22px;
+        color: #fff;
+        text-align: center;
+    }
+    .bc-podium-survival b { color: #ffd54a; font-size: 28px; }
+    .bc-podium-record { color: #25f4ee; font-size: 16px; margin-top: 4px; }
+
+    /* Shield deflect ping — radial pulse at impact when blocked */
+    .bc-shield-ping {
+        position: absolute;
+        width: 120px; height: 120px;
+        border-radius: 50%;
+        background: radial-gradient(circle,
+            rgba(255,255,255,0.85) 0%,
+            rgba(37,244,238,0.7) 20%,
+            rgba(37,244,238,0.3) 50%,
+            transparent 75%);
+        transform: translate(-50%, -50%) scale(0.4);
+        opacity: 0;
+        pointer-events: none;
+        animation: bc-shield-ping 800ms ease-out forwards;
+        box-shadow: 0 0 40px rgba(37,244,238,0.9);
+        z-index: 36;
+    }
+    @keyframes bc-shield-ping {
+        0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+        20%  { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+        100% { transform: translate(-50%, -50%) scale(2.6); opacity: 0; }
+    }
+    .bc-shield-text {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        font-size: 28px;
+        font-weight: 900;
+        color: #fff;
+        text-shadow: 0 0 12px #25f4ee, 0 2px 4px rgba(0,0,0,0.8);
+        pointer-events: none;
+        animation: bc-shield-text 800ms ease-out forwards;
+        z-index: 37;
+        white-space: nowrap;
+    }
+    @keyframes bc-shield-text {
+        0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+        20%  { opacity: 1; transform: translate(-50%, -90%) scale(1.1); }
+        100% { opacity: 0; transform: translate(-50%, -140%) scale(1); }
+    }
+
+    /* ===== SHOOTER NAME POPUP ===== */
+    .bc-shooter-pop {
+        position: absolute;
+        font-size: 22px;
+        font-weight: 900;
+        color: #fff;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 12px #ff3030;
+        white-space: nowrap;
+        pointer-events: none;
+        animation: bc-shooter-fade 1500ms ease-out forwards;
+        z-index: 35;
+    }
+    .bc-shooter-pop .nick { color: #ffd54a; }
+    .bc-shooter-pop .dmg  { color: #ff6060; margin-left: 6px; }
+    @keyframes bc-shooter-fade {
+        0%   { opacity: 0; transform: translate(-50%, 0) scale(0.8); }
+        15%  { opacity: 1; transform: translate(-50%, -10px) scale(1.05); }
+        80%  { opacity: 1; transform: translate(-50%, -60px) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -100px) scale(0.9); }
+    }
+
+    /* ===== HEAL / SHIELD / REVIVE BANNER ===== */
+    .bc-banner {
+        position: fixed; left: 50%; top: 40%;
+        transform: translate(-50%, -50%) scale(0.5);
+        z-index: 50;
+        pointer-events: none;
+        font-size: 64px;
+        font-weight: 900;
+        padding: 18px 40px;
+        border-radius: 18px;
+        text-align: center;
+        opacity: 0;
+        white-space: nowrap;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    }
+    .bc-banner.show {
+        animation: bc-banner-cycle 2200ms ease-out forwards;
+    }
+    .bc-banner.heal {
+        background: linear-gradient(180deg, #4ade80, #16803a);
+        color: #fff;
+        text-shadow: 0 2px 0 #064020;
+        border: 3px solid #a0ffb0;
+    }
+    .bc-banner.shield {
+        background: linear-gradient(180deg, #25f4ee, #0e6e80);
+        color: #fff;
+        text-shadow: 0 2px 0 #042235;
+        border: 3px solid #a0ffe0;
+    }
+    .bc-banner.revive {
+        background: linear-gradient(180deg, #ffd700, #c97f25);
+        color: #1a0606;
+        text-shadow: 0 2px 0 rgba(255,255,255,0.4);
+        border: 3px solid #fff;
+    }
+    .bc-banner-sub {
+        display: block;
+        font-size: 26px;
+        font-weight: 700;
+        margin-top: 6px;
+        opacity: 0.95;
+    }
+    @keyframes bc-banner-cycle {
+        0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-8deg); }
+        15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(2deg); }
+        25%  { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+        80%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9) rotate(0deg); }
+    }
+
+    /* ===== TOP CONTRIBUTOR LEADERBOARD ===== */
+    .bc-top {
+        position: fixed;
+        z-index: 30;
+        pointer-events: none;
+        background: rgba(20, 10, 14, 0.65);
+        backdrop-filter: blur(6px);
+        border: 2px solid rgba(255, 90, 90, 0.5);
+        border-radius: 14px;
+        padding: 10px 14px;
+        min-width: 280px;
+        max-width: 360px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+        transition: left 250ms ease, top 250ms ease, right 250ms ease, bottom 250ms ease;
+    }
+    .bc-top-title {
+        font-weight: 900; font-size: 22px;
+        color: #ff8e8c; text-align: center;
+        margin-bottom: 6px; letter-spacing: 1px;
+        text-shadow: 0 2px 0 rgba(0,0,0,0.4);
+    }
+    .bc-top-list { display: flex; flex-direction: column; gap: 4px; }
+    .bc-top-row {
+        display: grid;
+        grid-template-columns: 26px 38px 1fr 80px;
+        gap: 6px; align-items: center;
+        font-size: 17px; color: #fff;
+        padding: 3px 4px; border-radius: 6px;
+    }
+    .bc-top-row.rank-0 { background: linear-gradient(90deg, rgba(255,215,0,0.25), transparent); }
+    .bc-top-row.rank-1 { background: linear-gradient(90deg, rgba(192,192,192,0.22), transparent); }
+    .bc-top-row.rank-2 { background: linear-gradient(90deg, rgba(205,127,50,0.22), transparent); }
+    .bc-top-rank { font-weight: 900; color: #ffd54a; text-align: center; }
+    .bc-top-avatar {
+        width: 32px; height: 32px; border-radius: 50%;
+        object-fit: cover; border: 2px solid rgba(255,150,150,0.6);
+        background: #2a1a14;
+    }
+    .bc-top-name {
+        font-weight: 700;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bc-top-dmg {
+        font-weight: 900; color: #ff6060;
+        text-align: right; font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 6px rgba(255,40,40,0.6);
+    }
+
+    /* IMPACT ZONE marker — vùng mũi tên trúng. Vô hình khi không edit. */
+    .bc-impact-zone {
+        position: fixed;
+        left: 50%; top: 18%;
+        transform: translate(-50%, -50%);
+        z-index: 22;
+        pointer-events: none;
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        opacity: 0;
+    }
+
+    /* EDIT MODE — only when ?edit=1 */
+    body.bc-edit .bc-hearts-stage,
+    body.bc-edit .bc-bow-stage,
+    body.bc-edit .bc-impact-zone {
+        cursor: move; pointer-events: auto;
+        outline: 2px dashed rgba(0,255,140,0.5);
+        outline-offset: 6px;
+    }
+    body.bc-edit .bc-impact-zone {
+        opacity: 1;
+        outline-color: rgba(255,80,80,0.85);
+        background: radial-gradient(circle, rgba(255,40,40,0.45) 0%, rgba(255,40,40,0) 70%);
+    }
+    body.bc-edit .bc-impact-zone::after {
+        content: '🎯 ĐIỂM TRÚNG — kéo để chỉnh';
+        position: absolute;
+        bottom: -28px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.75); color: #ff8e8e; padding: 4px 10px;
+        font-size: 12px; border-radius: 4px; white-space: nowrap;
+    }
+    body.bc-edit .bc-hearts-stage::before {
+        content: '♥ KÉO — di chuyển | CUỘN — zoom';
+        position: absolute;
+        bottom: -28px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.7); color: #fff; padding: 4px 10px;
+        font-size: 12px; border-radius: 4px; white-space: nowrap;
+    }
+    body.bc-edit .bc-bow-stage::before {
+        content: '🏹 KÉO — di chuyển | CUỘN — zoom';
+        position: absolute;
+        bottom: -28px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.7); color: #fff; padding: 4px 10px;
+        font-size: 12px; border-radius: 4px; white-space: nowrap;
+    }
+
+    /* Hidden state toggles */
+    body.no-hearts .bc-hearts-stage { display: none; }
+    body.no-bow .bc-bow-stage { display: none; }
+    body.no-top .bc-top { display: none; }
+    /* Khi phiên KẾT THÚC — vẫn HIỂN THỊ ĐẦY ĐỦ hearts + bow ở opacity 100% (OBS preview rõ).
+       Chỉ ẩn các effect layers (chớp đỏ / particles / banner / podium).
+       User không cần bấm "Bắt đầu" để thấy overlay trong OBS. */
+    body.bc-stopped .bc-arrows-layer,
+    body.bc-stopped .bc-redflash,
+    body.bc-stopped .bc-deathveil,
+    body.bc-stopped .bc-banner,
+    body.bc-stopped .bc-combo,
+    body.bc-stopped .bc-killing-blow,
+    body.bc-stopped .bc-podium { display: none !important; }
+</style>
+</head>
+<body class="bc-heart-pixel">
+    <!-- Effect layers -->
+    <div class="bc-redflash" id="bc-redflash"></div>
+    <div class="bc-deathveil">
+        <div class="bc-dead-label">💀 ĐÃ GỤC</div>
+        <div class="bc-dead-countdown" id="bc-dead-countdown">5</div>
+        <div class="bc-dead-hint">Tặng quà <b>Hồi sinh</b> trong 5 giây để cứu!</div>
+    </div>
+
+    <!-- Top contributor leaderboard (top damage dealers) -->
+    <div class="bc-top" id="bc-top" style="left: 24px; bottom: 40px;">
+        <div class="bc-top-title">🎯 TOP CUNG THỦ</div>
+        <div class="bc-top-list" id="bc-top-list"></div>
+    </div>
+
+    <!-- Heart stage -->
+    <div class="bc-hearts-stage" id="bc-hearts-stage">
+        <div class="bc-hearts-inner" id="bc-hearts-inner">
+            <div class="bc-hearts-row" id="bc-hearts-row"></div>
+            <div class="bc-hearts-num" id="bc-hearts-num">— / —</div>
+        </div>
+    </div>
+
+    <!-- Bow widget stage -->
+    <div class="bc-bow-stage" id="bc-bow-stage">
+        <div class="bc-bow-inner" id="bc-bow-inner">
+            <div class="bc-bow" id="bc-bow">
+                <div class="bc-bow-charge" id="bc-bow-charge">
+                    <svg viewBox="0 0 100 100">
+                        <circle class="ring-bg" cx="50" cy="50" r="44" />
+                        <circle class="ring-fill" cx="50" cy="50" r="44" stroke-dasharray="0 276.46" />
+                    </svg>
+                </div>
+                <svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+                    <!-- Bow arc: curved C shape on left -->
+                    <path class="bc-bow-arc" d="M30 30 Q 100 100 30 170" />
+                    <!-- String -->
+                    <path class="bc-bow-string" d="M30 30 L 30 170" />
+                    <!-- Arrow group -->
+                    <g class="bc-bow-arrow">
+                        <line class="shaft" x1="40" y1="100" x2="160" y2="100" />
+                        <polygon class="head" points="160,100 145,93 145,107" />
+                        <polygon class="fletch" points="42,100 28,92 28,108" />
+                    </g>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Impact target zone (visible only in edit mode) -->
+    <div class="bc-impact-zone" id="bc-impact-zone"></div>
+
+    <!-- Flying arrows + popups layer -->
+    <div class="bc-arrows-layer" id="bc-arrows-layer"></div>
+
+    <!-- Heal/Shield/Revive banner -->
+    <div class="bc-banner" id="bc-banner"></div>
+
+    <!-- Combo counter -->
+    <div class="bc-combo" id="bc-combo">
+        <div class="bc-combo-num" id="bc-combo-num">0</div>
+        <div class="bc-combo-label">COMBO</div>
+    </div>
+
+    <!-- Survival timer -->
+    <div class="bc-survival" id="bc-survival">
+        <div class="bc-survival-label">⏱ SỐNG SÓT</div>
+        <div class="bc-survival-time" id="bc-survival-time">0:00</div>
+        <div class="bc-survival-record" id="bc-survival-record"></div>
+    </div>
+
+    <!-- Killing blow callout -->
+    <div class="bc-killing-blow" id="bc-killing-blow">
+        <div class="bc-kb-avatar"></div>
+        <div class="bc-kb-text">
+            <div class="bc-kb-title">💀 PHÁT KẾT LIỄU</div>
+            <div class="bc-kb-name"></div>
+        </div>
+    </div>
+
+    <!-- Top-3 podium -->
+    <div class="bc-podium" id="bc-podium">
+        <div class="bc-podium-title">🏆 TOP CUNG THỦ</div>
+        <div class="bc-podium-row" id="bc-podium-row"></div>
+        <div class="bc-podium-survival" id="bc-podium-survival"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/games/bancung/game.js"></script>
+    <script>
+    (function () {
+        'use strict';
+        const helper = window.HpGame.bancung;
+        const $stageHearts = document.getElementById('bc-hearts-stage');
+        const $innerHearts = document.getElementById('bc-hearts-inner');
+        const $stageBow = document.getElementById('bc-bow-stage');
+        const $innerBow = document.getElementById('bc-bow-inner');
+        const $bow = document.getElementById('bc-bow');
+        const $heartsRow = document.getElementById('bc-hearts-row');
+        const $heartsNum = document.getElementById('bc-hearts-num');
+        const $redflash = document.getElementById('bc-redflash');
+        const $deathCountdown = document.getElementById('bc-dead-countdown');
+        const $arrowsLayer = document.getElementById('bc-arrows-layer');
+        const $banner = document.getElementById('bc-banner');
+        const $topList = document.getElementById('bc-top-list');
+        const $top = document.getElementById('bc-top');
+        const $impact = document.getElementById('bc-impact-zone');
+        const $combo = document.getElementById('bc-combo');
+        const $comboNum = document.getElementById('bc-combo-num');
+        const $survival = document.getElementById('bc-survival');
+        const $survivalTime = document.getElementById('bc-survival-time');
+        const $survivalRec = document.getElementById('bc-survival-record');
+        const $killingBlow = document.getElementById('bc-killing-blow');
+        const $podium = document.getElementById('bc-podium');
+        const $podiumRow = document.getElementById('bc-podium-row');
+        const $podiumSurv = document.getElementById('bc-podium-survival');
+        const $bowCharge = document.getElementById('bc-bow-charge');
+
+        // Edit mode (panel popout) — drag + wheel zoom
+        const isEdit = new URLSearchParams(location.search).get('edit') === '1';
+        if (isEdit) document.body.classList.add('bc-edit');
+
+        let state = null;
+        let config = null;
+        let _prevHp = null;
+        let _deadCountdownTimer = null;
+
+        // ===== Heart bar render (supports half hearts) =====
+        function renderHearts(hp, maxHp) {
+            const max = Math.max(1, Math.round(maxHp || 10));
+            $heartsRow.innerHTML = '';
+            for (let i = 0; i < max; i++) {
+                const idx = i + 1;
+                const h = document.createElement('div');
+                h.className = 'bc-heart';
+                // Each heart represents 1 unit. fillThis = clamp(hp - i, 0, 1)
+                const fill = Math.max(0, Math.min(1, hp - i));
+                if (fill >= 0.9) {
+                    // full
+                } else if (fill >= 0.4) {
+                    h.classList.add('half');
+                } else {
+                    h.classList.add('empty');
+                }
+                // recently-lost: if was full and now isn't
+                if (_prevHp != null && Math.ceil(_prevHp) >= idx && Math.ceil(hp) < idx) {
+                    h.classList.add('recently-lost');
+                }
+                $heartsRow.appendChild(h);
+            }
+            $heartsNum.innerHTML = `<span>${(Math.round(hp * 10) / 10).toFixed(hp % 1 === 0 ? 0 : 1)}</span><span class="ratio"> / ${max}</span> ❤`;
+            _prevHp = hp;
+        }
+
+        // ===== Apply config (skin, position, scale, toggles) =====
+        function applyConfig(cfg) {
+            config = cfg || {};
+            const d = config.display || {};
+            // Hearts position
+            $stageHearts.style.left = (d.heartsXPercent ?? 50) + '%';
+            $stageHearts.style.top  = (d.heartsYPercent ?? 14) + '%';
+            const hScale = ((d.heartsScale ?? 100) / 100);
+            $innerHearts.style.transform = 'scale(' + hScale + ')';
+            document.body.style.setProperty('--hp-scale', hScale);
+            // Bow position
+            $stageBow.style.left = (d.bowXPercent ?? 85) + '%';
+            $stageBow.style.top  = (d.bowYPercent ?? 80) + '%';
+            $innerBow.style.transform = 'scale(' + ((d.bowScale ?? 100) / 100) + ')';
+            // Bow skin colors
+            const skin = helper.getBowSkin(d.bowSkin || 'classic');
+            document.body.style.setProperty('--bow-color', skin.bowColor);
+            document.body.style.setProperty('--string-color', skin.stringColor);
+            document.body.style.setProperty('--arrow-color', skin.arrowColor);
+            document.body.style.setProperty('--skin-glow', skin.glow || 'transparent');
+            // Heart style class
+            document.body.classList.remove('bc-heart-pixel','bc-heart-glossy','bc-heart-fire','bc-heart-crystal');
+            document.body.classList.add('bc-heart-' + (d.heartStyle || 'pixel'));
+            // Effect intensities
+            document.body.style.setProperty('--flash-strength', ((d.redFlashIntensity ?? 60) / 100).toFixed(2));
+            document.body.style.setProperty('--death-opacity', ((d.deathTintOpacity ?? 75) / 100).toFixed(2));
+            // Toggles
+            document.body.classList.toggle('no-hearts', d.showHearts === false);
+            document.body.classList.toggle('no-bow', d.showBowWidget === false);
+            document.body.classList.toggle('no-top', d.showTopContrib === false);
+            // Top position
+            $top.style.left = $top.style.right = $top.style.top = $top.style.bottom = '';
+            const pos = d.topContribPos || 'bottom-left';
+            if (pos.includes('top')) $top.style.top = '24px';
+            else $top.style.bottom = '40px';
+            if (pos.includes('right')) $top.style.right = '24px';
+            else $top.style.left = '24px';
+            // Impact zone position (where arrows land)
+            $impact.style.left = (d.impactXPercent ?? 50) + '%';
+            $impact.style.top = (d.impactYPercent ?? 18) + '%';
+            // Survival timer visibility
+            if ($survival) $survival.style.display = (d.showSurvivalTimer === false) ? 'none' : '';
+            // Bow charge ring visibility
+            if ($bowCharge) $bowCharge.classList.toggle('active', d.bowChargeEnabled === true);
+            // Bow auto-aim toward impact zone — calculated AFTER layout settles
+            requestAnimationFrame(updateBowAim);
+        }
+
+        // ===== Heart shake state — track HP percentage, toggle low-hp class =====
+        function updateLowHpShake(hp, maxHp) {
+            if (!config?.display?.heartShakeLowHp) {
+                document.body.classList.remove('bc-low-hp');
+                return;
+            }
+            const pct = (hp / Math.max(1, maxHp)) * 100;
+            document.body.classList.toggle('bc-low-hp', pct > 0 && pct < 30);
+        }
+
+        // ===== Combo display =====
+        function updateCombo(count) {
+            if (!config?.display?.comboEnabled) {
+                $combo.classList.remove('show');
+                return;
+            }
+            if (count >= 2) {
+                $comboNum.textContent = 'x' + count;
+                $combo.classList.add('show');
+                $combo.classList.remove('pop');
+                void $combo.offsetWidth;
+                $combo.classList.add('pop');
+            } else {
+                $combo.classList.remove('show');
+            }
+        }
+
+        // ===== Survival timer tick =====
+        let _survivalTimer = null;
+        function startSurvivalTimer(startedAt, record) {
+            if (_survivalTimer) clearInterval(_survivalTimer);
+            const update = () => {
+                if (!startedAt) {
+                    $survivalTime.textContent = '0:00';
+                    return;
+                }
+                const sec = Math.floor((Date.now() - startedAt) / 1000);
+                const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+                const ss = String(sec % 60).padStart(2, '0');
+                $survivalTime.textContent = mm + ':' + ss;
+                if (record > 0) {
+                    const rmm = String(Math.floor(record / 60)).padStart(2, '0');
+                    const rss = String(record % 60).padStart(2, '0');
+                    $survivalRec.textContent = '🏆 ' + rmm + ':' + rss;
+                }
+            };
+            update();
+            _survivalTimer = setInterval(update, 1000);
+        }
+
+        // ===== Bow charge ring update =====
+        function updateBowCharge(pct) {
+            const ring = $bowCharge?.querySelector('.ring-fill');
+            if (!ring) return;
+            const C = 2 * Math.PI * 44;
+            const dash = (pct / 100) * C;
+            ring.setAttribute('stroke-dasharray', dash + ' ' + C);
+            $bowCharge.classList.toggle('full', pct >= 99);
+        }
+
+        // ===== Hit banners (critical / headshot / first blood) =====
+        function showHitBanner(kind, x, y) {
+            const el = document.createElement('div');
+            el.className = 'bc-hit-banner ' + kind;
+            el.textContent = kind === 'critical' ? '💥 CHÍ MẠNG x3!'
+                            : kind === 'headshot' ? '🎯 HEADSHOT x2!'
+                            : '🩸 FIRST BLOOD!';
+            el.style.left = x + 'px';
+            el.style.top = y + 'px';
+            $arrowsLayer.appendChild(el);
+            void el.offsetWidth;
+            el.classList.add('show');
+            setTimeout(() => el.remove(), 950);
+        }
+
+        // ===== Particle impact — feathers + sparks =====
+        function spawnParticles(x, y) {
+            if (config?.display?.showHitParticles === false) return;
+            const count = 12 + Math.floor(Math.random() * 6);
+            for (let i = 0; i < count; i++) {
+                const p = document.createElement('div');
+                p.className = i % 3 === 0 ? 'bc-particle feather' : 'bc-particle';
+                p.style.left = x + 'px';
+                p.style.top = y + 'px';
+                $arrowsLayer.appendChild(p);
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 80 + Math.random() * 140;
+                const dx = Math.cos(angle) * speed;
+                const dy = Math.sin(angle) * speed - 40;   // bias upward
+                const rot = Math.random() * 720 - 360;
+                p.animate([
+                    { transform: `translate(-50%, -50%) translate(0, 0) rotate(0deg)`, opacity: 1 },
+                    { transform: `translate(-50%, -50%) translate(${dx}px, ${dy + 200}px) rotate(${rot}deg)`, opacity: 0 }
+                ], { duration: 800 + Math.random() * 400, easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)', fill: 'forwards' });
+                setTimeout(() => p.remove(), 1300);
+            }
+        }
+
+        // ===== Viewport shake on hit =====
+        function viewportShake() {
+            if (config?.display?.viewportShakeOnHit === false) return;
+            document.body.classList.remove('bc-shake');
+            void document.body.offsetWidth;
+            document.body.classList.add('bc-shake');
+            setTimeout(() => document.body.classList.remove('bc-shake'), 300);
+        }
+
+        // ===== Slo-mo on killing blow =====
+        function triggerSlowMo() {
+            if (config?.display?.slowMotionOnKill === false) return;
+            document.body.classList.add('bc-slowmo');
+            setTimeout(() => document.body.classList.remove('bc-slowmo'), 1450);
+        }
+
+        // ===== Killing-blow callout =====
+        function showKillingBlow(user) {
+            if (config?.display?.showKillingBlow === false || !user) return;
+            const $av = $killingBlow.querySelector('.bc-kb-avatar');
+            const $nm = $killingBlow.querySelector('.bc-kb-name');
+            if (user.avatar) {
+                $av.outerHTML = `<img class="bc-kb-avatar" src="${escapeHtml(user.avatar)}" onerror="this.outerHTML='<div class=\\'bc-kb-avatar\\'></div>" />`;
+            }
+            if ($nm) $nm.textContent = user.nickname || user.uniqueId || 'Người bí ẩn';
+            $killingBlow.classList.remove('show');
+            void $killingBlow.offsetWidth;
+            $killingBlow.classList.add('show');
+            setTimeout(() => $killingBlow.classList.remove('show'), 3300);
+        }
+
+        // ===== Top-3 podium overlay =====
+        function showPodium(data) {
+            if (config?.display?.showPodium === false) return;
+            const top3 = (data?.top3 || []).slice(0, 3);
+            if (!top3.length) return;
+            // Reorder: 2nd, 1st, 3rd for visual podium
+            const order = [top3[1], top3[0], top3[2]].filter(Boolean);
+            $podiumRow.innerHTML = order.map((u, slotIdx) => {
+                const realRank = (slotIdx === 0) ? 2 : (slotIdx === 1) ? 1 : 3;
+                const medal = realRank === 1 ? '🥇' : realRank === 2 ? '🥈' : '🥉';
+                const av = u.avatar
+                    ? `<img class="bc-podium-avatar" src="${escapeHtml(u.avatar)}" onerror="this.style.visibility='hidden'" />`
+                    : `<div class="bc-podium-avatar"></div>`;
+                return `<div class="bc-podium-slot rank-${realRank}">
+                    <div class="bc-podium-medal">${medal}</div>
+                    ${av}
+                    <div class="bc-podium-name">${escapeHtml(u.nickname || u.uniqueId)}</div>
+                    <div class="bc-podium-dmg">−${(u.totalDamage || 0).toFixed(2)} ♥</div>
+                    <div class="bc-podium-stage">${realRank}</div>
+                </div>`;
+            }).join('');
+            const survSec = data?.survivalSec || 0;
+            const recSec = data?.survivalRecordSec || 0;
+            const survFmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+            $podiumSurv.innerHTML = `⏱ Sống sót <b>${survFmt(survSec)}</b>` +
+                (recSec > 0 ? `<div class="bc-podium-record">🏆 Kỷ lục: ${survFmt(recSec)}</div>` : '');
+            $podium.classList.remove('show');
+            void $podium.offsetWidth;
+            $podium.classList.add('show');
+            setTimeout(() => $podium.classList.remove('show'), 6100);
+        }
+
+        // ===== Bow auto-aim: rotate widget so arrow visually points at impact zone =====
+        function updateBowAim() {
+            // Default ON unless explicitly disabled
+            if (config?.display?.autoAimBow === false) {
+                $bow.style.transform = '';
+                return;
+            }
+            const bowRect = $bow.getBoundingClientRect();
+            const impRect = $impact.getBoundingClientRect();
+            const bx = bowRect.left + bowRect.width / 2;
+            const by = bowRect.top + bowRect.height / 2;
+            const ix = impRect.left + impRect.width / 2;
+            const iy = impRect.top + impRect.height / 2;
+            // Arrow in default SVG points right (angle = 0). Compute angle from bow → impact.
+            const angle = Math.atan2(iy - by, ix - bx);
+            $bow.style.transform = `rotate(${angle}rad)`;
+        }
+
+        // ===== State render =====
+        function applyState(s) {
+            if (!s) return;
+            state = s;
+            document.body.classList.toggle('bc-stopped', s.sessionActive === false || s.enabled === false);
+            renderHearts(s.hp || 0, s.maxHp || 10);
+            updateLowHpShake(s.hp || 0, s.maxHp || 10);
+            updateCombo(s.comboCount || 0);
+            updateBowCharge(s.bowCharge || 0);
+            startSurvivalTimer(s.sessionStartedAt || 0, s.survivalRecordSec || 0);
+            // Death veil + countdown
+            const wasDead = document.body.classList.contains('bc-dead');
+            const isDead = (s.deadAt || 0) > 0;
+            document.body.classList.toggle('bc-dead', isDead);
+            // Shield badge
+            const shielded = !!s.shielded;
+            const row = document.getElementById('bc-hearts-row');
+            row.classList.toggle('shielded', shielded);
+            if (shielded && !row.querySelector('.bc-shield-badge')) {
+                const b = document.createElement('div');
+                b.className = 'bc-shield-badge';
+                b.textContent = '🛡';
+                row.style.position = 'relative';
+                row.appendChild(b);
+                // Bigger "GIÁP ACTIVE" pill below hearts
+                const pill = document.createElement('div');
+                pill.className = 'bc-shield-active';
+                pill.id = 'bc-shield-pill';
+                pill.innerHTML = '🛡 GIÁP BẤT TỬ';
+                row.appendChild(pill);
+            } else if (!shielded) {
+                row.querySelector('.bc-shield-badge')?.remove();
+                row.querySelector('.bc-shield-active')?.remove();
+            } else if (shielded) {
+                // Update countdown in pill if exists
+                const pill = row.querySelector('.bc-shield-active');
+                if (pill && s.shieldUntil) {
+                    const secLeft = Math.max(0, Math.ceil((s.shieldUntil - Date.now()) / 1000));
+                    pill.innerHTML = `🛡 GIÁP BẤT TỬ ${secLeft}s`;
+                }
+            }
+            if (isDead) {
+                startDeathCountdown(s.reviveWindowMsLeft);
+            } else if (wasDead) {
+                stopDeathCountdown();
+            }
+            // Top list
+            renderTop(Array.isArray(s.top) ? s.top : []);
+        }
+
+        function startDeathCountdown(msLeft) {
+            if (_deadCountdownTimer) { clearInterval(_deadCountdownTimer); _deadCountdownTimer = null; }
+            const endAt = Date.now() + Math.max(0, msLeft || 0);
+            const update = () => {
+                const left = Math.max(0, endAt - Date.now());
+                const sec = Math.ceil(left / 1000);
+                $deathCountdown.textContent = sec;
+                if (left <= 0) {
+                    clearInterval(_deadCountdownTimer);
+                    _deadCountdownTimer = null;
+                }
+            };
+            update();
+            _deadCountdownTimer = setInterval(update, 200);
+        }
+        function stopDeathCountdown() {
+            if (_deadCountdownTimer) { clearInterval(_deadCountdownTimer); _deadCountdownTimer = null; }
+        }
+
+        function renderTop(list) {
+            if (!list.length) {
+                $topList.innerHTML = '<div style="text-align:center;color:#8b93a8;padding:6px 0;font-size:14px">Chưa có ai tham gia</div>';
+                return;
+            }
+            $topList.innerHTML = list.slice(0, 5).map((u, i) => {
+                const av = u.avatar
+                    ? `<img class="bc-top-avatar" src="${u.avatar}" onerror="this.style.visibility='hidden'" />`
+                    : `<div class="bc-top-avatar"></div>`;
+                const nm = (u.nickname || u.uniqueId || 'unknown');
+                return `<div class="bc-top-row rank-${i}">
+                    <span class="bc-top-rank">#${i + 1}</span>
+                    ${av}
+                    <span class="bc-top-name">${escapeHtml(nm)}</span>
+                    <span class="bc-top-dmg">−${(u.totalDamage || 0).toFixed(2)} ♥</span>
+                </div>`;
+            }).join('');
+        }
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        // ===== Bow animation — charge then fire =====
+        function animateBowShot() {
+            if (!$bow) return;
+            $bow.classList.remove('firing');
+            $bow.classList.add('charging');
+            setTimeout(() => {
+                $bow.classList.remove('charging');
+                $bow.classList.add('firing');
+                setTimeout(() => $bow.classList.remove('firing'), 300);
+            }, 220);
+        }
+
+        // ===== Spawn flying arrow — STRAIGHT LINE from bow → impact zone =====
+        // Trajectory đi thẳng (không arc cong) → trông như mũi tên thật bay direct vào target.
+        // - Khi hit (mặc định): arrow biến mất ngay tại impact + flash đỏ
+        // - Khi blocked (có shield): arrow BAY XUYÊN target ra ngoài màn hình + shield ping
+        function spawnFlyingArrow(durationMs, userInfo, opts) {
+            opts = opts || {};
+            const blocked = opts.blocked === true;
+            const bowRect = $bow.getBoundingClientRect();
+            const impactRect = $impact.getBoundingClientRect();
+            const sx = bowRect.left + bowRect.width / 2;
+            const sy = bowRect.top + bowRect.height / 2;
+            // Spread: % của viewport
+            const spreadPct = Math.max(0, Math.min(30, Number(config?.display?.impactSpread) || 0));
+            const spreadPx = (spreadPct / 100) * Math.min(window.innerWidth, window.innerHeight);
+            const tx = impactRect.left + impactRect.width / 2 + (Math.random() * 2 - 1) * spreadPx;
+            const ty = impactRect.top + impactRect.height / 2 + (Math.random() * 2 - 1) * spreadPx;
+            // Straight-line angle from source to target — arrow rotates to match trajectory
+            const dx = tx - sx;
+            const dy = ty - sy;
+            const angle = Math.atan2(dy, dx);
+            // For blocked arrows: extend trajectory just slightly past target (deflect look),
+            // không bay quá xa khỏi màn hình — viewer vẫn thấy "trúng giáp" rõ ràng.
+            let endX = tx, endY = ty;
+            if (blocked) {
+                const extra = 140;     // chỉ 140px past target — đủ "deflect" không lạc khỏi viewport
+                endX = tx + Math.cos(angle) * extra;
+                endY = ty + Math.sin(angle) * extra;
+            }
+
+            const totalDur = blocked ? durationMs * 1.6 : durationMs;
+
+            const arrow = document.createElement('div');
+            arrow.className = 'bc-fly-arrow';
+            arrow.innerHTML = `
+                <svg viewBox="0 0 220 52">
+                    <line class="shaft" x1="14" y1="26" x2="190" y2="26" stroke-width="6" />
+                    <polygon class="head" points="208,26 178,12 178,40" />
+                    <polygon class="fletch" points="18,26 0,12 0,40" />
+                </svg>
+            `;
+            $arrowsLayer.appendChild(arrow);
+
+            // Arrow trail — long streak following the arrow tip
+            let trail = null;
+            if (config?.display?.showArrowTrail !== false) {
+                trail = document.createElement('div');
+                trail.className = 'bc-arrow-trail';
+                const trailLen = Math.min(280, Math.hypot(dx, dy) * 0.85);
+                trail.style.width = trailLen + 'px';
+                trail.style.left = sx + 'px';
+                trail.style.top = sy + 'px';
+                trail.style.transform = `translate(-100%, -50%) rotate(${angle}rad)`;
+                $arrowsLayer.appendChild(trail);
+                // Move trail with arrow — use same animation timing
+                try {
+                    trail.animate([
+                        { left: sx + 'px', top: sy + 'px', opacity: 0.9 },
+                        { left: tx + 'px', top: ty + 'px', opacity: 0.9, offset: blocked ? 0.5 : 0.85 },
+                        { left: (blocked ? endX : tx) + 'px', top: (blocked ? endY : ty) + 'px', opacity: 0 }
+                    ], { duration: totalDur, easing: blocked ? 'linear' : 'cubic-bezier(0.3, 0, 0.7, 1)', fill: 'forwards' });
+                } catch (e) {}
+                setTimeout(() => trail?.remove(), totalDur + 200);
+            }
+            // Username tag flying with arrow
+            if (config?.display?.showArrowUsername !== false && userInfo?.nickname) {
+                const nameTag = document.createElement('div');
+                nameTag.className = 'bc-arrow-username';
+                nameTag.textContent = userInfo.nickname;
+                nameTag.style.left = sx + 'px';
+                nameTag.style.top = sy + 'px';
+                $arrowsLayer.appendChild(nameTag);
+                try {
+                    nameTag.animate([
+                        { left: sx + 'px', top: sy + 'px', opacity: 0 },
+                        { left: sx + 'px', top: sy + 'px', opacity: 1, offset: 0.1 },
+                        { left: tx + 'px', top: ty + 'px', opacity: 1, offset: blocked ? 0.5 : 0.85 },
+                        { left: (blocked ? endX : tx) + 'px', top: (blocked ? endY : ty) + 'px', opacity: 0 }
+                    ], { duration: totalDur, easing: 'linear', fill: 'forwards' });
+                } catch (e) {}
+                setTimeout(() => nameTag.remove(), totalDur + 200);
+            }
+
+            // Khi blocked: arrow tới target ở offset 0.5 → tiếp tục bay qua tới endX/endY ở offset 1
+            // Khi hit: arrow tới target ở offset 0.92 → biến mất ngay tại đó (opacity 1→0)
+            try {
+                if (blocked) {
+                    arrow.animate([
+                        { left: sx + 'px', top: sy + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 1, offset: 0 },
+                        { left: tx + 'px', top: ty + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 1, offset: 0.5 },
+                        { left: endX + 'px', top: endY + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 0, offset: 1 }
+                    ], { duration: totalDur, easing: 'linear', fill: 'forwards' });
+                    // Spawn shield ping at impact moment (when arrow reaches target)
+                    setTimeout(() => spawnShieldPing(tx, ty), durationMs * 0.5);
+                } else {
+                    arrow.animate([
+                        { left: sx + 'px', top: sy + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 1, offset: 0 },
+                        { left: tx + 'px', top: ty + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 1, offset: 0.92 },
+                        { left: tx + 'px', top: ty + 'px', transform: `translate(-50%,-50%) rotate(${angle}rad)`, opacity: 0, offset: 1 }
+                    ], { duration: totalDur, easing: 'cubic-bezier(0.3, 0, 0.7, 1)', fill: 'forwards' });
+                }
+            } catch (e) {
+                // Fallback: CSS transition
+                arrow.style.left = sx + 'px';
+                arrow.style.top = sy + 'px';
+                arrow.style.transform = `translate(-50%,-50%) rotate(${angle}rad)`;
+                arrow.style.transition = `left ${totalDur}ms linear, top ${totalDur}ms linear, opacity 200ms ease-in ${totalDur - 100}ms`;
+                requestAnimationFrame(() => {
+                    arrow.style.left = (blocked ? endX : tx) + 'px';
+                    arrow.style.top = (blocked ? endY : ty) + 'px';
+                    arrow.style.opacity = '0';
+                });
+            }
+
+            if (userInfo && config?.display?.showShooterName !== false && userInfo.nickname) {
+                setTimeout(() => spawnShooterPopup(userInfo, sx, sy), durationMs * 0.4);
+            }
+            setTimeout(() => arrow.remove(), totalDur + 250);
+        }
+
+        // Shield deflect visual ping at impact point
+        function spawnShieldPing(x, y) {
+            const ping = document.createElement('div');
+            ping.className = 'bc-shield-ping';
+            ping.style.left = x + 'px';
+            ping.style.top = y + 'px';
+            $arrowsLayer.appendChild(ping);
+            const txt = document.createElement('div');
+            txt.className = 'bc-shield-text';
+            txt.textContent = '🛡 CHẶN!';
+            txt.style.left = x + 'px';
+            txt.style.top = y + 'px';
+            $arrowsLayer.appendChild(txt);
+            setTimeout(() => { ping.remove(); txt.remove(); }, 900);
+        }
+
+        function spawnShooterPopup(user, x, y) {
+            const el = document.createElement('div');
+            el.className = 'bc-shooter-pop';
+            const dmg = (config?.damagePerShot ?? 0.25);
+            const dmgPart = config?.display?.showDamageText !== false ? `<span class="dmg">−${dmg.toFixed(2)} ♥</span>` : '';
+            el.innerHTML = `🏹 <span class="nick">${escapeHtml(user.nickname || user.uniqueId)}</span>${dmgPart}`;
+            // Position above bow
+            el.style.left = (x) + 'px';
+            el.style.top = (y - 40) + 'px';
+            $arrowsLayer.appendChild(el);
+            setTimeout(() => el.remove(), 1600);
+        }
+
+        function flashRed() {
+            $redflash.classList.remove('flash');
+            void $redflash.offsetWidth;
+            $redflash.classList.add('flash');
+        }
+
+        function showBanner(kind, mainText, subText) {
+            $banner.className = 'bc-banner ' + kind;
+            $banner.innerHTML = escapeHtml(mainText) + (subText ? `<span class="bc-banner-sub">${escapeHtml(subText)}</span>` : '');
+            void $banner.offsetWidth;
+            $banner.classList.add('show');
+            setTimeout(() => $banner.classList.remove('show'), 2200);
+        }
+
+        // ===== Socket =====
+        const socket = io({ transports: ['websocket', 'polling'] });
+        socket.on('connect', () => {
+            socket.emit('subscribe', 'overlay');
+            fetch('/api/games/bancung/livestate').then(r => r.json()).then(s => applyState(s)).catch(() => {});
+            fetch('/api/games/bancung/config').then(r => r.json()).then(cfg => applyConfig(cfg)).catch(() => {});
+        });
+        socket.on('bancung:state', applyState);
+        socket.on('bancung:shot', (d) => {
+            animateBowShot();
+            spawnFlyingArrow(Number(d.arrowDurationMs) || 700, d.user || null, { blocked: !!d.blocked });
+        });
+        socket.on('bancung:hit', (d) => {
+            flashRed();
+            viewportShake();
+            // Slo-mo on killing blow first (so subsequent visuals also slow)
+            if (d.killingBlow) triggerSlowMo();
+            // Particle impact + critical/headshot banners — at impact zone location
+            const impRect = $impact.getBoundingClientRect();
+            const cx = impRect.left + impRect.width / 2;
+            const cy = impRect.top + impRect.height / 2;
+            spawnParticles(cx, cy);
+            if (d.firstBlood) showHitBanner('firstblood', cx, cy);
+            if (d.critical)  showHitBanner('critical', cx, cy);
+            if (d.headshot)  showHitBanner('headshot', cx, cy);
+            // Killing-blow callout (after small delay so slo-mo is in effect)
+            if (d.killingBlow && d.user) {
+                setTimeout(() => showKillingBlow(d.user), 600);
+            }
+            // Damage popup near hearts
+            if (config?.display?.showDamageText !== false && d.damage) {
+                const rect = $heartsRow.getBoundingClientRect();
+                const el = document.createElement('div');
+                el.className = 'bc-shooter-pop';
+                const critTag = d.critical ? ' <b style="color:#ffd54a">CHÍ MẠNG</b>' : '';
+                el.innerHTML = `<span class="dmg">−${d.damage.toFixed(2)} ♥</span>${critTag}`;
+                el.style.left = (rect.left + rect.width / 2) + 'px';
+                el.style.top = (rect.bottom + 6) + 'px';
+                $arrowsLayer.appendChild(el);
+                setTimeout(() => el.remove(), 1600);
+            }
+        });
+        socket.on('bancung:podium', (d) => showPodium(d));
+        socket.on('bancung:charge', (d) => updateBowCharge(d.value || 0));
+        socket.on('bancung:autoburst', (d) => {
+            // Show banner that auto-burst is firing
+            showBanner('shield', `⚡ AUTO BURST ${d.count}!`, 'Cung nạp đầy năng lượng');
+        });
+        socket.on('bancung:blocked', () => {
+            // Visual already handled via bancung:shot { blocked:true } → fly-through + ping.
+            // This event still fires server-side for analytics/logging consistency.
+        });
+        socket.on('bancung:death', (d) => {
+            // Killing-blow callout fires from bancung:hit (which sets killingBlow flag)
+            // Show podium briefly on death too (in addition to session stop)
+            if (d?.podium?.length && config?.display?.showPodium !== false) {
+                setTimeout(() => showPodium({
+                    top3: d.podium,
+                    survivalSec: d.survivalSec || 0,
+                    survivalRecordSec: d.survivalRecordSec || 0
+                }), 1500);
+            }
+        });
+        socket.on('bancung:revive', (d) => {
+            const who = d.user?.nickname || (d.auto ? 'TỰ HỒI SINH' : '?');
+            showBanner('revive', '✨ HỒI SINH!', d.auto ? '(Tự động)' : ('Cứu tinh: ' + who));
+        });
+        socket.on('bancung:heal', (d) => {
+            const who = d.user?.nickname || '';
+            showBanner('heal', `+${(d.hearts || 0).toFixed(1)} ❤`, who ? ('Cảm ơn ' + who) : 'Hồi máu');
+        });
+        socket.on('bancung:shield', (d) => {
+            const who = d.user?.nickname || '';
+            showBanner('shield', `🛡 BẤT TỬ ${d.durationSec}s`, who ? ('từ ' + who) : '');
+        });
+        socket.on('gameConfig', ({ gameId, config: cfg }) => {
+            if (gameId !== 'bancung') return;
+            applyConfig(cfg);
+        });
+        socket.on('gameDisabled', ({ gameId }) => {
+            if (gameId !== 'bancung') return;
+            document.body.classList.add('bc-stopped');
+        });
+        socket.on('overlay:reload', (data) => {
+            // Filter by gameId nếu có — chỉ reload nếu match hoặc broadcast chung
+            if (!data || !data.gameId || data.gameId === 'bancung') location.reload();
+        });
+
+        // ===== EDIT MODE — drag/zoom both stages + drag impact zone =====
+        if (isEdit) {
+            setupEditDrag($stageHearts, 'heartsXPercent', 'heartsYPercent', 'heartsScale');
+            setupEditDrag($stageBow, 'bowXPercent', 'bowYPercent', 'bowScale');
+            setupEditDrag($impact, 'impactXPercent', 'impactYPercent', null);
+        }
+        function setupEditDrag(stage, xKey, yKey, scaleKey) {
+            let dragging = null;
+            stage.addEventListener('mousedown', (e) => {
+                dragging = {
+                    sx: e.clientX, sy: e.clientY,
+                    origX: parseFloat(stage.style.left) || 50,
+                    origY: parseFloat(stage.style.top) || 50
+                };
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const dx = (e.clientX - dragging.sx) / window.innerWidth * 100;
+                const dy = (e.clientY - dragging.sy) / window.innerHeight * 100;
+                const nx = Math.max(0, Math.min(100, dragging.origX + dx));
+                const ny = Math.max(0, Math.min(100, dragging.origY + dy));
+                stage.style.left = nx + '%';
+                stage.style.top = ny + '%';
+                if (config) {
+                    config.display = config.display || {};
+                    config.display[xKey] = nx;
+                    config.display[yKey] = ny;
+                    // Re-aim bow when bow or impact moves
+                    updateBowAim();
+                }
+            });
+            window.addEventListener('mouseup', async () => {
+                if (!dragging) return;
+                dragging = null;
+                try {
+                    await fetch('/api/games/bancung/config', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                } catch (e) {}
+            });
+            if (scaleKey) {
+                stage.addEventListener('wheel', async (e) => {
+                    e.preventDefault();
+                    const cur = parseFloat((config?.display?.[scaleKey]) || 100);
+                    const next = Math.max(30, Math.min(250, cur + (e.deltaY < 0 ? 5 : -5)));
+                    config.display = config.display || {};
+                    config.display[scaleKey] = next;
+                    const inner = stage.querySelector('.bc-hearts-inner, .bc-bow-inner');
+                    if (inner) inner.style.transform = 'scale(' + (next / 100) + ')';
+                    clearTimeout(stage._wheelSaveT);
+                    stage._wheelSaveT = setTimeout(async () => {
+                        try {
+                            await fetch('/api/games/bancung/config', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(config)
+                            });
+                        } catch (e) {}
+                    }, 350);
+                }, { passive: false });
+            }
+        }
+        // Re-aim bow on window resize too
+        window.addEventListener('resize', () => requestAnimationFrame(updateBowAim));
+    })();
+    </script>
+</body>
+</html>

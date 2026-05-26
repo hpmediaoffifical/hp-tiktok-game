@@ -2195,6 +2195,9 @@
       _sock.on('timer:cfg',     applyRemoteCfg);
       _sock.on('timer:state',   applyRemoteState);
       _sock.on('timer:trigger', applyRemoteTrigger);
+      _sock.on('overlay:reload', (data) => {
+        if (!data || !data.gameId || data.gameId === 'timer') location.reload();
+      });
       // Đồng bộ enabled flag từ Thư viện game (toggle ⏻ trên sidebar)
       _sock.on('gameConfig', (data) => {
         if (data && data.gameId === 'timer') {

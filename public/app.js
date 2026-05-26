@@ -317,7 +317,7 @@
     // ===== Games =====
     const GAME_DEVELOPMENT_NOTICE = 'Đang phát triển, có thể gặp sự cố...';
     // Whitelist game đã ổn định — không hiển thị cảnh báo "Đang phát triển"
-    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'nhietdo', 'level-quest', 'timer', 'liveTranslate']);
+    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'nhietdo', 'bancung', 'level-quest', 'timer', 'liveTranslate']);
 
     function renderGameDevelopmentNotice(game) {
         if (STABLE_GAMES.has(game.id)) return '';
@@ -329,7 +329,7 @@
         games = await res.json();
         games.push({
             id: 'liveTranslate',
-            name: 'DỊCH VÀ ĐỌC LIVE',
+            name: 'Dịch Thuật LIVE',
             description: 'Dịch bình luận, đọc bình luận và phụ đề giọng Creator cho OBS.',
             icon: '🌐',
             virtual: true,
@@ -546,6 +546,15 @@
                     });
                 } catch (e) { console.warn('[quick-launch] nhietdo control fail:', e); }
                 break;
+            case 'bancung':
+                try {
+                    await fetch('/api/games/bancung/control', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cmd: action })   // 'start' | 'stop' | 'reset'
+                    });
+                } catch (e) { console.warn('[quick-launch] bancung control fail:', e); }
+                break;
             case 'level-quest': {
                 const f = document.getElementById('lq-frame');
                 try { f?.contentWindow?.postMessage({ type: 'quickLaunch', action }, '*'); } catch (e) {}
@@ -650,8 +659,10 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-nhietdo', 'game-liveTranslate');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-nhietdo', 'game-bancung', 'game-liveTranslate');
         document.body.classList.add('game-' + gameId);
+        // Auto-reload OBS overlay của game này — tránh cache stale khi user mới mở game
+        try { socket && socket.emit('overlay:reload', { gameId }); } catch (e) {}
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
             document.getElementById('police-popup')?.setAttribute('hidden', '');
@@ -663,6 +674,7 @@
         else if (gameId === 'vipwelcome') openVipWelcome(game);
         else if (gameId === 'votecomment') openVoteComment(game);
         else if (gameId === 'nhietdo') openNhietDo(game);
+        else if (gameId === 'bancung') openBanCung(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
         else if (gameId === 'level-quest') showView('view-level-quest');
         else if (gameId === 'timer') showView('view-timer');
@@ -682,6 +694,15 @@
             window.HpNhietDoPanel.open(socket);
         } else {
             console.error('[nhietdo] HpNhietDoPanel chưa load');
+        }
+    }
+
+    function openBanCung(game) {
+        if (!window.__giftSheet) window.__giftSheet = giftSheet;
+        if (window.HpBanCungPanel && typeof window.HpBanCungPanel.open === 'function') {
+            window.HpBanCungPanel.open(socket);
+        } else {
+            console.error('[bancung] HpBanCungPanel chưa load');
         }
     }
 

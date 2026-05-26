@@ -114,11 +114,19 @@ const GAMES = {
     },
     nhietdo: {
         id: 'nhietdo',
-        name: 'Biểu Cảm Nhiệt Độ',
+        name: 'Biểu Cảm Nhiệt',
         description: 'Thanh nhiệt 0-100°C tăng theo quà, tự giảm khi không có quà — càng nóng càng nhiều lửa trên overlay.',
         icon: '🌡',
         overlayPath: '/overlay/nhietdo',
         defaultConfig: makeDefaultNhietDoConfig()
+    },
+    bancung: {
+        id: 'bancung',
+        name: 'Bắn Cung',
+        description: 'Khán giả tặng quà = bắn cung vào idol. Trừ máu hình trái tim, có giáp / hồi máu / hồi sinh — 8 skin cung tên.',
+        icon: '🏹',
+        overlayPath: '/overlay/bancung',
+        defaultConfig: makeDefaultBanCungConfig()
     },
     'level-quest': {
         id: 'level-quest',
@@ -304,6 +312,105 @@ function makeDefaultNhietDoConfig() {
     };
 }
 
+// ====== Bắn Cung — defaults ======
+// HP hình trái tim (0..maxHearts). Mỗi gift bắn 1 hoặc 3 mũi tên (theo gán).
+// Server giữ HP authoritative, emit shot events cho overlay animate.
+//
+// PRESET BUNDLES — apply via cmd:preset
+const BANCUNG_PRESETS = {
+    easy:     { maxHearts: 20, damagePerShot: 0.20, regenPerSecond: 0.3, idleBeforeRegen: 2, criticalChance: 3,  headshotChance: 0 },
+    normal:   { maxHearts: 10, damagePerShot: 0.25, regenPerSecond: 0.2, idleBeforeRegen: 3, criticalChance: 5,  headshotChance: 0 },
+    hardcore: { maxHearts: 5,  damagePerShot: 1.0,  regenPerSecond: 0,   idleBeforeRegen: 10, criticalChance: 10, headshotChance: 0 },
+    boss:     { maxHearts: 50, damagePerShot: 0.5,  regenPerSecond: 0.5, idleBeforeRegen: 3, criticalChance: 10, headshotChance: 20 },
+    sandbox:  { maxHearts: 999, damagePerShot: 0,   regenPerSecond: 0,   idleBeforeRegen: 1, criticalChance: 0,  headshotChance: 0 }
+};
+
+function makeDefaultBanCungConfig() {
+    return {
+        enabled: true,
+        sessionActive: true,
+        // ===== HP =====
+        maxHearts: 10,
+        initialHearts: 10,            // máu khởi đầu khi reset (null = full)
+        damagePerShot: 0.25,          // trái tim mất mỗi mũi tên
+        // ===== Regen =====
+        regenPerSecond: 0.2,          // trái tim hồi mỗi giây khi idle
+        idleBeforeRegen: 3,           // sau N giây không bị bắn → bắt đầu hồi
+        // ===== Chết / hồi sinh =====
+        reviveWindowSec: 5,           // cửa sổ thời gian chờ quà hồi sinh
+        autoReviveAfterWindow: true,  // nếu không ai tặng quà → tự sống lại
+        autoReviveHearts: 5,          // số trái tim khi tự hồi sinh
+        reviveProtectionSec: 1,       // giáp bất tử khi vừa hồi sinh (giây) — ngắn để không chặn quá nhiều shot
+        // ===== Quà gán =====
+        // shotGifts: { giftId, giftName, giftImage, shots } — shots = 1 hoặc 3
+        // healGifts: { giftId, giftName, giftImage, healHearts }
+        // reviveGifts: { giftId, giftName, giftImage } — chỉ kích hoạt khi HP=0
+        // shieldGifts: { giftId, giftName, giftImage, durationSec }
+        shotGifts: [],
+        healGifts: [],
+        reviveGifts: [],
+        shieldGifts: [],
+        // ===== Hiển thị =====
+        display: {
+            heartsXPercent: 50,        // vị trí hàng trái tim (top center mặc định)
+            heartsYPercent: 14,
+            heartsScale: 100,          // 30..250
+            bowXPercent: 85,           // vị trí bow widget (góc dưới-phải mặc định)
+            bowYPercent: 80,
+            bowScale: 100,
+            bowSkin: 'classic',        // 8 skins
+            heartStyle: 'pixel',       // 'pixel' | 'glossy' | 'fire' | 'crystal'
+            showShooterName: true,     // tên người bắn bay lên khi gây sát thương
+            showDamageText: true,      // -0.25 popup
+            redFlashIntensity: 60,     // 0..100 — cường độ chớp đỏ khi bị bắn
+            deathTintOpacity: 75,      // 0..100 — độ mờ đen khi chết
+            showBowWidget: true,       // có hiển thị widget cung tên không
+            showHearts: true,
+            showTopContrib: true,
+            topContribPos: 'bottom-left',
+            arrowDurationMs: 700,      // tốc độ mũi tên bay (ngắn hơn = nhanh)
+            burstDelayMs: 280,         // delay giữa các mũi trong burst (3 phát)
+            autoAimBow: true,          // tự xoay bow widget hướng về điểm trúng
+            // Điểm trúng (target zone) — mũi tên bay đến vùng này.
+            // Mặc định trùng vị trí hàng trái tim. User có thể chỉnh để mũi tên trúng vào
+            // mặt/người streamer (tránh "văng quá xa thì không trúng người").
+            impactXPercent: 50,
+            impactYPercent: 18,
+            impactSpread: 6,           // % bán kính tản đạn (0..30)
+            // Phím tắt cho streamer (chạy global khi app focus, không khi đang gõ input)
+            hotkeyFire: 'X',           // bắn 1 mũi
+            hotkeyHeal: 'H',           // +1 ♥
+            hotkeyShield: 'B',         // giáp 5s
+            hotkeyKill: '',            // mặc định tắt — quá nguy hiểm để gán mặc định
+            hotkeyRevive: 'R',
+            globalHotkeys: false,      // bật = phím hoạt động cả khi app không focus (Electron)
+            // ===== VISUAL POLISH =====
+            showArrowTrail: true,      // streak dài sau mũi tên
+            showArrowUsername: true,   // tên user bay theo mũi tên
+            showHitParticles: true,    // lông + bụi văng khi trúng
+            heartShakeLowHp: true,     // hàng tim rung khi HP < 30%
+            slowMotionOnKill: true,    // slo-mo 400ms khi phát kết liễu
+            viewportShakeOnHit: true,  // viewport rung 80ms khi trúng
+            deathCamZoom: true,        // dim + zoom out khi chết
+            showKillingBlow: true,     // banner tên người gây phát kết liễu
+            showPodium: true,          // top-3 podium khi kết thúc phiên
+            showSurvivalTimer: true,   // đồng hồ "sống sót"
+            // ===== GAMEPLAY DEPTH =====
+            criticalChance: 5,         // % per shot — critical 2-3x damage
+            criticalMultiplier: 3,
+            comboEnabled: true,
+            comboWindowSec: 4,         // shot trong N giây tiếp = combo
+            comboMaxMultiplier: 3,     // 1x → 3x max
+            headshotEnabled: false,    // bật riêng — vùng nhỏ x2 damage
+            headshotChance: 0,         // % roll
+            headshotMultiplier: 2,
+            bowChargeEnabled: false,   // bật cơ chế nạp năng lượng
+            bowChargePerGift: 12,      // % charge mỗi quà
+            bowChargeFullShots: 10     // số mũi auto-fire khi full
+        }
+    };
+}
+
 // Migrate config cũ (single-profile) sang multi-profile schema.
 // Config v1 (cũ): { enabled, userRules, globalJoin, globalGift, queue, display }
 // Config v2 (mới): { enabled, activeProfileId, profiles: [...], queue, display }
@@ -435,6 +542,12 @@ for (const gId of Object.keys(GAMES)) {
 // Migrate vipwelcome config từ schema cũ (single profile) sang multi-profile.
 if (appConfig.games.vipwelcome) {
     appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
+}
+// Backfill bancung display defaults — khi thêm key mới (autoAimBow / impact* / hotkey*) vào
+// defaultConfig, config cũ đã save không có → merge default vào cho user.
+if (appConfig.games.bancung) {
+    const def = makeDefaultBanCungConfig();
+    appConfig.games.bancung.display = { ...def.display, ...(appConfig.games.bancung.display || {}) };
 }
 appConfig.liveTranslate = {
     ...DEFAULT_LIVE_TRANSLATE_CONFIG,
@@ -2197,6 +2310,16 @@ function emitGift(g) {
             repeatCount: g.repeatCount || 1
         });
     } catch (e) { /* non-fatal */ }
+    // Bắn Cung — quà bắn cung / hồi máu / hồi sinh / giáp theo gán
+    try {
+        handleBanCungGift({
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            profilePicture: g.profilePicture || enriched.image,
+            giftId: g.giftId,
+            repeatCount: g.repeatCount || 1
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 function makeTikTokConnectOptions(extra = {}) {
@@ -2686,6 +2809,11 @@ app.post('/api/games/:id/config', (req, res) => {
         try { nhietDoApplyConfigToState(appConfig.games.nhietdo); } catch (e) {}
         broadcastNhietDoState({ immediate: true });
     }
+    if (g.id === 'bancung') {
+        try { banCungApplyConfigToState(appConfig.games.bancung); } catch (e) {}
+        try { global.__bancungApplyHotkeys?.(appConfig.games.bancung); } catch (e) {}
+        broadcastBanCungState({ immediate: true });
+    }
     const newEnabled = appConfig.games[g.id].enabled !== false;
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
@@ -2704,6 +2832,9 @@ app.post('/api/games/:id/config', (req, res) => {
             // Khi tắt game → giảm temp về min ngay để overlay clear hiệu ứng lửa
             nhietDoState.temp = nhietDoState.tempMin;
             broadcastNhietDoState({ immediate: true });
+        } else if (g.id === 'bancung') {
+            // Khi tắt → reset HP về full để khi bật lại không bị "chết treo"
+            banCungReset();
         }
         // Generic event cho mọi game — overlay nào lắng nghe sẽ tự clear
         io.emit('gameDisabled', { gameId: g.id, ts: Date.now() });
@@ -3886,6 +4017,7 @@ app.post('/api/games/nhietdo/control', (req, res) => {
         appConfig.games.nhietdo.sessionActive = true;
         saveAppConfig();
         io.emit('gameConfig', { gameId: 'nhietdo', config: appConfig.games.nhietdo });
+        io.emit('overlay:reload', { gameId: 'nhietdo' });
         broadcastNhietDoState({ immediate: true });
         console.log('[nhietdo] SESSION START');
     } else if (cmd === 'stop') {
@@ -3953,6 +4085,541 @@ app.get('/api/games/nhietdo/asset/:fn', (req, res) => {
     const fp = path.join(NHIETDO_ASSETS_DIR, fn);
     if (!fs.existsSync(fp)) return res.status(404).end();
     res.sendFile(fp);
+});
+
+// ============================================================
+// BẮN CUNG — live state + gift hook (shot/heal/revive/shield) + regen tick
+// ============================================================
+// In-memory state — restart app reset về maxHearts.
+// HP authoritative ở server. Mọi shot/heal/revive/shield đi qua handlers dưới đây.
+let banCungState = {
+    hp: 10,
+    maxHp: 10,
+    lastDamageAt: 0,
+    deadAt: 0,                  // ts khi HP về 0 (0 = đang sống)
+    shieldUntil: 0,             // ts hết hiệu lực giáp
+    userContrib: {},            // uniqueId(lower) → { totalDamage, totalShots, nickname, avatar, lastAt }
+    pendingBurst: 0,            // số mũi đang trong burst chờ bắn (visual sync)
+    // ===== Advanced features state =====
+    comboCount: 0,              // chuỗi shot liên tiếp
+    comboExpiresAt: 0,          // ts khi combo break
+    firstBloodUid: '',          // user đầu tiên gây sát thương phiên này
+    sessionStartedAt: 0,        // ts khi phiên bắt đầu
+    survivalRecordSec: 0,       // kỷ lục thời gian sống sót tốt nhất
+    bowCharge: 0                // 0..100% bow charge meter
+};
+let banCungLastBroadcast = 0;
+let banCungPendingBroadcast = null;
+let banCungLastRegenAt = Date.now();
+let banCungAutoReviveTimer = null;
+
+function banCungTopList(limit = 5) {
+    return Object.values(banCungState.userContrib || {})
+        .filter(u => u && (u.totalDamage > 0 || u.totalShots > 0))
+        .sort((a, b) => b.totalDamage - a.totalDamage)
+        .slice(0, limit)
+        .map(u => ({
+            uniqueId: u.uniqueId,
+            nickname: u.nickname || u.uniqueId,
+            avatar: u.avatar || '',
+            totalDamage: Math.round((u.totalDamage || 0) * 100) / 100,
+            totalShots: u.totalShots || 0
+        }));
+}
+
+function banCungSnapshot() {
+    const cfg = appConfig.games?.bancung;
+    const now = Date.now();
+    const combo = (banCungState.comboExpiresAt > now) ? banCungState.comboCount : 0;
+    return {
+        hp: Math.round(banCungState.hp * 100) / 100,
+        maxHp: banCungState.maxHp,
+        deadAt: banCungState.deadAt || 0,
+        shieldUntil: banCungState.shieldUntil || 0,
+        shielded: (banCungState.shieldUntil || 0) > now,
+        lastDamageAt: banCungState.lastDamageAt,
+        reviveWindowMsLeft: banCungState.deadAt
+            ? Math.max(0, ((cfg?.reviveWindowSec || 5) * 1000) - (now - banCungState.deadAt))
+            : 0,
+        sessionActive: cfg ? (cfg.sessionActive !== false) : true,
+        enabled: cfg ? (cfg.enabled !== false) : true,
+        top: banCungTopList(5),
+        // Advanced features
+        comboCount: combo,
+        comboExpiresAt: banCungState.comboExpiresAt,
+        bowCharge: Math.round(banCungState.bowCharge),
+        sessionStartedAt: banCungState.sessionStartedAt,
+        survivalSec: banCungState.sessionStartedAt ? Math.floor((now - banCungState.sessionStartedAt) / 1000) : 0,
+        survivalRecordSec: banCungState.survivalRecordSec,
+        updatedAt: now
+    };
+}
+
+function broadcastBanCungState({ immediate = false } = {}) {
+    const send = () => {
+        banCungLastBroadcast = Date.now();
+        banCungPendingBroadcast = null;
+        io.emit('bancung:state', banCungSnapshot());
+    };
+    if (immediate) {
+        if (banCungPendingBroadcast) { clearTimeout(banCungPendingBroadcast); banCungPendingBroadcast = null; }
+        return send();
+    }
+    const now = Date.now();
+    const wait = Math.max(0, 200 - (now - banCungLastBroadcast));
+    if (banCungPendingBroadcast) return;
+    banCungPendingBroadcast = setTimeout(send, wait);
+}
+
+function banCungClampHp(v, maxOverride) {
+    const max = maxOverride != null ? maxOverride : banCungState.maxHp;
+    if (!isFinite(v)) v = 0;
+    return Math.max(0, Math.min(max, v));
+}
+
+function banCungApplyConfigToState(cfg) {
+    if (!cfg) cfg = makeDefaultBanCungConfig();
+    const prevMax = banCungState.maxHp;
+    const newMax = Math.max(1, Number(cfg.maxHearts) || 10);
+    banCungState.maxHp = newMax;
+    if (prevMax !== newMax) {
+        // Scale current HP nếu vượt max mới
+        banCungState.hp = banCungClampHp(banCungState.hp, newMax);
+    }
+}
+
+function banCungReset() {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    banCungApplyConfigToState(cfg);
+    const init = cfg.initialHearts != null ? Number(cfg.initialHearts) : banCungState.maxHp;
+    banCungState.hp = banCungClampHp(init);
+    banCungState.lastDamageAt = 0;
+    banCungState.deadAt = 0;
+    banCungState.shieldUntil = 0;
+    banCungState.userContrib = {};
+    banCungState.pendingBurst = 0;
+    banCungState.comboCount = 0;
+    banCungState.comboExpiresAt = 0;
+    banCungState.firstBloodUid = '';
+    banCungState.sessionStartedAt = Date.now();
+    banCungState.bowCharge = 0;
+    if (banCungAutoReviveTimer) { clearTimeout(banCungAutoReviveTimer); banCungAutoReviveTimer = null; }
+    broadcastBanCungState({ immediate: true });
+}
+
+function banCungSetHp(hp) {
+    banCungState.hp = banCungClampHp(Number(hp) || 0);
+    // Khi setHp trực tiếp > 0 → reset death/revive timer
+    if (banCungState.hp > 0 && banCungState.deadAt) {
+        banCungState.deadAt = 0;
+        if (banCungAutoReviveTimer) { clearTimeout(banCungAutoReviveTimer); banCungAutoReviveTimer = null; }
+    } else if (banCungState.hp <= 0 && !banCungState.deadAt) {
+        banCungTriggerDeath();
+    }
+    broadcastBanCungState({ immediate: true });
+}
+
+// Apply damage from a single arrow shot. Returns object with damage + flags.
+// flags: { critical, headshot, combo, firstBlood, killingBlow, dealt }
+function banCungApplyShotDamage(contribUser) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    const dCfg = cfg.display || {};
+    const now = Date.now();
+    const flags = { dealt: 0, critical: false, headshot: false, combo: 0, firstBlood: false, killingBlow: false };
+    if (banCungState.deadAt) return flags;
+    if (banCungState.shieldUntil > now) return flags;
+    // Auto-start survival timer on first damage of session
+    if (!banCungState.sessionStartedAt) banCungState.sessionStartedAt = now;
+    let dmg = Math.max(0, Number(cfg.damagePerShot) || 0);
+    if (dmg <= 0) return flags;
+    // Critical hit roll
+    const critChance = Math.max(0, Math.min(100, Number(dCfg.criticalChance) || 0));
+    if (critChance > 0 && Math.random() * 100 < critChance) {
+        flags.critical = true;
+        dmg *= Math.max(1, Number(dCfg.criticalMultiplier) || 2);
+    }
+    // Headshot roll (independent of critical)
+    if (dCfg.headshotEnabled && (Number(dCfg.headshotChance) || 0) > 0) {
+        const hsChance = Math.max(0, Math.min(100, Number(dCfg.headshotChance) || 0));
+        if (Math.random() * 100 < hsChance) {
+            flags.headshot = true;
+            dmg *= Math.max(1, Number(dCfg.headshotMultiplier) || 2);
+        }
+    }
+    // Combo multiplier (chains within comboWindowSec)
+    if (dCfg.comboEnabled !== false) {
+        const windowMs = Math.max(500, (Number(dCfg.comboWindowSec) || 4) * 1000);
+        if (banCungState.comboExpiresAt > now) {
+            banCungState.comboCount += 1;
+        } else {
+            banCungState.comboCount = 1;
+        }
+        banCungState.comboExpiresAt = now + windowMs;
+        flags.combo = banCungState.comboCount;
+        const step = 0.25;     // each combo +25%
+        const maxMul = Math.max(1, Number(dCfg.comboMaxMultiplier) || 3);
+        const comboMul = Math.min(maxMul, 1 + (banCungState.comboCount - 1) * step);
+        dmg *= comboMul;
+    }
+    // Apply damage
+    const before = banCungState.hp;
+    banCungState.hp = banCungClampHp(before - dmg);
+    const actual = before - banCungState.hp;
+    flags.dealt = actual;
+    banCungState.lastDamageAt = now;
+    // First blood tracking — first shot to deal damage in session
+    if (!banCungState.firstBloodUid && contribUser?.uniqueId && actual > 0) {
+        banCungState.firstBloodUid = String(contribUser.uniqueId).toLowerCase();
+        flags.firstBlood = true;
+    }
+    // Top contributor
+    if (contribUser && contribUser.uniqueId && actual > 0) {
+        const uid = String(contribUser.uniqueId).toLowerCase();
+        const u = banCungState.userContrib[uid] || {
+            uniqueId: contribUser.uniqueId, nickname: '', avatar: '',
+            totalDamage: 0, totalShots: 0, lastAt: 0
+        };
+        u.totalDamage += actual;
+        u.totalShots += 1;
+        u.nickname = contribUser.nickname || u.nickname || contribUser.uniqueId;
+        u.avatar = contribUser.avatar || u.avatar || '';
+        u.lastAt = now;
+        banCungState.userContrib[uid] = u;
+    }
+    // Killing blow detection (HP went to 0 via this shot)
+    if (banCungState.hp <= 0 && !banCungState.deadAt) {
+        flags.killingBlow = true;
+        banCungTriggerDeath(contribUser);
+    }
+    return flags;
+}
+
+function banCungTriggerDeath(killerUser) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    banCungState.deadAt = Date.now();
+    banCungState.shieldUntil = 0;
+    // Survival record tracking
+    if (banCungState.sessionStartedAt) {
+        const survSec = Math.floor((banCungState.deadAt - banCungState.sessionStartedAt) / 1000);
+        if (survSec > banCungState.survivalRecordSec) {
+            banCungState.survivalRecordSec = survSec;
+        }
+    }
+    io.emit('bancung:death', {
+        ts: banCungState.deadAt,
+        reviveWindowSec: Number(cfg.reviveWindowSec) || 5,
+        killer: killerUser ? { uniqueId: killerUser.uniqueId, nickname: killerUser.nickname, avatar: killerUser.avatar } : null,
+        podium: banCungTopList(3),
+        survivalSec: banCungState.sessionStartedAt ? Math.floor((banCungState.deadAt - banCungState.sessionStartedAt) / 1000) : 0,
+        survivalRecordSec: banCungState.survivalRecordSec
+    });
+    console.log('[bancung] DEATH' + (killerUser ? ` by ${killerUser.nickname || killerUser.uniqueId}` : '') + ' — chờ revive ' + (cfg.reviveWindowSec || 5) + 's');
+    // Auto-revive after window
+    if (banCungAutoReviveTimer) { clearTimeout(banCungAutoReviveTimer); banCungAutoReviveTimer = null; }
+    const winMs = Math.max(1000, (Number(cfg.reviveWindowSec) || 5) * 1000);
+    banCungAutoReviveTimer = setTimeout(() => {
+        const c = appConfig.games.bancung || makeDefaultBanCungConfig();
+        if (banCungState.deadAt && c.autoReviveAfterWindow !== false) {
+            banCungDoRevive(Math.max(0.5, Number(c.autoReviveHearts) || 5), null, true);
+        }
+    }, winMs);
+}
+
+function banCungDoRevive(hearts, contribUser, isAuto) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    if (!banCungState.deadAt) {
+        // Đang sống — heal bình thường thay vì revive
+        return banCungDoHeal(hearts, contribUser);
+    }
+    banCungState.deadAt = 0;
+    banCungState.hp = banCungClampHp(Number(hearts) || cfg.autoReviveHearts || 5);
+    if (banCungAutoReviveTimer) { clearTimeout(banCungAutoReviveTimer); banCungAutoReviveTimer = null; }
+    // Tặng giáp ngắn cho người vừa hồi sinh khỏi spam-kill
+    const protectSec = Math.max(0, Number(cfg.reviveProtectionSec) || 0);
+    if (protectSec > 0) banCungState.shieldUntil = Date.now() + protectSec * 1000;
+    io.emit('bancung:revive', {
+        ts: Date.now(),
+        hearts: banCungState.hp,
+        protectSec,
+        auto: !!isAuto,
+        user: contribUser ? { uniqueId: contribUser.uniqueId, nickname: contribUser.nickname, avatar: contribUser.avatar } : null
+    });
+    console.log(`[bancung] REVIVE → ${banCungState.hp.toFixed(2)} ♥` + (isAuto ? ' (auto)' : ` by ${contribUser?.nickname || contribUser?.uniqueId}`));
+    broadcastBanCungState({ immediate: true });
+}
+
+function banCungDoHeal(hearts, contribUser) {
+    if (banCungState.deadAt) return; // Heal không kích hoạt khi chết — phải dùng revive
+    const before = banCungState.hp;
+    banCungState.hp = banCungClampHp(before + (Number(hearts) || 0));
+    const actual = banCungState.hp - before;
+    if (actual > 0) {
+        io.emit('bancung:heal', {
+            ts: Date.now(),
+            hearts: actual,
+            user: contribUser ? { uniqueId: contribUser.uniqueId, nickname: contribUser.nickname, avatar: contribUser.avatar } : null
+        });
+        broadcastBanCungState({ immediate: true });
+    }
+}
+
+function banCungDoShield(durationSec, contribUser) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    if (banCungState.deadAt) return;
+    const sec = Math.max(1, Number(durationSec) || 5);
+    const now = Date.now();
+    // Stack: nếu đang có giáp, kéo dài thêm chứ không reset
+    const cur = Math.max(banCungState.shieldUntil || 0, now);
+    banCungState.shieldUntil = cur + sec * 1000;
+    io.emit('bancung:shield', {
+        ts: now,
+        durationSec: sec,
+        until: banCungState.shieldUntil,
+        user: contribUser ? { uniqueId: contribUser.uniqueId, nickname: contribUser.nickname, avatar: contribUser.avatar } : null
+    });
+    broadcastBanCungState({ immediate: true });
+}
+
+// Spawn N arrow shots in sequence (1 hoặc 3). Mỗi shot:
+//   1. delay theo burstDelayMs (shot 0 = ngay)
+//   2. emit 'bancung:shot' event cho overlay animate
+//   3. apply damage sau khi arrow hit (server delay = arrowDurationMs)
+function banCungFireBurst(shotCount, contribUser, giftMeta) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    const burstDelay = Math.max(0, Number(cfg.display?.burstDelayMs) || 280);
+    const arrowDur  = Math.max(100, Number(cfg.display?.arrowDurationMs) || 700);
+    const n = Math.max(1, Math.min(20, parseInt(shotCount, 10) || 1));
+    for (let i = 0; i < n; i++) {
+        const launchAt = i * burstDelay;
+        setTimeout(() => {
+            // Pre-check shield/dead status AT LAUNCH — overlay needs to know whether
+            // to animate "hit and disappear" hoặc "fly through and pass" (shield deflect).
+            const now0 = Date.now();
+            const willBlock = banCungState.deadAt > 0 || (banCungState.shieldUntil || 0) > now0;
+            io.emit('bancung:shot', {
+                ts: now0,
+                seed: Math.random(),
+                arrowDurationMs: arrowDur,
+                blocked: willBlock,           // true = arrow sẽ bị shield chặn → bay xuyên
+                user: contribUser ? { uniqueId: contribUser.uniqueId, nickname: contribUser.nickname, avatar: contribUser.avatar } : null,
+                gift: giftMeta || null
+            });
+            // Apply damage when arrow lands (delayed by arrowDur)
+            setTimeout(() => {
+                const flags = banCungApplyShotDamage(contribUser);
+                if (flags.dealt > 0) {
+                    io.emit('bancung:hit', {
+                        ts: Date.now(),
+                        damage: flags.dealt,
+                        hp: banCungState.hp,
+                        critical: flags.critical,
+                        headshot: flags.headshot,
+                        combo: flags.combo,
+                        firstBlood: flags.firstBlood,
+                        killingBlow: flags.killingBlow,
+                        user: contribUser ? { uniqueId: contribUser.uniqueId, nickname: contribUser.nickname, avatar: contribUser.avatar } : null
+                    });
+                } else {
+                    // Shielded — emit blocked event for visual ping
+                    io.emit('bancung:blocked', { ts: Date.now() });
+                }
+                broadcastBanCungState({ immediate: true });
+            }, arrowDur);
+        }, launchAt);
+    }
+}
+
+function banCungAddBowCharge(amount, contribUser) {
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    if (cfg.display?.bowChargeEnabled !== true) return;
+    const before = banCungState.bowCharge || 0;
+    banCungState.bowCharge = Math.min(100, before + (Number(amount) || 0));
+    io.emit('bancung:charge', { value: banCungState.bowCharge, delta: banCungState.bowCharge - before });
+    if (banCungState.bowCharge >= 100) {
+        const n = Math.max(1, Math.min(30, parseInt(cfg.display?.bowChargeFullShots, 10) || 10));
+        banCungState.bowCharge = 0;
+        io.emit('bancung:autoburst', { count: n, ts: Date.now() });
+        // Fire after small delay so charge animation completes
+        setTimeout(() => {
+            banCungFireBurst(n, contribUser || { uniqueId: 'crowd', nickname: 'KHÁN GIẢ' }, { id: 'charge', name: 'AUTO-BURST', image: '' });
+        }, 600);
+    }
+}
+
+function handleBanCungGift({ uniqueId, nickname, profilePicture, giftId, repeatCount }) {
+    if (appConfig.games?.bancung?.enabled === false) return;
+    if (appConfig.games?.bancung?.sessionActive === false) return;
+    const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+    const contribUser = uniqueId ? { uniqueId, nickname, avatar: profilePicture } : null;
+    const repeat = Math.max(1, Number(repeatCount) || 1);
+    const gid = String(giftId);
+    // Bow charge — every accepted gift charges the meter
+    if (cfg.display?.bowChargeEnabled === true) {
+        const charge = (Number(cfg.display?.bowChargePerGift) || 12) * repeat;
+        banCungAddBowCharge(charge, contribUser);
+    }
+
+    // Priority order: shield > revive > heal > shot
+    // (shield ưu tiên cao nhất vì có thể bị spam = chết oan; revive trên heal vì có thể đang ở HP=0)
+    const findInList = (list) => Array.isArray(list) ? list.find(g => String(g.giftId) === gid) : null;
+
+    const shieldHit = findInList(cfg.shieldGifts);
+    if (shieldHit) {
+        const dur = Math.max(1, Number(shieldHit.durationSec) || 5) * repeat;
+        banCungDoShield(dur, contribUser);
+        return;
+    }
+    const reviveHit = findInList(cfg.reviveGifts);
+    if (reviveHit && banCungState.deadAt) {
+        // Hồi sinh với 50% HP × repeat (clamped)
+        const reviveHp = Math.min(banCungState.maxHp, Math.max(1, banCungState.maxHp * 0.5 * repeat));
+        banCungDoRevive(reviveHp, contribUser, false);
+        return;
+    }
+    const healHit = findInList(cfg.healGifts);
+    if (healHit && !banCungState.deadAt) {
+        const heal = Math.max(0, Number(healHit.healHearts) || 1) * repeat;
+        banCungDoHeal(heal, contribUser);
+        return;
+    }
+    const shotHit = findInList(cfg.shotGifts);
+    if (shotHit) {
+        const shotsPerGift = Math.max(1, Math.min(20, parseInt(shotHit.shots, 10) || 1));
+        const totalShots = shotsPerGift * repeat;
+        const giftMeta = { id: shotHit.giftId, name: shotHit.giftName, image: shotHit.giftImage };
+        banCungFireBurst(totalShots, contribUser, giftMeta);
+        return;
+    }
+}
+
+// Regen tick — 500ms. Hồi máu khi idle > idleBeforeRegen + còn sống
+function banCungRegenTick() {
+    const now = Date.now();
+    const dt = (now - banCungLastRegenAt) / 1000;
+    banCungLastRegenAt = now;
+    const cfg = appConfig.games?.bancung;
+    if (!cfg || cfg.enabled === false) return;
+    if (cfg.sessionActive === false) return;
+    if (banCungState.deadAt) return;
+    if (banCungState.hp >= banCungState.maxHp) return;
+    const idleSec = banCungState.lastDamageAt ? (now - banCungState.lastDamageAt) / 1000 : Infinity;
+    if (idleSec < (Number(cfg.idleBeforeRegen) || 0)) return;
+    const rate = Number(cfg.regenPerSecond) || 0;
+    if (rate <= 0) return;
+    const inc = rate * dt;
+    const before = banCungState.hp;
+    banCungState.hp = banCungClampHp(before + inc);
+    if (Math.abs(banCungState.hp - before) > 0.005) {
+        broadcastBanCungState();
+    }
+}
+setInterval(banCungRegenTick, 500);
+
+// Init state from config + register global hotkeys at startup
+try { banCungApplyConfigToState(appConfig.games.bancung || makeDefaultBanCungConfig()); } catch (e) {}
+setTimeout(() => { try { global.__bancungApplyHotkeys?.(appConfig.games.bancung); } catch (e) {} }, 1500);
+try {
+    const cfg0 = appConfig.games.bancung || makeDefaultBanCungConfig();
+    const init = cfg0.initialHearts != null ? Number(cfg0.initialHearts) : banCungState.maxHp;
+    banCungState.hp = banCungClampHp(init);
+} catch (e) {}
+
+// Overlay route
+app.get('/overlay/bancung', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'bancung', 'overlay.html'));
+});
+
+app.get('/api/games/bancung/livestate', (req, res) => {
+    res.json(banCungSnapshot());
+});
+
+// Control endpoint — reset / setHp / damage / heal / revive / shield / start / stop / testShot
+app.post('/api/games/bancung/control', (req, res) => {
+    const cmd = String(req.body?.cmd || '').toLowerCase();
+    if (cmd === 'start') {
+        if (!appConfig.games.bancung) appConfig.games.bancung = makeDefaultBanCungConfig();
+        appConfig.games.bancung.sessionActive = true;
+        saveAppConfig();
+        // Reset session-scoped state for fresh start
+        banCungState.sessionStartedAt = Date.now();
+        banCungState.firstBloodUid = '';
+        banCungState.userContrib = {};
+        banCungState.comboCount = 0;
+        banCungState.comboExpiresAt = 0;
+        banCungState.bowCharge = 0;
+        io.emit('gameConfig', { gameId: 'bancung', config: appConfig.games.bancung });
+        io.emit('overlay:reload', { gameId: 'bancung' });
+        broadcastBanCungState({ immediate: true });
+        console.log('[bancung] SESSION START');
+    } else if (cmd === 'stop') {
+        if (!appConfig.games.bancung) appConfig.games.bancung = makeDefaultBanCungConfig();
+        // Emit podium just before stopping (for end-of-session display)
+        if (appConfig.games.bancung.display?.showPodium !== false && banCungState.sessionStartedAt) {
+            const survSec = Math.floor((Date.now() - banCungState.sessionStartedAt) / 1000);
+            if (survSec > banCungState.survivalRecordSec) banCungState.survivalRecordSec = survSec;
+            io.emit('bancung:podium', {
+                ts: Date.now(),
+                top3: banCungTopList(3),
+                survivalSec: survSec,
+                survivalRecordSec: banCungState.survivalRecordSec
+            });
+        }
+        appConfig.games.bancung.sessionActive = false;
+        saveAppConfig();
+        io.emit('gameConfig', { gameId: 'bancung', config: appConfig.games.bancung });
+        broadcastBanCungState({ immediate: true });
+        console.log('[bancung] SESSION STOP');
+    } else if (cmd === 'preset') {
+        const presetId = String(req.body?.preset || '').toLowerCase();
+        const preset = BANCUNG_PRESETS[presetId];
+        if (!preset) return res.status(400).json({ ok: false, error: 'preset không hợp lệ — easy|normal|hardcore|boss|sandbox' });
+        if (!appConfig.games.bancung) appConfig.games.bancung = makeDefaultBanCungConfig();
+        const cfg = appConfig.games.bancung;
+        const d = cfg.display = cfg.display || {};
+        // Apply top-level + display fields from preset
+        for (const [k, v] of Object.entries(preset)) {
+            if (k in d) d[k] = v;
+            else cfg[k] = v;
+        }
+        cfg.initialHearts = preset.maxHearts;
+        saveAppConfig();
+        banCungApplyConfigToState(cfg);
+        io.emit('gameConfig', { gameId: 'bancung', config: cfg });
+        broadcastBanCungState({ immediate: true });
+        console.log(`[bancung] PRESET applied: ${presetId}`);
+    } else if (cmd === 'reset') {
+        banCungReset();
+    } else if (cmd === 'sethp') {
+        banCungSetHp(req.body?.hp);
+    } else if (cmd === 'heal') {
+        banCungDoHeal(Number(req.body?.hearts) || 1, null);
+    } else if (cmd === 'damage') {
+        // Simulate 1 shot không qua user
+        const n = Math.max(1, parseInt(req.body?.shots, 10) || 1);
+        banCungFireBurst(n, req.body?.uniqueId ? { uniqueId: req.body.uniqueId, nickname: req.body.nickname || req.body.uniqueId } : null, null);
+    } else if (cmd === 'revive') {
+        const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
+        const h = Number(req.body?.hearts) || cfg.autoReviveHearts || 5;
+        banCungDoRevive(h, null, false);
+    } else if (cmd === 'shield') {
+        banCungDoShield(Number(req.body?.durationSec) || 5, null);
+    } else if (cmd === 'testgift') {
+        handleBanCungGift({
+            uniqueId: req.body?.uniqueId || 'tester',
+            nickname: req.body?.nickname || 'Người Thử',
+            profilePicture: req.body?.profilePicture || '',
+            giftId: req.body?.giftId || '',
+            repeatCount: req.body?.repeatCount || 1
+        });
+    } else if (cmd === 'killshot') {
+        // Direct kill — for testing death/revive flow
+        banCungState.hp = 0;
+        banCungTriggerDeath();
+        broadcastBanCungState({ immediate: true });
+    } else {
+        return res.status(400).json({ ok: false, error: 'cmd phải là start|stop|reset|setHp|heal|damage|revive|shield|testGift|killshot' });
+    }
+    res.json({ ok: true, state: banCungSnapshot() });
 });
 
 // ============================================================
@@ -4713,6 +5380,7 @@ io.on('connection', (socket) => {
     // khi connect (kể cả cửa sổ Khởi động nhanh mở giữa chừng) thay vì chờ broadcast tiếp.
     socket.emit('votecomment:state', voteCommentSnapshot());
     socket.emit('nhietdo:state', nhietDoSnapshot());
+    socket.emit('bancung:state', banCungSnapshot());
     // LEVEL QUEST + TIMER snapshot — overlay mở SAU lab nhận state ngay, không phải
     // Reset OBS mới buộc lab broadcast lại
     if (relayCache.levelquest.cfg)   socket.emit('levelquest:cfg',   relayCache.levelquest.cfg);
@@ -4726,6 +5394,10 @@ io.on('connection', (socket) => {
     socket.on('creatorCaption:debug', (payload) => {
         io.emit('creatorCaption:debug', { ...(payload || {}), ts: Date.now() });
     });
+
+    // Universal overlay reload — panel/app can force ALL OBS browser sources of a game to refresh
+    // Use case: user mở game lần đầu → OBS source bị cache → emit để OBS tự reload
+    socket.on('overlay:reload', (data) => { socket.broadcast.emit('overlay:reload', data || {}); });
 
     // LEVEL QUEST sync — lab broadcasts cfg/state; cache + relay tới mọi overlay
     socket.on('levelquest:cfg',   (data) => { relayCache.levelquest.cfg   = data; socket.broadcast.emit('levelquest:cfg',   data); });
@@ -4765,6 +5437,8 @@ io.on('connection', (socket) => {
                 socket.emit('votecomment:state', voteCommentSnapshot());
                 // Biểu Cảm Nhiệt Độ: state riêng (in-memory)
                 socket.emit('nhietdo:state', nhietDoSnapshot());
+                // Bắn Cung: state riêng (in-memory)
+                socket.emit('bancung:state', banCungSnapshot());
             }
         }
     });

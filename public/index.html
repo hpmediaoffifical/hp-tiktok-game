@@ -1471,20 +1471,17 @@
             <section id="view-nhietdo" class="view game-view nhietdo-view">
                 <header class="game-header">
                     <div>
-                        <h2>🌡 Biểu Cảm Nhiệt Độ</h2>
-                        <div class="game-sub">Thanh nhiệt 0–100°C tăng theo quà, tự giảm khi không có quà — càng nóng càng nhiều lửa trên overlay.</div>
+                        <h2>🌡 Biểu Cảm Nhiệt</h2>
                     </div>
                     <div class="overlay-bar">
-                        <label class="nd-switch" title="Bật / Tắt toàn bộ game (toggle thư viện)"><input id="nd-cfg-enabled" type="checkbox" checked /><span>Bật</span></label>
-                        <button id="nd-btn-session" class="primary small" title="Bắt đầu phiên — overlay nhận quà + hiển thị">▶ BẮT ĐẦU phiên</button>
+                        <button id="nd-btn-session" class="primary small" title="Bắt đầu phiên — overlay nhận quà + hiển thị">▶ BẮT ĐẦU</button>
                         <span id="nd-session-status" class="nd-session-status">⏸ Sẵn sàng</span>
                         <span class="nd-bar-spacer"></span>
                         <button id="nd-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link</button>
-                        <button id="nd-btn-popout-pin" class="primary small" title="Mở overlay ghim trên top — có title bar để KÉO cửa sổ, nền trong suốt">📌 Ghim trên top</button>
-                        <button id="nd-btn-popout-edit" class="ghost small" title="Mở overlay chế độ sửa — kéo chuột để chỉnh vị trí thanh nhiệt trong overlay, cuộn chuột để zoom">✏ Sửa vị trí thanh</button>
+                        <button id="nd-btn-popout-edit" class="ghost small" title="Mở overlay chế độ sửa — kéo chuột chỉnh vị trí thanh nhiệt, cuộn để zoom">✏ Sửa Overlay</button>
                         <button id="nd-btn-reload" class="ghost small" title="Buộc overlay reload">🔄 Reload</button>
                         <button id="nd-btn-reset" class="danger small" title="Reset nhiệt độ + xoá top contributor">↺ Reset nhiệt</button>
-                        <button id="nd-btn-save" class="primary small" title="Lưu tất cả cấu hình ngay (mặc định tự lưu sau 0.35s)">💾 Lưu tất cả</button>
+                        <button id="nd-btn-save" class="primary small" title="Lưu tất cả cấu hình ngay">💾 Lưu tất cả</button>
                     </div>
                 </header>
 
@@ -1508,10 +1505,56 @@
                 </div>
             </section>
 
+            <!-- ============ GAME VIEW: Bắn Cung ============ -->
+            <section id="view-bancung" class="view game-view bancung-view">
+                <header class="game-header">
+                    <div>
+                        <h2>🏹 Bắn Cung</h2>
+                    </div>
+                    <div class="overlay-bar">
+                        <button id="bc-btn-session" class="primary small" title="Bắt đầu phiên — overlay nhận quà + hiển thị">▶ BẮT ĐẦU</button>
+                        <span id="bc-session-status" class="nd-session-status">⏸ Sẵn sàng</span>
+                        <span class="nd-bar-spacer"></span>
+                        <button id="bc-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link</button>
+                        <button id="bc-btn-popout-edit" class="ghost small" title="Mở overlay chế độ sửa — kéo chuột để chỉnh vị trí hàng tim + bow widget, cuộn để zoom">✏ Sửa Overlay</button>
+                        <button id="bc-btn-reload" class="ghost small" title="Buộc overlay reload">🔄 Reload</button>
+                        <button id="bc-btn-reset" class="danger small" title="Reset máu về full">↺ Reset máu</button>
+                        <button id="bc-btn-save" class="primary small" title="Lưu tất cả cấu hình ngay">💾 Lưu tất cả</button>
+                    </div>
+                </header>
+
+                <div class="game-body bancung-body">
+                    <div class="bc-tabs">
+                        <button class="bc-tab active" data-bc-tab="hp">
+                            <span class="bc-tab-icon" style="--icon-bg:#3a1a25;--icon-fg:#ff6b8a">❤</span>
+                            <span class="bc-tab-text"><b>Cài đặt máu</b><em>HP / sát thương / hồi sinh</em></span>
+                        </button>
+                        <button class="bc-tab" data-bc-tab="gifts">
+                            <span class="bc-tab-icon" style="--icon-bg:#3a2e1a;--icon-fg:#ffd54a">🎁</span>
+                            <span class="bc-tab-text"><b>Quà chỉ định</b><em>Bắn / Hồi / Hồi sinh / Giáp</em></span>
+                        </button>
+                        <button class="bc-tab" data-bc-tab="display">
+                            <span class="bc-tab-icon" style="--icon-bg:#2a1a3a;--icon-fg:#b66bff">🎨</span>
+                            <span class="bc-tab-text"><b>Hiển thị</b><em>Skin / Vị trí / Hiệu ứng</em></span>
+                        </button>
+                        <button class="bc-tab" data-bc-tab="live">
+                            <span class="bc-tab-icon" style="--icon-bg:#1a2a35;--icon-fg:#25f4ee">🎮</span>
+                            <span class="bc-tab-text"><b>Live &amp; Test</b><em>Trạng thái + Mô phỏng quà</em></span>
+                        </button>
+                    </div>
+                    <div class="bc-panes">
+                        <div class="bc-pane active" data-bc-pane="hp" id="bc-hp-pane"></div>
+                        <div class="bc-pane" data-bc-pane="gifts" id="bc-gifts-pane"></div>
+                        <div class="bc-pane" data-bc-pane="display" id="bc-display-pane"></div>
+                        <div class="bc-pane" data-bc-pane="live" id="bc-live-pane"></div>
+                    </div>
+                </div>
+            </section>
+
             <section id="view-live-translate" class="view game-view live-translate-view">
                 <header class="game-header">
                     <div>
-                        <h2>🌐 DỊCH VÀ ĐỌC LIVE</h2>
+                        <h2>🌐 Dịch Thuật LIVE</h2>
                         <div class="game-sub">Dịch bình luận LIVE, đọc bình luận, và phụ đề giọng Creator cho OBS.</div>
                     </div>
                     <div class="overlay-bar">
@@ -2013,6 +2056,8 @@
     <script src="/games/votecomment/votecomment-panel.js"></script>
     <script src="/games/nhietdo/game.js"></script>
     <script src="/games/nhietdo/nhietdo-panel.js"></script>
+    <script src="/games/bancung/game.js"></script>
+    <script src="/games/bancung/bancung-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

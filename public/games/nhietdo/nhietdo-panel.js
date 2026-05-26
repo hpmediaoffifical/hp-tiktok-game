@@ -171,12 +171,12 @@
         if (!btn || !cfg) return;
         const active = cfg.sessionActive !== false;
         if (active) {
-            btn.textContent = '⏸ KẾT THÚC phiên';
+            btn.textContent = '⏸ KẾT THÚC';
             btn.className = 'danger small';
             btn.title = 'Dừng phiên — overlay ẨN hoàn toàn, quà không tăng nhiệt';
             if (status) { status.textContent = '● Đang chạy'; status.className = 'nd-session-status active'; }
         } else {
-            btn.textContent = '▶ BẮT ĐẦU phiên';
+            btn.textContent = '▶ BẮT ĐẦU';
             btn.className = 'primary small';
             btn.title = 'Bắt đầu phiên — overlay nhận quà + hiển thị';
             if (status) { status.textContent = '⏸ Đã dừng'; status.className = 'nd-session-status stopped'; }

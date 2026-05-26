@@ -822,20 +822,21 @@
                 if (pos.includes('right')) $top.style.right  = '24px';
                 else                       $top.style.left   = '24px';
             }
-            // Ambient audio loop — pause if URL missing or audio disabled
+            // Ambient audio loop — pause if URL missing, game disabled, or phiên KẾT THÚC
             const $amb = document.getElementById('nd-audio-ambient');
             const ambUrl = (config.ambientAudio && config.ambientAudio.url) ? config.ambientAudio.url : '';
+            const gameOff = (config.enabled === false) || (config.sessionActive === false);
             if ($amb) {
-                if (ambUrl) {
+                if (ambUrl && !gameOff) {
                     if ($amb.src !== ambUrl && !$amb.src.endsWith(ambUrl)) {
                         $amb.src = ambUrl;
                     }
                     $amb.volume = clampNum((config.ambientAudio.volume ?? 50) / 100, 0, 1);
-                    // play() can fail until user gesture — but on OBS browser source autoplay works
                     if ($amb.paused) $amb.play().catch(() => {});
                 } else {
                     $amb.pause();
-                    $amb.removeAttribute('src');
+                    if (gameOff) { $amb.removeAttribute('src'); $amb.load(); }
+                    else if (!ambUrl) $amb.removeAttribute('src');
                 }
             }
         }
@@ -968,8 +969,22 @@
         socket.on('gameDisabled', ({ gameId }) => {
             if (gameId !== 'nhietdo') return;
             applyTemp(0, 100);
+            // Stop ALL audio when game disabled — no background sound leak
+            try {
+                const $amb = document.getElementById('nd-audio-ambient');
+                const $shot = document.getElementById('nd-audio-shot');
+                if ($amb) { $amb.pause(); $amb.currentTime = 0; $amb.removeAttribute('src'); $amb.load(); }
+                if ($shot) { $shot.pause(); $shot.currentTime = 0; }
+                // Stop any milestone video/audio playing
+                document.querySelectorAll('#nd-milestone-media video, #nd-milestone-media audio').forEach(el => {
+                    el.pause(); el.currentTime = 0; el.removeAttribute('src'); el.load();
+                });
+                document.getElementById('nd-milestone-media')?.classList.remove('show');
+            } catch (e) {}
         });
-        socket.on('overlay:reload', () => location.reload());
+        socket.on('overlay:reload', (data) => {
+            if (!data || !data.gameId || data.gameId === 'nhietdo') location.reload();
+        });
 
         // ===== EDIT MODE — drag thermometer, wheel to zoom =====
         if (isEdit) {
