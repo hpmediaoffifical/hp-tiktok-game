@@ -641,6 +641,7 @@
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-killing" ${d.showKillingBlow !== false ? 'checked' : ''} /> ⚔ Banner "PHÁT KẾT LIỄU"</label>
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-podium" ${d.showPodium !== false ? 'checked' : ''} /> 🏆 Podium top-3 cuối phiên</label>
                 <label class="nd-inline"><input type="checkbox" id="bc-fx-survival" ${d.showSurvivalTimer !== false ? 'checked' : ''} /> ⏱ Đồng hồ sống sót (góc trên-phải)</label>
+                <label class="nd-inline"><input type="checkbox" id="bc-fx-giftlist" ${d.showGiftList !== false ? 'checked' : ''} /> 🎁 Danh sách quà chỉ định trên overlay (kéo trong edit mode)</label>
             </div>
 
             <div class="nd-card">
@@ -694,7 +695,7 @@
         [['bc-fx-trail','showArrowTrail'],['bc-fx-username','showArrowUsername'],['bc-fx-particles','showHitParticles'],
          ['bc-fx-shake-low','heartShakeLowHp'],['bc-fx-slowmo','slowMotionOnKill'],['bc-fx-vp-shake','viewportShakeOnHit'],
          ['bc-fx-deathcam','deathCamZoom'],['bc-fx-killing','showKillingBlow'],['bc-fx-podium','showPodium'],
-         ['bc-fx-survival','showSurvivalTimer'],
+         ['bc-fx-survival','showSurvivalTimer'],['bc-fx-giftlist','showGiftList'],
          ['bc-gp-combo','comboEnabled'],['bc-gp-hs','headshotEnabled'],['bc-gp-charge','bowChargeEnabled']]
         .forEach(([id, key]) => $('#' + id, host)?.addEventListener('change', e => { d[key] = !!e.target.checked; schedulePersist(); }));
         // Range inputs

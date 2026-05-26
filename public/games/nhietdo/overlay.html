@@ -500,6 +500,81 @@
     body.scheme-vietnam .nd-zero, body.scheme-vietnam .nd-ticks { color: #ffcd28; }
     body.scheme-vietnam .nd-deg-text { color: #fff; text-shadow: 0 2px 0 #da251d, 0 0 16px rgba(255,205,40,0.8); }
 
+    /* GIFT LIST OVERLAY — danh sách quà tăng/giảm nhiệt */
+    .nd-giftlist {
+        position: fixed;
+        left: 4%; top: 28%;
+        z-index: 28;
+        pointer-events: none;
+        display: flex; flex-direction: column;
+        gap: 8px;
+        transform-origin: top left;
+    }
+    .nd-gl-card {
+        width: 88px;
+        background: linear-gradient(180deg, var(--gl-bg1, #3a1a25) 0%, var(--gl-bg2, #1a0c14) 100%);
+        border: 2px solid var(--gl-border, #ff5fa3);
+        border-radius: 14px;
+        padding: 8px 6px;
+        display: flex; flex-direction: column;
+        align-items: center; gap: 4px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.15);
+        position: relative;
+    }
+    .nd-gl-card.heat { --gl-bg1:#3a1a10; --gl-bg2:#1a0808; --gl-border:#ff5b2e; }
+    .nd-gl-card.cool { --gl-bg1:#103a3a; --gl-bg2:#081a25; --gl-border:#7cc6ff; }
+    .nd-gl-icon-wrap {
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        background: rgba(0,0,0,0.35);
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden;
+    }
+    .nd-gl-icon-wrap img { max-width: 88%; max-height: 88%; object-fit: contain; }
+    .nd-gl-emoji-fallback { font-size: 30px; }
+    .nd-gl-label {
+        font-size: 11px; font-weight: 800;
+        color: #fff; text-align: center; line-height: 1.1;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+        max-width: 80px;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+    .nd-gl-tag {
+        position: absolute; top: -8px; right: -8px;
+        background: var(--gl-border, #ff5fa3);
+        color: #fff;
+        font-size: 11px; font-weight: 900;
+        padding: 2px 7px; border-radius: 10px;
+        border: 2px solid rgba(0,0,0,0.5);
+    }
+    .nd-gl-counter {
+        align-self: flex-start;
+        background: #ff5b2e; color: #fff;
+        font-size: 14px; font-weight: 900;
+        padding: 3px 12px; border-radius: 14px;
+        border: 2px solid rgba(0,0,0,0.5);
+        margin-bottom: 4px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+    body.no-giftlist .nd-giftlist { display: none; }
+    body.nd-edit .nd-giftlist {
+        pointer-events: auto;
+        cursor: move;
+        outline: 2px dashed rgba(0,255,140,0.5);
+        outline-offset: 6px;
+    }
+    body.nd-edit .nd-giftlist::after {
+        content: '🎁 KÉO — di chuyển | CUỘN — zoom';
+        position: absolute;
+        top: -28px; left: 0;
+        background: rgba(0,0,0,0.75); color: #ffd54a; padding: 4px 10px;
+        font-size: 12px; border-radius: 4px; white-space: nowrap;
+    }
+
     /* EDIT MODE — only when ?edit=1 — overlay drag handles */
     body.nd-edit .nd-stage { cursor: move; pointer-events: auto; }
     body.nd-edit .nd-stage::after {
@@ -673,6 +748,9 @@
         <div class="nd-top-title">🔥 TOP NGƯỜI ĐẨY NHIỆT</div>
         <div class="nd-top-list" id="nd-top-list"></div>
     </div>
+
+    <!-- Gift list (cards) — quà chỉ định -->
+    <div class="nd-giftlist" id="nd-giftlist"></div>
     <!-- Audio engine — hidden -->
     <audio id="nd-audio-ambient" loop preload="auto" style="display:none"></audio>
     <audio id="nd-audio-shot" preload="auto" style="display:none"></audio>
@@ -714,6 +792,7 @@
         const $emoji = document.getElementById('nd-emoji');
         const $embers = document.getElementById('nd-embers');
         const $gainLayer = document.getElementById('nd-gain-layer');
+        const $giftList = document.getElementById('nd-giftlist');
 
         // Edit mode (panel popout) — drag + wheel zoom
         const isEdit = new URLSearchParams(location.search).get('edit') === '1';
@@ -839,6 +918,44 @@
                     else if (!ambUrl) $amb.removeAttribute('src');
                 }
             }
+            // Gift list overlay — render + apply position/scale (reuse outer `d`)
+            document.body.classList.toggle('no-giftlist', d.showGiftList === false);
+            if ($giftList) {
+                $giftList.style.left = (d.giftListXPercent ?? 4) + '%';
+                $giftList.style.top = (d.giftListYPercent ?? 28) + '%';
+                $giftList.style.transform = 'scale(' + ((d.giftListScale ?? 100) / 100) + ')';
+            }
+            renderGiftList();
+        }
+
+        function escapeHtmlNd(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        function renderGiftList() {
+            if (!$giftList || !config) return;
+            const make = (g, kind, tagText) => {
+                const img = g.giftImage
+                    ? `<img src="${escapeHtmlNd(g.giftImage)}" onerror="this.outerHTML='<span class=&quot;nd-gl-emoji-fallback&quot;>🎁</span>'" />`
+                    : `<span class="nd-gl-emoji-fallback">🎁</span>`;
+                return `<div class="nd-gl-card ${kind}" title="${escapeHtmlNd(g.giftName || '')}">
+                    ${tagText ? `<div class="nd-gl-tag">${escapeHtmlNd(tagText)}</div>` : ''}
+                    <div class="nd-gl-icon-wrap">${img}</div>
+                    <div class="nd-gl-label">${escapeHtmlNd(g.giftName || ('#' + g.giftId))}</div>
+                </div>`;
+            };
+            const sections = [
+                { list: config.specificGifts || [], kind: 'heat', tag: (g) => '+' + (g.degrees || 0) + '°' },
+                { list: config.coolingGifts || [],  kind: 'cool', tag: (g) => '−' + (g.degrees || 0) + '°' }
+            ];
+            const cards = [];
+            for (const s of sections) {
+                if (!Array.isArray(s.list)) continue;
+                for (const g of s.list) cards.push(make(g, s.kind, s.tag(g)));
+            }
+            const total = cards.length;
+            const counter = total >= 2 ? `<div class="nd-gl-counter">${total}</div>` : '';
+            $giftList.innerHTML = counter + cards.join('');
         }
 
         // ===== Update ambient audio volume based on temp (intensify with heat) =====
@@ -1031,6 +1148,51 @@
                     } catch (e) {}
                 }, 350);
             }, { passive: false });
+
+            // Drag + zoom gift list
+            if ($giftList) {
+                let glDrag = null;
+                $giftList.addEventListener('mousedown', (e) => {
+                    glDrag = { sx: e.clientX, sy: e.clientY, origX: parseFloat($giftList.style.left) || 4, origY: parseFloat($giftList.style.top) || 28 };
+                    e.preventDefault();
+                });
+                window.addEventListener('mousemove', (e) => {
+                    if (!glDrag) return;
+                    const dx = (e.clientX - glDrag.sx) / window.innerWidth * 100;
+                    const dy = (e.clientY - glDrag.sy) / window.innerHeight * 100;
+                    const nx = clampNum(glDrag.origX + dx, 0, 100);
+                    const ny = clampNum(glDrag.origY + dy, 0, 100);
+                    $giftList.style.left = nx + '%';
+                    $giftList.style.top = ny + '%';
+                    if (config) { config.display = config.display || {}; config.display.giftListXPercent = nx; config.display.giftListYPercent = ny; }
+                });
+                window.addEventListener('mouseup', async () => {
+                    if (!glDrag) return; glDrag = null;
+                    try {
+                        await fetch('/api/games/nhietdo/config', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(config)
+                        });
+                    } catch (e) {}
+                });
+                $giftList.addEventListener('wheel', async (e) => {
+                    e.preventDefault();
+                    const cur = parseFloat((config?.display?.giftListScale) || 100);
+                    const next = clampNum(cur + (e.deltaY < 0 ? 5 : -5), 30, 250);
+                    config.display = config.display || {};
+                    config.display.giftListScale = next;
+                    $giftList.style.transform = 'scale(' + (next / 100) + ')';
+                    clearTimeout($giftList._wheelSaveT);
+                    $giftList._wheelSaveT = setTimeout(async () => {
+                        try {
+                            await fetch('/api/games/nhietdo/config', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(config)
+                            });
+                        } catch (e) {}
+                    }, 350);
+                }, { passive: false });
+            }
         }
     })();
     </script>

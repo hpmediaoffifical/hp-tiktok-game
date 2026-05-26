@@ -281,15 +281,15 @@
         filter: drop-shadow(0 0 8px var(--skin-glow, transparent));
     }
     .bc-fly-arrow svg {
-        width: 220px; height: 52px;
+        width: 140px; height: 34px;
         overflow: visible;
     }
     .bc-fly-arrow .shaft {
         stroke: var(--arrow-color);
-        stroke-width: 6;
+        stroke-width: 4;
         fill: var(--arrow-color);
     }
-    .bc-fly-arrow .head { fill: var(--arrow-color); stroke: var(--arrow-color); stroke-width: 2; }
+    .bc-fly-arrow .head { fill: var(--arrow-color); stroke: var(--arrow-color); stroke-width: 1.5; }
     .bc-fly-arrow .fletch { fill: var(--string-color); }
     .bc-fly-trail {
         position: absolute;
@@ -799,6 +799,100 @@
         100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9) rotate(0deg); }
     }
 
+    /* ===== GIFT LIST OVERLAY — danh sách quà chỉ định (giống thuytinh badges) ===== */
+    .bc-giftlist {
+        position: fixed;
+        left: 4%; top: 30%;
+        z-index: 28;
+        pointer-events: none;
+        display: flex; flex-direction: column;
+        gap: 8px;
+        max-height: 80vh;
+        overflow: visible;
+        transform-origin: top left;
+    }
+    .bc-gl-card {
+        width: 88px;
+        background: linear-gradient(180deg, var(--gl-bg1, #2a1a25) 0%, var(--gl-bg2, #1a0c14) 100%);
+        border: 2px solid var(--gl-border, #ff5fa3);
+        border-radius: 14px;
+        padding: 8px 6px;
+        display: flex; flex-direction: column;
+        align-items: center; gap: 4px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.15);
+        position: relative;
+    }
+    .bc-gl-card.shot   { --gl-bg1:#3a1010; --gl-bg2:#1a0808; --gl-border:#ff3a3a; }
+    .bc-gl-card.heal   { --gl-bg1:#103a1f; --gl-bg2:#081a0e; --gl-border:#4ade80; }
+    .bc-gl-card.revive { --gl-bg1:#3a3010; --gl-bg2:#1a1408; --gl-border:#ffd54a; }
+    .bc-gl-card.shield { --gl-bg1:#103a3a; --gl-bg2:#081a1a; --gl-border:#25f4ee; }
+    .bc-gl-icon-wrap {
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        background: rgba(0,0,0,0.35);
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden;
+    }
+    .bc-gl-icon-wrap img {
+        max-width: 88%; max-height: 88%;
+        object-fit: contain;
+    }
+    .bc-gl-emoji-fallback { font-size: 30px; }
+    .bc-gl-label {
+        font-size: 11px;
+        font-weight: 800;
+        color: #fff;
+        text-align: center;
+        line-height: 1.1;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+        max-width: 80px;
+        word-wrap: break-word;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+    .bc-gl-tag {
+        position: absolute; top: -8px; right: -8px;
+        background: var(--gl-border, #ff5fa3);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 900;
+        padding: 2px 7px;
+        border-radius: 10px;
+        border: 2px solid rgba(0,0,0,0.5);
+        text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+    }
+    .bc-gl-counter {
+        align-self: flex-start;
+        background: #ff3a3a;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 900;
+        padding: 3px 12px;
+        border-radius: 14px;
+        border: 2px solid rgba(0,0,0,0.5);
+        margin-bottom: 4px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+    /* Edit-mode drag affordance */
+    body.bc-edit .bc-giftlist {
+        pointer-events: auto;
+        cursor: move;
+        outline: 2px dashed rgba(0,255,140,0.5);
+        outline-offset: 6px;
+    }
+    body.bc-edit .bc-giftlist::after {
+        content: '🎁 DANH SÁCH — KÉO để di chuyển | CUỘN để zoom';
+        position: absolute;
+        top: -28px; left: 0;
+        background: rgba(0,0,0,0.75); color: #ffd54a; padding: 4px 10px;
+        font-size: 12px; border-radius: 4px; white-space: nowrap;
+    }
+    body.no-giftlist .bc-giftlist { display: none; }
+    body.bc-stopped .bc-giftlist { /* vẫn hiện cho OBS preview */ }
+
     /* ===== TOP CONTRIBUTOR LEADERBOARD ===== */
     .bc-top {
         position: fixed;
@@ -925,6 +1019,9 @@
         <div class="bc-top-list" id="bc-top-list"></div>
     </div>
 
+    <!-- Gift list (cards) — quà chỉ định đã gán cho từng action -->
+    <div class="bc-giftlist" id="bc-giftlist"></div>
+
     <!-- Heart stage -->
     <div class="bc-hearts-stage" id="bc-hearts-stage">
         <div class="bc-hearts-inner" id="bc-hearts-inner">
@@ -1027,6 +1124,7 @@
         const $podiumRow = document.getElementById('bc-podium-row');
         const $podiumSurv = document.getElementById('bc-podium-survival');
         const $bowCharge = document.getElementById('bc-bow-charge');
+        const $giftList = document.getElementById('bc-giftlist');
 
         // Edit mode (panel popout) — drag + wheel zoom
         const isEdit = new URLSearchParams(location.search).get('edit') === '1';
@@ -1108,8 +1206,48 @@
             if ($survival) $survival.style.display = (d.showSurvivalTimer === false) ? 'none' : '';
             // Bow charge ring visibility
             if ($bowCharge) $bowCharge.classList.toggle('active', d.bowChargeEnabled === true);
+            // Gift list visibility + position + scale
+            document.body.classList.toggle('no-giftlist', d.showGiftList === false);
+            if ($giftList) {
+                $giftList.style.left = (d.giftListXPercent ?? 4) + '%';
+                $giftList.style.top = (d.giftListYPercent ?? 30) + '%';
+                $giftList.style.transform = 'scale(' + ((d.giftListScale ?? 100) / 100) + ')';
+            }
+            renderGiftList();
             // Bow auto-aim toward impact zone — calculated AFTER layout settles
             requestAnimationFrame(updateBowAim);
+        }
+
+        // ===== Gift list rendering — render 4 categories of configured gifts =====
+        function renderGiftList() {
+            if (!$giftList || !config) return;
+            const make = (g, kind, tagText) => {
+                const img = g.giftImage
+                    ? `<img src="${escapeHtml(g.giftImage)}" onerror="this.outerHTML='<span class=&quot;bc-gl-emoji-fallback&quot;>🎁</span>'" />`
+                    : `<span class="bc-gl-emoji-fallback">🎁</span>`;
+                const tag = tagText ? `<div class="bc-gl-tag">${escapeHtml(tagText)}</div>` : '';
+                return `<div class="bc-gl-card ${kind}" title="${escapeHtml(g.giftName || '')}">
+                    ${tag}
+                    <div class="bc-gl-icon-wrap">${img}</div>
+                    <div class="bc-gl-label">${escapeHtml(g.giftName || ('#' + g.giftId))}</div>
+                </div>`;
+            };
+            const sections = [
+                { list: config.shotGifts,   kind: 'shot',   tag: (g) => (g.shots > 1 ? 'x' + g.shots : '🏹') },
+                { list: config.healGifts,   kind: 'heal',   tag: (g) => '+' + (g.healHearts || 1) + '♥' },
+                { list: config.reviveGifts, kind: 'revive', tag: () => '✨' },
+                { list: config.shieldGifts, kind: 'shield', tag: (g) => (g.durationSec || 5) + 's' }
+            ];
+            const cards = [];
+            for (const s of sections) {
+                if (!Array.isArray(s.list)) continue;
+                for (const g of s.list) {
+                    cards.push(make(g, s.kind, s.tag(g)));
+                }
+            }
+            const total = cards.length;
+            const counter = total >= 2 ? `<div class="bc-gl-counter">${total}</div>` : '';
+            $giftList.innerHTML = counter + cards.join('');
         }
 
         // ===== Heart shake state — track HP percentage, toggle low-hp class =====
@@ -1428,10 +1566,10 @@
             const arrow = document.createElement('div');
             arrow.className = 'bc-fly-arrow';
             arrow.innerHTML = `
-                <svg viewBox="0 0 220 52">
-                    <line class="shaft" x1="14" y1="26" x2="190" y2="26" stroke-width="6" />
-                    <polygon class="head" points="208,26 178,12 178,40" />
-                    <polygon class="fletch" points="18,26 0,12 0,40" />
+                <svg viewBox="0 0 140 34">
+                    <line class="shaft" x1="10" y1="17" x2="118" y2="17" stroke-width="4" />
+                    <polygon class="head" points="132,17 113,8 113,26" />
+                    <polygon class="fletch" points="12,17 0,8 0,26" />
                 </svg>
             `;
             $arrowsLayer.appendChild(arrow);
@@ -1644,11 +1782,12 @@
             if (!data || !data.gameId || data.gameId === 'bancung') location.reload();
         });
 
-        // ===== EDIT MODE — drag/zoom both stages + drag impact zone =====
+        // ===== EDIT MODE — drag/zoom both stages + drag impact zone + gift list =====
         if (isEdit) {
             setupEditDrag($stageHearts, 'heartsXPercent', 'heartsYPercent', 'heartsScale');
             setupEditDrag($stageBow, 'bowXPercent', 'bowYPercent', 'bowScale');
             setupEditDrag($impact, 'impactXPercent', 'impactYPercent', null);
+            setupEditDrag($giftList, 'giftListXPercent', 'giftListYPercent', 'giftListScale');
         }
         function setupEditDrag(stage, xKey, yKey, scaleKey) {
             let dragging = null;
@@ -1693,8 +1832,10 @@
                     const next = Math.max(30, Math.min(250, cur + (e.deltaY < 0 ? 5 : -5)));
                     config.display = config.display || {};
                     config.display[scaleKey] = next;
+                    // Hearts/bow use inner element; gift list scales itself directly
                     const inner = stage.querySelector('.bc-hearts-inner, .bc-bow-inner');
                     if (inner) inner.style.transform = 'scale(' + (next / 100) + ')';
+                    else stage.style.transform = 'scale(' + (next / 100) + ')';
                     clearTimeout(stage._wheelSaveT);
                     stage._wheelSaveT = setTimeout(async () => {
                         try {

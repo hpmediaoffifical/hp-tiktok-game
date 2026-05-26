@@ -337,6 +337,7 @@
                 <label class="nd-inline"><input type="checkbox" id="nd-showHaze" ${d.showHaze !== false ? 'checked' : ''} /> Hơi nóng (méo nền)</label>
                 <label class="nd-inline"><input type="checkbox" id="nd-shakeAtMax" ${d.shakeAtMax !== false ? 'checked' : ''} /> Rung màn khi ≥ 95°C</label>
                 <label class="nd-inline"><input type="checkbox" id="nd-showTopContrib" ${d.showTopContrib !== false ? 'checked' : ''} /> 🏆 Bảng top contributor</label>
+                <label class="nd-inline"><input type="checkbox" id="nd-showGiftList" ${d.showGiftList !== false ? 'checked' : ''} /> 🎁 Danh sách quà chỉ định trên overlay (kéo trong edit mode)</label>
                 <label class="nd-inline">Góc bảng top
                     <select id="nd-topPos">
                         <option value="top-left" ${(d.topContribPos || 'top-left') === 'top-left' ? 'selected' : ''}>Trên-trái</option>
@@ -386,6 +387,7 @@
         wireToggle('nd-showHaze', 'showHaze');
         wireToggle('nd-shakeAtMax', 'shakeAtMax');
         wireToggle('nd-showTopContrib', 'showTopContrib');
+        wireToggle('nd-showGiftList', 'showGiftList');
         $('#nd-topPos', host)?.addEventListener('change', e => { d.topContribPos = e.target.value; schedulePersist(); });
     }
 

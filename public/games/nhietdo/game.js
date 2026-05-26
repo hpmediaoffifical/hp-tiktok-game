@@ -83,7 +83,11 @@
                 colorScheme: 'pinkfire', // 12 schemes — xem SCHEME_LIST
                 shape: 'tube',          // 'tube' | 'capsule'
                 fxIntensity: 100,       // 0..150% — scale toàn bộ hiệu ứng
-                tickerScale: 60         // 30..150 — kích thước chữ ticker mốc thưởng
+                tickerScale: 60,        // 30..150 — kích thước chữ ticker mốc thưởng
+                showGiftList: true,
+                giftListXPercent: 4,
+                giftListYPercent: 28,
+                giftListScale: 100
             }
         };
     }

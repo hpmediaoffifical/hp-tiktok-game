@@ -76,7 +76,11 @@
                 headshotMultiplier: 2,
                 bowChargeEnabled: false,
                 bowChargePerGift: 12,
-                bowChargeFullShots: 10
+                bowChargeFullShots: 10,
+                showGiftList: true,
+                giftListXPercent: 4,
+                giftListYPercent: 30,
+                giftListScale: 100
             }
         };
     }

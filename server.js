@@ -307,7 +307,12 @@ function makeDefaultNhietDoConfig() {
             colorScheme: 'pinkfire',
             shape: 'tube',
             fxIntensity: 100,
-            tickerScale: 60
+            tickerScale: 60,
+            // Gift list overlay (draggable on overlay)
+            showGiftList: true,
+            giftListXPercent: 4,
+            giftListYPercent: 28,
+            giftListScale: 100
         }
     };
 }
@@ -406,7 +411,12 @@ function makeDefaultBanCungConfig() {
             headshotMultiplier: 2,
             bowChargeEnabled: false,   // bật cơ chế nạp năng lượng
             bowChargePerGift: 12,      // % charge mỗi quà
-            bowChargeFullShots: 10     // số mũi auto-fire khi full
+            bowChargeFullShots: 10,    // số mũi auto-fire khi full
+            // ===== GIFT LIST OVERLAY (danh sách quà chỉ định, draggable) =====
+            showGiftList: true,
+            giftListXPercent: 4,
+            giftListYPercent: 30,
+            giftListScale: 100
         }
     };
 }
@@ -548,6 +558,11 @@ if (appConfig.games.vipwelcome) {
 if (appConfig.games.bancung) {
     const def = makeDefaultBanCungConfig();
     appConfig.games.bancung.display = { ...def.display, ...(appConfig.games.bancung.display || {}) };
+}
+// Backfill nhietdo display defaults (gift list keys mới)
+if (appConfig.games.nhietdo) {
+    const def = makeDefaultNhietDoConfig();
+    appConfig.games.nhietdo.display = { ...def.display, ...(appConfig.games.nhietdo.display || {}) };
 }
 appConfig.liveTranslate = {
     ...DEFAULT_LIVE_TRANSLATE_CONFIG,
