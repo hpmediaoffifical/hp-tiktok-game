@@ -292,6 +292,33 @@
             </div>
 
             <div class="nd-card">
+                <div class="nd-card-title">🎯 BẮN TỰ DO (any-gift mode)</div>
+                <div class="nd-hint">
+                    Khi BẬT: <b>mọi quà</b> đều kích hoạt bắn — damage tính theo <b>KC (kim cương)</b>.
+                    Loại trừ: quà đã có trong <b>Hồi máu / Giáp / Hồi sinh / Bắn (gán riêng)</b>.
+                </div>
+                <label class="nd-inline" style="background:#1a2a35;border:1.5px solid #25f4ee;padding:8px 12px;border-radius:8px;margin:6px 0">
+                    <input type="checkbox" id="bc-ff-enabled" ${cfg.freeFireEnabled === true ? 'checked' : ''} />
+                    <b style="color:#25f4ee">⚡ Bật chế độ Bắn tự do</b>
+                </label>
+                <label class="nd-inline" title="N KC = 1 ♥ damage. Vd 100 = quà 100 KC trừ đúng 1 ♥, quà 50 KC trừ 0.5 ♥.">
+                    💎 <input type="number" id="bc-ff-kc-heart" min="1" step="10" value="${cfg.freeFireKcPerHeart ?? 100}" /> KC = 1 ♥ máu
+                </label>
+                <label class="nd-inline" title="N KC = 1 mũi tên visual. Vd 10 = quà 100 KC bắn 10 mũi (mỗi mũi 0.1 ♥).">
+                    🏹 <input type="number" id="bc-ff-kc-shot" min="1" step="1" value="${cfg.freeFireKcPerShot ?? 10}" /> KC = 1 mũi tên
+                </label>
+                <label class="nd-inline" title="Cap số mũi tối đa mỗi gift event để tránh combo siêu khủng spam 1000 mũi.">
+                    🚫 Tối đa <input type="number" id="bc-ff-max-shots" min="1" max="50" step="1" value="${cfg.freeFireMaxShots ?? 20}" /> mũi / quà
+                </label>
+                <div class="nd-hint" style="color:#4ade80">
+                    💡 VD config (100 KC = 1 ♥, 10 KC = 1 mũi, max 20):<br>
+                    • Hoa Hồng 1 KC × 1 → 1 mũi × 0.01 ♥<br>
+                    • Pháo Hoa 100 KC × 1 → 10 mũi × 0.1 ♥ = 1 ♥<br>
+                    • Sư Tử 500 KC × 1 → 20 mũi (cap) × 0.25 ♥ = 5 ♥
+                </div>
+            </div>
+
+            <div class="nd-card">
                 <div class="nd-card-title">💀 Hồi sinh khi chết</div>
                 <label class="nd-inline">Cửa sổ chờ hồi sinh <input type="number" id="bc-reviveWindowSec" min="1" max="60" step="1" value="${cfg.reviveWindowSec ?? 5}" /> giây</label>
                 <label class="nd-inline"><input type="checkbox" id="bc-autoReviveAfterWindow" ${cfg.autoReviveAfterWindow !== false ? 'checked' : ''} /> Tự hồi sinh nếu không ai cứu</label>
@@ -321,6 +348,14 @@
             cfg.autoReviveAfterWindow = !!e.target.checked;
             schedulePersist();
         });
+        // Free-fire mode
+        $('#bc-ff-enabled', host)?.addEventListener('change', e => {
+            cfg.freeFireEnabled = !!e.target.checked;
+            schedulePersist();
+        });
+        wireNum('bc-ff-kc-heart', 'freeFireKcPerHeart', { min: 1, float: false });
+        wireNum('bc-ff-kc-shot', 'freeFireKcPerShot', { min: 1, float: false });
+        wireNum('bc-ff-max-shots', 'freeFireMaxShots', { min: 1, float: false });
     }
 
     // ----- Tab 2: GIFTS (4 categories) -----

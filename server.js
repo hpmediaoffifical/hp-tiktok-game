@@ -348,6 +348,14 @@ function makeDefaultBanCungConfig() {
         autoReviveAfterWindow: true,
         autoReviveHearts: 5,
         reviveProtectionSec: 3,       // user-curated: 3s giáp sau revive
+        // ===== BẮN TỰ DO — quà bất kỳ (không gán) cũng kích hoạt =====
+        // Damage = totalKC / freeFireKcPerHeart hearts. Số mũi = ceil(totalKC / freeFireKcPerShot).
+        // Quà NẰM TRONG shot/heal/revive/shield gifts hoặc có giftsPerHeart riêng → KHÔNG kích
+        // hoạt free-fire (giữ hành vi gán cụ thể).
+        freeFireEnabled: false,
+        freeFireKcPerHeart: 100,      // 100 KC = 1 ♥ máu
+        freeFireKcPerShot: 10,        // 10 KC = 1 mũi tên (visual)
+        freeFireMaxShots: 20,         // tránh combo siêu lớn spam 1000 mũi
         // ===== Quà gán — fresh install để trống, user thêm theo nhu cầu =====
         shotGifts: [],
         healGifts: [],
@@ -551,11 +559,17 @@ for (const gId of Object.keys(GAMES)) {
 if (appConfig.games.vipwelcome) {
     appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
 }
-// Backfill bancung display defaults — khi thêm key mới (autoAimBow / impact* / hotkey*) vào
-// defaultConfig, config cũ đã save không có → merge default vào cho user.
+// Backfill bancung defaults — khi thêm key mới (display + top-level freeFire*) vào defaultConfig,
+// config cũ đã save không có → merge default vào cho user. Saved values take priority.
 if (appConfig.games.bancung) {
     const def = makeDefaultBanCungConfig();
     appConfig.games.bancung.display = { ...def.display, ...(appConfig.games.bancung.display || {}) };
+    // Top-level keys mới (vd freeFire*) — chỉ thêm key thiếu, không overwrite
+    for (const k of Object.keys(def)) {
+        if (k !== 'display' && !(k in appConfig.games.bancung)) {
+            appConfig.games.bancung[k] = def[k];
+        }
+    }
 }
 // Backfill nhietdo display defaults (gift list keys mới)
 if (appConfig.games.nhietdo) {
@@ -2330,6 +2344,9 @@ function emitGift(g) {
             nickname: g.nickname,
             profilePicture: g.profilePicture || enriched.image,
             giftId: g.giftId,
+            giftName: enriched.giftName || g.giftName,
+            giftImage: enriched.image,
+            coinValue: enriched.coinValue || 0,
             repeatCount: g.repeatCount || 1
         });
     } catch (e) { /* non-fatal */ }
@@ -4250,32 +4267,40 @@ function banCungApplyShotDamage(contribUser, giftMeta) {
     if (banCungState.shieldUntil > now) return flags;
     // Auto-start survival timer on first damage of session
     if (!banCungState.sessionStartedAt) banCungState.sessionStartedAt = now;
-    // Per-gift damage override: lookup shotGifts[giftId].giftsPerHeart
-    // Nếu set: damage = 1 / giftsPerHeart (vd 10 quà = 1 ♥ → 0.1 ♥/shot)
-    let dmg = Math.max(0, Number(cfg.damagePerShot) || 0);
-    if (giftMeta && giftMeta.id && Array.isArray(cfg.shotGifts)) {
-        const found = cfg.shotGifts.find(g => String(g.giftId) === String(giftMeta.id));
-        if (found && Number(found.giftsPerHeart) > 0) {
-            dmg = 1 / Number(found.giftsPerHeart);
+    // Damage selection priority:
+    //   1. giftMeta.forceDamage (free-fire mode đã tính sẵn) — dùng trực tiếp + BYPASS multipliers
+    //   2. shotGifts[giftId].giftsPerHeart override — 1/giftsPerHeart hearts
+    //   3. cfg.damagePerShot — fallback toàn cục
+    let dmg;
+    const bypassMultipliers = !!(giftMeta && giftMeta.bypassMultipliers);
+    if (giftMeta && Number(giftMeta.forceDamage) > 0) {
+        dmg = Number(giftMeta.forceDamage);
+    } else {
+        dmg = Math.max(0, Number(cfg.damagePerShot) || 0);
+        if (giftMeta && giftMeta.id && Array.isArray(cfg.shotGifts)) {
+            const found = cfg.shotGifts.find(g => String(g.giftId) === String(giftMeta.id));
+            if (found && Number(found.giftsPerHeart) > 0) {
+                dmg = 1 / Number(found.giftsPerHeart);
+            }
         }
     }
     if (dmg <= 0) return flags;
-    // Critical hit roll
-    const critChance = Math.max(0, Math.min(100, Number(dCfg.criticalChance) || 0));
+    // Critical hit roll (skip nếu bypassMultipliers — free-fire mode dùng exact KC calculation)
+    const critChance = bypassMultipliers ? 0 : Math.max(0, Math.min(100, Number(dCfg.criticalChance) || 0));
     if (critChance > 0 && Math.random() * 100 < critChance) {
         flags.critical = true;
         dmg *= Math.max(1, Number(dCfg.criticalMultiplier) || 2);
     }
-    // Headshot roll (independent of critical)
-    if (dCfg.headshotEnabled && (Number(dCfg.headshotChance) || 0) > 0) {
+    // Headshot roll (independent of critical) — skip nếu bypassMultipliers
+    if (!bypassMultipliers && dCfg.headshotEnabled && (Number(dCfg.headshotChance) || 0) > 0) {
         const hsChance = Math.max(0, Math.min(100, Number(dCfg.headshotChance) || 0));
         if (Math.random() * 100 < hsChance) {
             flags.headshot = true;
             dmg *= Math.max(1, Number(dCfg.headshotMultiplier) || 2);
         }
     }
-    // Combo multiplier (chains within comboWindowSec)
-    if (dCfg.comboEnabled !== false) {
+    // Combo multiplier (chains within comboWindowSec) — skip nếu bypassMultipliers
+    if (!bypassMultipliers && dCfg.comboEnabled !== false) {
         const windowMs = Math.max(500, (Number(dCfg.comboWindowSec) || 4) * 1000);
         if (banCungState.comboExpiresAt > now) {
             banCungState.comboCount += 1;
@@ -4474,7 +4499,7 @@ function banCungAddBowCharge(amount, contribUser) {
     }
 }
 
-function handleBanCungGift({ uniqueId, nickname, profilePicture, giftId, repeatCount }) {
+function handleBanCungGift({ uniqueId, nickname, profilePicture, giftId, giftName, giftImage, coinValue, repeatCount }) {
     if (appConfig.games?.bancung?.enabled === false) return;
     if (appConfig.games?.bancung?.sessionActive === false) return;
     const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
@@ -4517,6 +4542,25 @@ function handleBanCungGift({ uniqueId, nickname, profilePicture, giftId, repeatC
         const giftMeta = { id: shotHit.giftId, name: shotHit.giftName, image: shotHit.giftImage };
         banCungFireBurst(totalShots, contribUser, giftMeta);
         return;
+    }
+    // BẮN TỰ DO: nếu enabled + quà KHÔNG nằm trong list nào → tính damage theo KC
+    if (cfg.freeFireEnabled === true) {
+        const totalKc = Math.max(0, Number(coinValue) || 0) * repeat;
+        if (totalKc <= 0) return;
+        const kcPerHeart = Math.max(1, Number(cfg.freeFireKcPerHeart) || 100);
+        const kcPerShot  = Math.max(1, Number(cfg.freeFireKcPerShot)  || 10);
+        const maxShots   = Math.max(1, Math.min(50, Number(cfg.freeFireMaxShots) || 20));
+        const totalDamage = totalKc / kcPerHeart;
+        const shots = Math.max(1, Math.min(maxShots, Math.round(totalKc / kcPerShot)));
+        const damagePerShot = totalDamage / shots;
+        const giftMeta = {
+            id: giftId,
+            name: giftName || ('Quà #' + giftId),
+            image: giftImage || '',
+            forceDamage: damagePerShot,        // override trong banCungApplyShotDamage
+            bypassMultipliers: true             // free-fire dùng exact KC math, không nhân combo/crit
+        };
+        banCungFireBurst(shots, contribUser, giftMeta);
     }
 }
 
@@ -4637,6 +4681,9 @@ app.post('/api/games/bancung/control', (req, res) => {
             nickname: req.body?.nickname || 'Người Thử',
             profilePicture: req.body?.profilePicture || '',
             giftId: req.body?.giftId || '',
+            giftName: req.body?.giftName || '',
+            giftImage: req.body?.giftImage || '',
+            coinValue: Number(req.body?.coinValue) || 0,
             repeatCount: req.body?.repeatCount || 1
         });
     } else if (cmd === 'killshot') {
