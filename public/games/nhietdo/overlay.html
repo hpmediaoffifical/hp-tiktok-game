@@ -1015,6 +1015,13 @@
                 } else if (m.mediaType === 'audio') {
                     const shot = document.getElementById('nd-audio-shot');
                     if (shot) {
+                        // Throttle: skip nếu audio cũ vẫn đang chạy & chưa quá 200ms — tránh stutter
+                        const now = Date.now();
+                        if (shot._lastPlayAt && (now - shot._lastPlayAt) < 200 && !shot.paused) {
+                            return;
+                        }
+                        shot._lastPlayAt = now;
+                        try { shot.pause(); shot.currentTime = 0; } catch (e) {}
                         shot.src = m.mediaUrl;
                         shot.volume = clampNum((m.volume ?? 80) / 100, 0, 1);
                         shot.play().catch(() => {});

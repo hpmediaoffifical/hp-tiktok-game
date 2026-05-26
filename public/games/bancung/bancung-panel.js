@@ -392,7 +392,7 @@
         persistConfig();
     }
 
-    function renderShotList()   { renderGiftRow('#bc-list-shot',   cfg.shotGifts,   'shotGifts',   'shots',        { label: 'Số phát / quà', min: 1, max: 20, step: 1, default: 1, suffix: 'mũi' }); }
+    function renderShotList()   { renderGiftRow('#bc-list-shot',   cfg.shotGifts,   'shotGifts',   'shots',        { label: 'Số phát / quà', min: 1, max: 20, step: 1, default: 1, suffix: 'mũi', extraField: 'giftsPerHeart' }); }
     function renderHealList()   { renderGiftRow('#bc-list-heal',   cfg.healGifts,   'healGifts',   'healHearts',   { label: '♥ hồi mỗi quà', min: 0.5, step: 0.5, default: 2, suffix: '♥' }); }
     function renderReviveList() { renderGiftRow('#bc-list-revive', cfg.reviveGifts, 'reviveGifts', null,           {}); }
     function renderShieldList() { renderGiftRow('#bc-list-shield', cfg.shieldGifts, 'shieldGifts', 'durationSec',  { label: 'Giây bất tử', min: 1, step: 1, default: 5, suffix: 'giây' }); }
@@ -414,12 +414,20 @@
                     ${valueOpts.suffix || ''}
                 </label>
             ` : '';
+            // Optional extra field: giftsPerHeart calc cho shotGifts
+            const extraField = valueOpts.extraField === 'giftsPerHeart'
+                ? `<label class="nd-inline" style="flex:0 0 auto" title="Số quà này = 1 ♥ máu. Vd: 10 → 10 quà mới hết 1 ♥. Bỏ trống = dùng damage chung.">
+                    1♥ = <input type="number" class="bc-gift-perheart" min="0" step="1" value="${g.giftsPerHeart ?? ''}" placeholder="—" style="width:60px" /> quà
+                    <span class="bc-gift-calc" style="font-size:11px;color:#8b93a8">${g.giftsPerHeart > 0 ? '(' + (1/g.giftsPerHeart).toFixed(3) + ' ♥)' : ''}</span>
+                </label>`
+                : '';
             return `
                 <div class="bc-gift-row-v2" data-idx="${i}">
                     ${img}
                     <span class="bc-gr-name" title="${escapeHtml(g.giftName || '')}">${escapeHtml(g.giftName || ('Quà #' + g.giftId))}</span>
                     <input class="bc-gr-custom" type="text" placeholder="🏷 Tên hiển thị" value="${escapeHtml(g.customLabel || '')}" title="Tên hiện trên overlay (bỏ trống = dùng tên gốc)" />
                     ${valField}
+                    ${extraField}
                     <button class="ghost small bc-gift-swap" title="Đổi quà khác">↻ Đổi</button>
                     <button class="danger small bc-gift-del" title="Xoá">🗑</button>
                 </div>
@@ -436,6 +444,14 @@
             }
             row.querySelector('.bc-gr-custom')?.addEventListener('input', e => {
                 cfg[key][idx].customLabel = e.target.value;
+                schedulePersist();
+            });
+            row.querySelector('.bc-gift-perheart')?.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                cfg[key][idx].giftsPerHeart = (isFinite(v) && v > 0) ? v : 0;
+                // Live update calc display
+                const calc = row.querySelector('.bc-gift-calc');
+                if (calc) calc.textContent = v > 0 ? '(' + (1/v).toFixed(3) + ' ♥)' : '';
                 schedulePersist();
             });
             row.querySelector('.bc-gift-swap')?.addEventListener('click', () => openGiftPicker(

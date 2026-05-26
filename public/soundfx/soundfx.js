@@ -381,6 +381,14 @@ function playSound(id) {
     lastPlayedId = id;
     const url = srcFor(id);
     if (LIB.settings.mix) {
+        // CAP mixPool: trình duyệt giới hạn ~32 concurrent Audio elements.
+        // Vượt qua → .play() fail silently / âm thanh "kẹt". Khi spike quá nhiều quà
+        // (vd Bắn Cung burst), drop instances cũ nhất để giải phóng audio decoder.
+        const MAX_CONCURRENT = 6;
+        while (mixPool.length >= MAX_CONCURRENT) {
+            const oldest = mixPool.shift();
+            try { oldest.pause(); oldest.removeAttribute('src'); oldest.load(); } catch (e) {}
+        }
         const a = new Audio(url);
         a.volume = audio.volume;
         a.play().catch(err => toast('Không phát được: ' + (err.name || err.message), 'err'));

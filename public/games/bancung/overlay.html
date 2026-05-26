@@ -1057,11 +1057,11 @@
                     <path class="bc-bow-arc" d="M30 30 Q 100 100 30 170" />
                     <!-- String -->
                     <path class="bc-bow-string" d="M30 30 L 30 170" />
-                    <!-- Arrow group -->
+                    <!-- Arrow group — ngắn lại, ending near bow arc apex để cân đối với widget -->
                     <g class="bc-bow-arrow">
-                        <line class="shaft" x1="40" y1="100" x2="160" y2="100" />
-                        <polygon class="head" points="160,100 145,93 145,107" />
-                        <polygon class="fletch" points="42,100 28,92 28,108" />
+                        <line class="shaft" x1="45" y1="100" x2="120" y2="100" />
+                        <polygon class="head" points="120,100 108,93 108,107" />
+                        <polygon class="fletch" points="47,100 35,93 35,107" />
                     </g>
                 </svg>
             </div>
@@ -1340,10 +1340,15 @@
             setTimeout(() => el.remove(), 950);
         }
 
-        // ===== Particle impact — feathers + sparks =====
+        // ===== Particle impact — feathers + sparks (throttled khi quá nhiều) =====
+        const MAX_CONCURRENT_PARTICLES = 80;
         function spawnParticles(x, y) {
             if (config?.display?.showHitParticles === false) return;
-            const count = 12 + Math.floor(Math.random() * 6);
+            // Throttle: nếu đang có >MAX particles → giảm count, hoặc skip nếu quá đông
+            const activeCount = $arrowsLayer.querySelectorAll('.bc-particle').length;
+            if (activeCount >= MAX_CONCURRENT_PARTICLES) return;
+            const budget = MAX_CONCURRENT_PARTICLES - activeCount;
+            const count = Math.min(budget, 12 + Math.floor(Math.random() * 6));
             for (let i = 0; i < count; i++) {
                 const p = document.createElement('div');
                 p.className = i % 3 === 0 ? 'bc-particle feather' : 'bc-particle';
@@ -1353,7 +1358,7 @@
                 const angle = Math.random() * Math.PI * 2;
                 const speed = 80 + Math.random() * 140;
                 const dx = Math.cos(angle) * speed;
-                const dy = Math.sin(angle) * speed - 40;   // bias upward
+                const dy = Math.sin(angle) * speed - 40;
                 const rot = Math.random() * 720 - 360;
                 p.animate([
                     { transform: `translate(-50%, -50%) translate(0, 0) rotate(0deg)`, opacity: 1 },
@@ -1551,9 +1556,13 @@
         // Trajectory đi thẳng (không arc cong) → trông như mũi tên thật bay direct vào target.
         // - Khi hit (mặc định): arrow biến mất ngay tại impact + flash đỏ
         // - Khi blocked (có shield): arrow BAY XUYÊN target ra ngoài màn hình + shield ping
+        const MAX_CONCURRENT_ARROWS = 12;   // chống spam → audio kẹt / lag main thread
         function spawnFlyingArrow(durationMs, userInfo, opts) {
             opts = opts || {};
             const blocked = opts.blocked === true;
+            // Throttle: nếu quá nhiều arrow đang bay → bỏ qua arrow mới (server damage vẫn fire)
+            const active = $arrowsLayer.querySelectorAll('.bc-fly-arrow').length;
+            if (active >= MAX_CONCURRENT_ARROWS) return;
             const bowRect = $bow.getBoundingClientRect();
             const impactRect = $impact.getBoundingClientRect();
             const sx = bowRect.left + bowRect.width / 2;

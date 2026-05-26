@@ -4240,7 +4240,8 @@ function banCungSetHp(hp) {
 
 // Apply damage from a single arrow shot. Returns object with damage + flags.
 // flags: { critical, headshot, combo, firstBlood, killingBlow, dealt }
-function banCungApplyShotDamage(contribUser) {
+// giftMeta: { id, name, image } — optional, dùng để lookup per-gift damage override
+function banCungApplyShotDamage(contribUser, giftMeta) {
     const cfg = appConfig.games.bancung || makeDefaultBanCungConfig();
     const dCfg = cfg.display || {};
     const now = Date.now();
@@ -4249,7 +4250,15 @@ function banCungApplyShotDamage(contribUser) {
     if (banCungState.shieldUntil > now) return flags;
     // Auto-start survival timer on first damage of session
     if (!banCungState.sessionStartedAt) banCungState.sessionStartedAt = now;
+    // Per-gift damage override: lookup shotGifts[giftId].giftsPerHeart
+    // Nếu set: damage = 1 / giftsPerHeart (vd 10 quà = 1 ♥ → 0.1 ♥/shot)
     let dmg = Math.max(0, Number(cfg.damagePerShot) || 0);
+    if (giftMeta && giftMeta.id && Array.isArray(cfg.shotGifts)) {
+        const found = cfg.shotGifts.find(g => String(g.giftId) === String(giftMeta.id));
+        if (found && Number(found.giftsPerHeart) > 0) {
+            dmg = 1 / Number(found.giftsPerHeart);
+        }
+    }
     if (dmg <= 0) return flags;
     // Critical hit roll
     const critChance = Math.max(0, Math.min(100, Number(dCfg.criticalChance) || 0));
@@ -4425,7 +4434,7 @@ function banCungFireBurst(shotCount, contribUser, giftMeta) {
             });
             // Apply damage when arrow lands (delayed by arrowDur)
             setTimeout(() => {
-                const flags = banCungApplyShotDamage(contribUser);
+                const flags = banCungApplyShotDamage(contribUser, giftMeta);
                 if (flags.dealt > 0) {
                     io.emit('bancung:hit', {
                         ts: Date.now(),
