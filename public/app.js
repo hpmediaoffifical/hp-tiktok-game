@@ -317,7 +317,7 @@
     // ===== Games =====
     const GAME_DEVELOPMENT_NOTICE = 'Đang phát triển, có thể gặp sự cố...';
     // Whitelist game đã ổn định — không hiển thị cảnh báo "Đang phát triển"
-    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer', 'liveTranslate']);
+    const STABLE_GAMES = new Set(['thuytinh', 'caro', 'votecomment', 'nhietdo', 'level-quest', 'timer', 'liveTranslate']);
 
     function renderGameDevelopmentNotice(game) {
         if (STABLE_GAMES.has(game.id)) return '';
@@ -537,6 +537,15 @@
                     });
                 } catch (e) { console.warn('[quick-launch] votecomment control fail:', e); }
                 break;
+            case 'nhietdo':
+                try {
+                    await fetch('/api/games/nhietdo/control', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cmd: action })   // 'start' | 'stop' | 'reset'
+                    });
+                } catch (e) { console.warn('[quick-launch] nhietdo control fail:', e); }
+                break;
             case 'level-quest': {
                 const f = document.getElementById('lq-frame');
                 try { f?.contentWindow?.postMessage({ type: 'quickLaunch', action }, '*'); } catch (e) {}
@@ -641,7 +650,7 @@
         currentGame = game;
         highlightActiveGame(gameId);
         // Body class: dùng để CSS ẩn/hiện FAB/popup theo game
-        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-liveTranslate');
+        document.body.classList.remove('game-thuytinh', 'game-caro', 'game-pktiktok', 'game-vipwelcome', 'game-votecomment', 'game-nhietdo', 'game-liveTranslate');
         document.body.classList.add('game-' + gameId);
         // Đóng các popup Hũ khi rời sang game khác (tránh popup mở treo)
         if (gameId !== 'thuytinh') {
@@ -653,6 +662,7 @@
         else if (gameId === 'pktiktok') openPkTiktok(game);
         else if (gameId === 'vipwelcome') openVipWelcome(game);
         else if (gameId === 'votecomment') openVoteComment(game);
+        else if (gameId === 'nhietdo') openNhietDo(game);
         else if (gameId === 'liveTranslate') openLiveTranslateView();
         else if (gameId === 'level-quest') showView('view-level-quest');
         else if (gameId === 'timer') showView('view-timer');
@@ -663,6 +673,15 @@
             window.HpVoteCommentPanel.open(socket);
         } else {
             console.error('[votecomment] HpVoteCommentPanel chưa load');
+        }
+    }
+
+    function openNhietDo(game) {
+        if (!window.__giftSheet) window.__giftSheet = giftSheet;
+        if (window.HpNhietDoPanel && typeof window.HpNhietDoPanel.open === 'function') {
+            window.HpNhietDoPanel.open(socket);
+        } else {
+            console.error('[nhietdo] HpNhietDoPanel chưa load');
         }
     }
 

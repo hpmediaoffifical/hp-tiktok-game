@@ -1467,6 +1467,47 @@
                 </div>
             </section>
 
+            <!-- ============ GAME VIEW: Biểu Cảm Nhiệt Độ ============ -->
+            <section id="view-nhietdo" class="view game-view nhietdo-view">
+                <header class="game-header">
+                    <div>
+                        <h2>🌡 Biểu Cảm Nhiệt Độ</h2>
+                        <div class="game-sub">Thanh nhiệt 0–100°C tăng theo quà, tự giảm khi không có quà — càng nóng càng nhiều lửa trên overlay.</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <label class="nd-switch" title="Bật / Tắt toàn bộ game (toggle thư viện)"><input id="nd-cfg-enabled" type="checkbox" checked /><span>Bật</span></label>
+                        <button id="nd-btn-session" class="primary small" title="Bắt đầu phiên — overlay nhận quà + hiển thị">▶ BẮT ĐẦU phiên</button>
+                        <span id="nd-session-status" class="nd-session-status">⏸ Sẵn sàng</span>
+                        <span class="nd-bar-spacer"></span>
+                        <button id="nd-btn-copy" class="ghost small" title="Copy URL overlay cho OBS">📋 Copy link</button>
+                        <button id="nd-btn-popout-pin" class="primary small" title="Mở overlay ghim trên top — có title bar để KÉO cửa sổ, nền trong suốt">📌 Ghim trên top</button>
+                        <button id="nd-btn-popout-edit" class="ghost small" title="Mở overlay chế độ sửa — kéo chuột để chỉnh vị trí thanh nhiệt trong overlay, cuộn chuột để zoom">✏ Sửa vị trí thanh</button>
+                        <button id="nd-btn-reload" class="ghost small" title="Buộc overlay reload">🔄 Reload</button>
+                        <button id="nd-btn-reset" class="danger small" title="Reset nhiệt độ + xoá top contributor">↺ Reset nhiệt</button>
+                        <button id="nd-btn-save" class="primary small" title="Lưu tất cả cấu hình ngay (mặc định tự lưu sau 0.35s)">💾 Lưu tất cả</button>
+                    </div>
+                </header>
+
+                <div class="game-body nhietdo-body">
+                    <div class="nd-tabs">
+                        <button class="nd-tab active" data-nd-tab="heat">🔥 Cài đặt nhiệt</button>
+                        <button class="nd-tab" data-nd-tab="display">🎨 Hiển thị overlay</button>
+                        <button class="nd-tab" data-nd-tab="gifts">🎁 Quà chỉ định</button>
+                        <button class="nd-tab" data-nd-tab="milestones">🎯 Mốc thưởng</button>
+                        <button class="nd-tab" data-nd-tab="audio">🎵 Âm thanh nền</button>
+                        <button class="nd-tab" data-nd-tab="live">🌡 Live &amp; Test</button>
+                    </div>
+                    <div class="nd-panes">
+                        <div class="nd-pane active" data-nd-pane="heat" id="nd-heat-pane"></div>
+                        <div class="nd-pane" data-nd-pane="display" id="nd-display-pane"></div>
+                        <div class="nd-pane" data-nd-pane="gifts" id="nd-gifts-pane"></div>
+                        <div class="nd-pane" data-nd-pane="milestones" id="nd-milestones-pane"></div>
+                        <div class="nd-pane" data-nd-pane="audio" id="nd-audio-pane"></div>
+                        <div class="nd-pane" data-nd-pane="live" id="nd-live-pane"></div>
+                    </div>
+                </div>
+            </section>
+
             <section id="view-live-translate" class="view game-view live-translate-view">
                 <header class="game-header">
                     <div>
@@ -1970,6 +2011,8 @@
     <script src="/games/vipwelcome/vipwelcome-panel.js"></script>
     <script src="/games/votecomment/game.js"></script>
     <script src="/games/votecomment/votecomment-panel.js"></script>
+    <script src="/games/nhietdo/game.js"></script>
+    <script src="/games/nhietdo/nhietdo-panel.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

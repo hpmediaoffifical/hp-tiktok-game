@@ -198,6 +198,14 @@ function createMainWindow() {
             openCaroPreviewWindow();
             return { action: 'deny' };
         }
+        // /overlay/nhietdo → cửa sổ overlay nhiệt độ (nền trong suốt + frame title bar để kéo).
+        // Hỗ trợ 2 mode: bình thường, hoặc ?pin=1 (luôn nổi trên top).
+        if (url.startsWith(`${APP_URL}/overlay/nhietdo`)) {
+            const pin = url.includes('pin=1');
+            const edit = url.includes('edit=1');
+            openNhietDoPopoutWindow({ pin, edit });
+            return { action: 'deny' };
+        }
         if (url.startsWith(APP_URL)) {
             return { action: 'allow' };
         }
@@ -766,6 +774,74 @@ app.whenReady().then(async () => {
     createMainWindow();
     buildTray();
 });
+
+// ============================================================
+// NHIỆT ĐỘ — cửa sổ overlay popout (transparent + title bar để kéo)
+// 2 mode: bình thường (frame), hoặc pin (frame + alwaysOnTop)
+// ============================================================
+let nhietDoPinWindow = null;
+let nhietDoPopoutWindow = null;
+const NHIETDO_PIN_PREFS_FILE = path.join(app.getPath('userData'), 'nhietdo-pin-prefs.json');
+function loadNhietDoPinPrefs() {
+    try { return JSON.parse(fs.readFileSync(NHIETDO_PIN_PREFS_FILE, 'utf8')); } catch { return {}; }
+}
+function saveNhietDoPinPrefs(patch) {
+    try {
+        const cur = loadNhietDoPinPrefs();
+        fs.writeFileSync(NHIETDO_PIN_PREFS_FILE, JSON.stringify({ ...cur, ...patch }, null, 2));
+    } catch {}
+}
+function openNhietDoPopoutWindow({ pin = false, edit = false } = {}) {
+    // Reuse target window theo mode
+    const slotKey = pin ? 'pin' : 'popout';
+    let target = pin ? nhietDoPinWindow : nhietDoPopoutWindow;
+    if (target && !target.isDestroyed()) {
+        try { target.focus(); return; } catch {}
+    }
+    const prefs = loadNhietDoPinPrefs();
+    const sub = prefs[slotKey] || {};
+    const opts = {
+        width:  Math.max(200, parseInt(sub.w, 10) || (pin ? 360 : 540)),
+        height: Math.max(360, parseInt(sub.h, 10) || (pin ? 640 : 960)),
+        minWidth: 200, minHeight: 360,
+        title: pin ? 'HP Nhiệt Độ — Pinned' : 'HP Nhiệt Độ — Overlay',
+        icon: getIcon(),
+        backgroundColor: '#00000000',   // alpha 00 = nền hoàn toàn trong suốt
+        transparent: true,
+        frame: true,                    // title bar để KÉO + đóng cửa sổ (fix bug pin không kéo được)
+        hasShadow: false,
+        alwaysOnTop: pin,
+        skipTaskbar: false,
+        show: false,
+        webPreferences: { contextIsolation: true, sandbox: false }
+    };
+    if (Number.isFinite(sub.x) && Number.isFinite(sub.y)) { opts.x = sub.x; opts.y = sub.y; }
+    const win = new BrowserWindow(opts);
+    const params = [];
+    if (pin) params.push('pin=1');
+    if (edit) params.push('edit=1');
+    win.loadURL(`${APP_URL}/overlay/nhietdo${params.length ? '?' + params.join('&') : ''}`);
+    win.once('ready-to-show', () => win.show());
+    const persist = () => {
+        if (!win || win.isDestroyed()) return;
+        try {
+            const b = win.getBounds();
+            saveNhietDoPinPrefs({ [slotKey]: { x: b.x, y: b.y, w: b.width, h: b.height } });
+        } catch {}
+    };
+    win.on('moved', persist);
+    win.on('resize', persist);
+    win.on('close', persist);
+    win.on('closed', () => {
+        if (pin) nhietDoPinWindow = null;
+        else nhietDoPopoutWindow = null;
+    });
+    win.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url); return { action: 'deny' };
+    });
+    if (pin) nhietDoPinWindow = win;
+    else nhietDoPopoutWindow = win;
+}
 
 app.on('before-quit', () => { isQuitting = true; try { unregisterSfxHotkeys(); } catch (_) {} });
 app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (_) {} });

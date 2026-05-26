@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>HP Nhiệt Độ — Overlay</title>
+<style>
+    /* OBS browser source: 1080×1920 transparent. Mọi positioning là % của khung này. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+        width: 100%; height: 100%;
+        background: transparent;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        overflow: hidden;
+        color: #fff;
+        user-select: none;
+    }
+    body {
+        --temp: 0;
+        --temp-pct: 0;
+        --stage: 0;
+        --tint: rgba(0,0,0,0);
+        --primary: #ff9bcf;
+        --primary-2: #ff5fa3;
+        --hot: #ff5b2e;
+        --hot-2: #ffd54a;
+    }
+    /* ===== EFFECT LAYERS — bao toàn khung ===== */
+    /* Tint nền — đỏ dần theo nhiệt */
+    .nd-tint {
+        position: fixed; inset: 0;
+        background: var(--tint);
+        transition: background 600ms ease-out;
+        pointer-events: none;
+        z-index: 1;
+    }
+    /* Hơi nóng méo nền (CSS filter trên cả viewport — chỉ active từ stage 2) */
+    .nd-haze {
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: 2;
+        opacity: 0;
+        background:
+            radial-gradient(60% 80% at 30% 70%, rgba(255,180,80,0.18), transparent 60%),
+            radial-gradient(50% 70% at 70% 30%, rgba(255,100,40,0.22), transparent 60%);
+        filter: blur(20px);
+        animation: nd-haze-pulse 4s ease-in-out infinite;
+        transition: opacity 600ms ease;
+    }
+    @keyframes nd-haze-pulse {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-12px) scale(1.04); }
+    }
+    /* Vignette đỏ ép vào cạnh — stage 3+ */
+    .nd-vignette {
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: 3;
+        opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 35%, rgba(180,20,0,0.65) 100%);
+        transition: opacity 800ms ease;
+        mix-blend-mode: multiply;
+    }
+    /* Ngọn lửa viền dưới — stage 2+ */
+    .nd-flames-bottom {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        height: 30%;
+        pointer-events: none;
+        z-index: 4;
+        opacity: 0;
+        background:
+            radial-gradient(40% 80% at 10% 100%, rgba(255,150, 20,0.85), transparent 70%),
+            radial-gradient(35% 80% at 30% 100%, rgba(255, 80, 20,0.85), transparent 70%),
+            radial-gradient(30% 70% at 50% 100%, rgba(255,200, 60,0.85), transparent 70%),
+            radial-gradient(35% 80% at 70% 100%, rgba(255, 90, 30,0.85), transparent 70%),
+            radial-gradient(40% 80% at 90% 100%, rgba(255,160, 40,0.85), transparent 70%);
+        filter: blur(2px);
+        animation: nd-flame-flicker 0.8s ease-in-out infinite alternate;
+        transition: opacity 600ms ease;
+        mix-blend-mode: screen;
+    }
+    @keyframes nd-flame-flicker {
+        0%   { transform: translateY(8px) scaleY(0.95); opacity: 1; }
+        100% { transform: translateY(-6px) scaleY(1.06); opacity: 0.85; }
+    }
+    /* Tàn lửa bay lên — stage 3+ */
+    .nd-embers {
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 800ms ease;
+    }
+    .nd-ember {
+        position: absolute;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: radial-gradient(circle, #ffd770 0%, #ff6020 50%, transparent 70%);
+        box-shadow: 0 0 8px #ff8a30, 0 0 16px #ff5010;
+        bottom: -10px;
+        animation: nd-ember-rise linear infinite;
+    }
+    @keyframes nd-ember-rise {
+        0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+        10%  { opacity: 1; }
+        80%  { opacity: 0.9; }
+        100% { transform: translate(var(--dx, 0), -110vh) scale(1.2); opacity: 0; }
+    }
+    /* Stage 4+ flame burst — fullscreen with overlapping fire */
+    .nd-inferno {
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: 6;
+        opacity: 0;
+        background:
+            radial-gradient(60% 90% at 50% 110%, rgba(255,255,200,0.45), transparent 60%),
+            linear-gradient(180deg, transparent 30%, rgba(255,80,20,0.35) 80%, rgba(255,200,40,0.55) 100%);
+        mix-blend-mode: screen;
+        transition: opacity 1s ease;
+        animation: nd-inferno-breathe 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes nd-inferno-breathe {
+        0%   { filter: brightness(0.9) saturate(1.1); }
+        100% { filter: brightness(1.15) saturate(1.4); }
+    }
+    /* Lightning flash + shake at peak (>= 95) */
+    body.nd-peak .nd-inferno { animation: nd-inferno-breathe 0.45s ease-in-out infinite alternate; }
+    body.nd-peak.nd-shake .nd-stage { animation: nd-shake 0.18s infinite; }
+    @keyframes nd-shake {
+        0%, 100% { transform: translate(-50%, -50%) translate(0, 0); }
+        25%      { transform: translate(-50%, -50%) translate(-6px, 4px); }
+        50%      { transform: translate(-50%, -50%) translate(6px, -3px); }
+        75%      { transform: translate(-50%, -50%) translate(-3px, 6px); }
+    }
+
+    /* ===== THERMOMETER STAGE — vị trí + scale có thể di chuyển ===== */
+    .nd-stage {
+        position: fixed;
+        left: 50%; top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        pointer-events: none;
+        transition: left 250ms ease, top 250ms ease;
+    }
+    .nd-stage-inner {
+        transform-origin: center center;
+        transition: transform 250ms ease;
+    }
+
+    /* ===== THE THERMOMETER ===== */
+    .nd-thermo {
+        position: relative;
+        width: 220px;          /* base — scale via transform */
+        height: 760px;
+        display: flex; flex-direction: column; align-items: center;
+        padding: 0;
+    }
+    /* Outer pink-rounded frame, tube + bulb shape */
+    .nd-frame {
+        position: relative;
+        width: 220px; height: 760px;
+        background:
+            linear-gradient(180deg, #ffd1e8 0%, #ffeef5 6%, #ffd1e8 12%, #ffb4d4 100%);
+        border: 6px solid #ff5fa3;
+        border-radius: 110px / 90px;
+        box-shadow:
+            inset 0 0 20px rgba(255,255,255,0.6),
+            0 6px 30px rgba(255, 90,160, 0.45),
+            0 0 0 4px rgba(255,255,255,0.15);
+    }
+    /* Inner tube — where mercury fills */
+    .nd-tube {
+        position: absolute;
+        left: 50%; transform: translateX(-50%);
+        top: 70px;
+        width: 90px;
+        bottom: 200px;
+        background: linear-gradient(180deg, #fff 0%, #ffe7f1 100%);
+        border-radius: 45px;
+        border: 4px solid #ff8ec0;
+        overflow: hidden;
+        box-shadow: inset 0 4px 12px rgba(255,150,200,0.35);
+    }
+    /* Mercury fill */
+    .nd-fill {
+        position: absolute;
+        left: 0; right: 0; bottom: 0;
+        height: 0%;     /* = temp pct */
+        background: linear-gradient(180deg,
+            var(--hot-2, #ffd54a)  0%,
+            var(--hot,    #ff5b2e) 35%,
+            var(--primary-2, #ff5fa3) 100%);
+        transition: height 600ms cubic-bezier(.4,.0,.2,1), background 1s ease;
+        box-shadow: 0 0 24px rgba(255,90,40,0.65);
+    }
+    /* Tiny shine on fill */
+    .nd-fill::after {
+        content: '';
+        position: absolute; top: 0; left: 8px; bottom: 0;
+        width: 12px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.6), transparent 50%);
+        border-radius: 6px;
+    }
+    /* Bulb at the bottom — cute face */
+    .nd-bulb {
+        position: absolute;
+        left: 50%; bottom: 60px;
+        transform: translateX(-50%);
+        width: 170px; height: 170px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%,
+            #fff 0%, #ffd1e8 20%, #ff8ec0 70%, #ff5fa3 100%);
+        border: 6px solid #ff5fa3;
+        box-shadow: inset 0 -10px 20px rgba(255,90,160,0.45), 0 6px 16px rgba(255, 90,160, 0.5);
+    }
+    .nd-bulb::before, .nd-bulb::after {
+        content: '';
+        position: absolute;
+        background: #5e2230;
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        top: 58px;
+    }
+    .nd-bulb::before { left: 45px; }
+    .nd-bulb::after  { right: 45px; }
+    .nd-bulb .nd-smile {
+        position: absolute;
+        left: 50%; top: 95px; transform: translateX(-50%);
+        width: 50px; height: 25px;
+        border-bottom: 6px solid #5e2230;
+        border-radius: 0 0 50px 50px;
+    }
+    /* Tube cap "0°" at top */
+    .nd-zero {
+        position: absolute;
+        left: 50%; top: 16px;
+        transform: translateX(-50%);
+        font-weight: 800; color: #ff3a82;
+        font-size: 22px;
+    }
+    /* Tick marks on tube */
+    .nd-ticks {
+        position: absolute;
+        left: -28px; top: 0; bottom: 0;
+        width: 24px;
+        font-size: 13px; color: #ff3a82;
+        font-weight: 700;
+        display: flex; flex-direction: column; justify-content: space-between;
+        align-items: flex-end;
+        text-shadow: 0 1px 0 #fff;
+    }
+    .nd-ticks span { line-height: 1; }
+    /* Big degrees label inside bulb — đẩy lên trên để emoji mặt cười lộ ra dưới */
+    .nd-deg-text {
+        position: absolute;
+        left: 50%; bottom: 165px; transform: translateX(-50%);
+        font-weight: 900;
+        font-size: 48px;
+        color: #fff;
+        text-shadow:
+            0 2px 0 #ff3a82,
+            0 0 16px rgba(255,90,40, 0.7);
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+        z-index: 5;
+        letter-spacing: -1px;
+    }
+    /* Caption under bulb */
+    .nd-caption {
+        position: absolute;
+        left: 50%; bottom: -50px; transform: translateX(-50%);
+        background: linear-gradient(180deg, #ff5fa3, #ff3a82);
+        border-radius: 14px;
+        padding: 8px 22px;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        color: #fff;
+        text-shadow: 0 2px 0 rgba(0,0,0,0.25);
+        box-shadow: 0 6px 14px rgba(255,90,160,0.45);
+        white-space: nowrap;
+    }
+    /* Stage emoji floating near bulb */
+    .nd-emoji {
+        position: absolute;
+        right: -60px; top: 50%;
+        transform: translateY(-50%);
+        font-size: 84px;
+        filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3));
+        animation: nd-emoji-bob 2.4s ease-in-out infinite;
+    }
+    @keyframes nd-emoji-bob {
+        0%,100% { transform: translateY(-50%) rotate(-3deg); }
+        50%     { transform: translateY(-55%) rotate(3deg); }
+    }
+
+    /* +X°C floating gain text */
+    .nd-gain-layer {
+        position: absolute;
+        left: -120px; top: 0; bottom: 0; width: 240px;
+        pointer-events: none;
+        overflow: visible;
+    }
+    .nd-gain {
+        position: absolute;
+        left: 50%; bottom: 40%;
+        transform: translateX(-50%);
+        font-weight: 900;
+        font-size: 42px;
+        color: #fff;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 12px #ff5b2e;
+        animation: nd-gain-up 1600ms ease-out forwards;
+        white-space: nowrap;
+    }
+    .nd-gain.minus {
+        text-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 10px #5da8ff;
+        color: #c8e8ff;
+    }
+    @keyframes nd-gain-up {
+        0%   { opacity: 0; transform: translate(-50%, 30px) scale(0.7); }
+        18%  { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
+        70%  { opacity: 1; transform: translate(-50%, -120px) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -200px) scale(0.8); }
+    }
+
+    /* COLOR SCHEMES — set CSS vars */
+    body.scheme-pinkfire { /* default — đã set above */ }
+    body.scheme-classic {
+        --primary: #f0c64a; --primary-2: #ff8c00;
+        --hot: #ff3a1a; --hot-2: #ffdf66;
+    }
+    body.scheme-classic .nd-frame {
+        background: linear-gradient(180deg, #fff5e0 0%, #ffe6b3 100%);
+        border-color: #c97f25;
+    }
+    body.scheme-classic .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffdfa0 30%, #ff8b3a 80%);
+        border-color: #c97f25;
+    }
+    body.scheme-classic .nd-tube { border-color: #d9a14a; }
+    body.scheme-classic .nd-caption { background: linear-gradient(180deg, #ff8b3a, #d9531a); }
+    body.scheme-neon {
+        --primary: #25f4ee; --primary-2: #1ac6c0;
+        --hot: #ff2ed2; --hot-2: #fff45c;
+    }
+    body.scheme-neon .nd-frame {
+        background: linear-gradient(180deg, #0a1330 0%, #1a2a55 100%);
+        border-color: #25f4ee;
+        box-shadow: 0 0 40px #25f4ee, inset 0 0 20px rgba(37,244,238,0.3);
+    }
+    body.scheme-neon .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #25f4ee 40%, #1ac6c0 80%);
+        border-color: #25f4ee;
+    }
+    body.scheme-neon .nd-tube { border-color: #25f4ee; background: linear-gradient(180deg, #051028, #0a1f48); }
+    body.scheme-neon .nd-caption { background: linear-gradient(180deg, #25f4ee, #1ac6c0); color: #052228; }
+    body.scheme-neon .nd-deg-text { color: #fff; text-shadow: 0 0 20px #25f4ee; }
+    body.scheme-neon .nd-zero,
+    body.scheme-neon .nd-ticks { color: #25f4ee; }
+    body.scheme-lava {
+        --primary: #ff3a1a; --primary-2: #ffb83a;
+        --hot: #ff0a0a; --hot-2: #fff45c;
+    }
+    body.scheme-lava .nd-frame {
+        background: linear-gradient(180deg, #1a0808 0%, #4a1010 100%);
+        border-color: #ff3a1a;
+        box-shadow: 0 0 50px #ff5a1a, inset 0 0 20px rgba(255,80,30,0.3);
+    }
+    body.scheme-lava .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffb83a 25%, #ff3a1a 70%);
+        border-color: #ff3a1a;
+    }
+    body.scheme-lava .nd-tube { border-color: #ff5a1a; background: #1a0606; }
+    body.scheme-lava .nd-caption { background: linear-gradient(180deg, #ff3a1a, #b81a1a); }
+
+    /* 💙 ICE — băng xanh, phù hợp NỮ / cool */
+    body.scheme-ice { --primary:#7cc6ff; --primary-2:#4ba0ff; --hot:#a0e8ff; --hot-2:#e0f7ff; }
+    body.scheme-ice .nd-frame {
+        background: linear-gradient(180deg, #e0f7ff 0%, #b5e5ff 100%);
+        border-color: #4ba0ff;
+        box-shadow: 0 0 30px #7cc6ff, inset 0 0 20px rgba(180,225,255,0.6);
+    }
+    body.scheme-ice .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #d8efff 25%, #7cc6ff 70%, #4ba0ff 100%);
+        border-color: #4ba0ff;
+    }
+    body.scheme-ice .nd-tube { border-color: #7cc6ff; background: #f0fbff; }
+    body.scheme-ice .nd-caption { background: linear-gradient(180deg,#4ba0ff,#2e7cd6); }
+    body.scheme-ice .nd-zero, body.scheme-ice .nd-ticks { color: #2e7cd6; }
+    body.scheme-ice .nd-deg-text { text-shadow: 0 2px 0 #2e7cd6, 0 0 16px rgba(125,200,255,0.7); }
+
+    /* 🌌 GALAXY — vũ trụ tím đen, NPC vibe */
+    body.scheme-galaxy { --primary:#b66bff; --primary-2:#7a3df0; --hot:#ff70d6; --hot-2:#fff45c; }
+    body.scheme-galaxy .nd-frame {
+        background: radial-gradient(ellipse at center, #2a0a45 0%, #0a0218 100%);
+        border-color: #b66bff;
+        box-shadow: 0 0 50px #b66bff, inset 0 0 25px rgba(180,107,255,0.4);
+    }
+    body.scheme-galaxy .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ff70d6 25%, #b66bff 65%, #7a3df0 100%);
+        border-color: #b66bff;
+    }
+    body.scheme-galaxy .nd-tube { border-color: #b66bff; background: #0a0218; }
+    body.scheme-galaxy .nd-caption { background: linear-gradient(180deg,#b66bff,#7a3df0); }
+    body.scheme-galaxy .nd-zero, body.scheme-galaxy .nd-ticks { color: #b66bff; }
+    body.scheme-galaxy .nd-deg-text { color: #fff; text-shadow: 0 0 20px #b66bff, 0 0 40px #ff70d6; }
+
+    /* ⚔ WARRIOR — đỏ-vàng kim loại, NAM */
+    body.scheme-warrior { --primary:#c41818; --primary-2:#8b0000; --hot:#ff8b00; --hot-2:#ffd700; }
+    body.scheme-warrior .nd-frame {
+        background: linear-gradient(180deg, #2b0808 0%, #4a1010 50%, #1a0606 100%);
+        border-color: #ffd700;
+        box-shadow: 0 0 30px #c41818, inset 0 0 20px rgba(196,24,24,0.4);
+    }
+    body.scheme-warrior .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffd700 20%, #c41818 70%, #8b0000 100%);
+        border-color: #ffd700;
+    }
+    body.scheme-warrior .nd-tube { border-color: #ffd700; background: #1a0606; }
+    body.scheme-warrior .nd-caption { background: linear-gradient(180deg,#ffd700,#c97f25); color: #1a0606; }
+    body.scheme-warrior .nd-zero, body.scheme-warrior .nd-ticks { color: #ffd700; }
+    body.scheme-warrior .nd-deg-text { text-shadow: 0 2px 0 #8b0000, 0 0 16px rgba(255,215,0,0.7); }
+
+    /* 🌊 OCEAN — xanh dương sâu, NAM */
+    body.scheme-ocean { --primary:#1ac6c0; --primary-2:#0e6e80; --hot:#25f4ee; --hot-2:#a0ffe0; }
+    body.scheme-ocean .nd-frame {
+        background: linear-gradient(180deg, #08203a 0%, #0e3a55 50%, #042235 100%);
+        border-color: #25f4ee;
+        box-shadow: 0 0 40px #1ac6c0, inset 0 0 20px rgba(37,244,238,0.25);
+    }
+    body.scheme-ocean .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #a0ffe0 22%, #25f4ee 60%, #0e6e80 100%);
+        border-color: #25f4ee;
+    }
+    body.scheme-ocean .nd-tube { border-color: #25f4ee; background: #042235; }
+    body.scheme-ocean .nd-caption { background: linear-gradient(180deg,#25f4ee,#0e6e80); color: #042235; }
+    body.scheme-ocean .nd-zero, body.scheme-ocean .nd-ticks { color: #25f4ee; }
+    body.scheme-ocean .nd-deg-text { color: #fff; text-shadow: 0 0 20px #25f4ee; }
+
+    /* 🍃 FOREST — xanh lá rừng, NPC */
+    body.scheme-forest { --primary:#5fa84a; --primary-2:#2f6e30; --hot:#a8e25c; --hot-2:#ddf896; }
+    body.scheme-forest .nd-frame {
+        background: linear-gradient(180deg, #1a2b14 0%, #2c4a26 100%);
+        border-color: #5fa84a;
+        box-shadow: 0 0 30px #5fa84a, inset 0 0 20px rgba(95,168,74,0.3);
+    }
+    body.scheme-forest .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ddf896 20%, #a8e25c 50%, #5fa84a 100%);
+        border-color: #5fa84a;
+    }
+    body.scheme-forest .nd-tube { border-color: #5fa84a; background: #14220e; }
+    body.scheme-forest .nd-caption { background: linear-gradient(180deg,#5fa84a,#2f6e30); }
+    body.scheme-forest .nd-zero, body.scheme-forest .nd-ticks { color: #a8e25c; }
+    body.scheme-forest .nd-deg-text { text-shadow: 0 2px 0 #2f6e30, 0 0 16px rgba(168,226,92,0.7); }
+
+    /* 🌸 SAKURA — pastel hồng-trắng dịu, NỮ */
+    body.scheme-sakura { --primary:#ffc8d6; --primary-2:#ff9eb5; --hot:#ffafff; --hot-2:#fff0f5; }
+    body.scheme-sakura .nd-frame {
+        background: linear-gradient(180deg, #fff5f9 0%, #ffe1ec 100%);
+        border-color: #ff9eb5;
+        box-shadow: 0 0 25px #ffc8d6, inset 0 0 20px rgba(255,255,255,0.7);
+    }
+    body.scheme-sakura .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffe1ec 25%, #ffc8d6 60%, #ff9eb5 100%);
+        border-color: #ff9eb5;
+    }
+    body.scheme-sakura .nd-tube { border-color: #ffc8d6; background: linear-gradient(180deg,#fff,#fff0f5); }
+    body.scheme-sakura .nd-caption { background: linear-gradient(180deg,#ff9eb5,#e07a98); color: #fff; }
+    body.scheme-sakura .nd-zero, body.scheme-sakura .nd-ticks { color: #e07a98; }
+    body.scheme-sakura .nd-deg-text { text-shadow: 0 2px 0 #e07a98, 0 0 16px rgba(255,200,214,0.6); }
+
+    /* 👻 HALLOWEEN — cam-tím-đen */
+    body.scheme-halloween { --primary:#ff8c00; --primary-2:#cc6600; --hot:#9b30ff; --hot-2:#ffd54a; }
+    body.scheme-halloween .nd-frame {
+        background: linear-gradient(180deg, #1a0815 0%, #2e0a3a 100%);
+        border-color: #ff8c00;
+        box-shadow: 0 0 30px #ff8c00, inset 0 0 20px rgba(155,48,255,0.3);
+    }
+    body.scheme-halloween .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffd54a 18%, #ff8c00 55%, #9b30ff 100%);
+        border-color: #ff8c00;
+    }
+    body.scheme-halloween .nd-tube { border-color: #ff8c00; background: #1a0815; }
+    body.scheme-halloween .nd-caption { background: linear-gradient(180deg,#ff8c00,#9b30ff); }
+    body.scheme-halloween .nd-zero, body.scheme-halloween .nd-ticks { color: #ff8c00; }
+    body.scheme-halloween .nd-deg-text { color: #fff; text-shadow: 0 0 20px #ff8c00, 0 0 40px #9b30ff; }
+
+    /* 🇻🇳 VIETNAM — đỏ cờ + vàng sao */
+    body.scheme-vietnam { --primary:#ffcd28; --primary-2:#da251d; --hot:#ffcd28; --hot-2:#ffeb99; }
+    body.scheme-vietnam .nd-frame {
+        background: linear-gradient(180deg, #c8160d 0%, #8a0e07 100%);
+        border-color: #ffcd28;
+        box-shadow: 0 0 40px #ffcd28, inset 0 0 20px rgba(255,205,40,0.3);
+    }
+    body.scheme-vietnam .nd-bulb {
+        background: radial-gradient(circle at 35% 35%, #fff 0%, #ffeb99 22%, #ffcd28 60%, #da251d 100%);
+        border-color: #ffcd28;
+    }
+    body.scheme-vietnam .nd-tube { border-color: #ffcd28; background: #8a0e07; }
+    body.scheme-vietnam .nd-caption { background: linear-gradient(180deg,#ffcd28,#da251d); color: #fff; }
+    body.scheme-vietnam .nd-zero, body.scheme-vietnam .nd-ticks { color: #ffcd28; }
+    body.scheme-vietnam .nd-deg-text { color: #fff; text-shadow: 0 2px 0 #da251d, 0 0 16px rgba(255,205,40,0.8); }
+
+    /* EDIT MODE — only when ?edit=1 — overlay drag handles */
+    body.nd-edit .nd-stage { cursor: move; pointer-events: auto; }
+    body.nd-edit .nd-stage::after {
+        content: 'EDIT — kéo để di chuyển · cuộn để phóng to/thu nhỏ';
+        position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%);
+        background: rgba(0,0,0,0.7); color: #fff; padding: 8px 14px; border-radius: 8px;
+        font-size: 18px; pointer-events: none;
+    }
+
+    /* Hidden state toggles */
+    body.no-thermo .nd-thermo { display: none; }
+    body.no-label .nd-caption { display: none; }
+    body.no-degrees .nd-deg-text { display: none; }
+    body.no-emoji .nd-emoji { display: none; }
+    body.no-fire .nd-tint,
+    body.no-fire .nd-vignette,
+    body.no-fire .nd-flames-bottom,
+    body.no-fire .nd-embers,
+    body.no-fire .nd-inferno { display: none; }
+    body.no-haze .nd-haze { display: none; }
+    body.no-top .nd-top { display: none; }
+    /* Khi nhiệt ≤ 2°C — CSS animation override style.opacity 0, nên dùng display:none để
+       ép biến mất hoàn toàn (cả keyframe flicker không thể thắng) */
+    body.nd-cold .nd-tint,
+    body.nd-cold .nd-haze,
+    body.nd-cold .nd-vignette,
+    body.nd-cold .nd-flames-bottom,
+    body.nd-cold .nd-embers,
+    body.nd-cold .nd-inferno { display: none !important; }
+    /* Khi phiên KẾT THÚC — ẩn tất cả overlay items (thanh nhiệt + leaderboard + effects) */
+    body.nd-stopped .nd-thermo,
+    body.nd-stopped .nd-top,
+    body.nd-stopped .nd-tint,
+    body.nd-stopped .nd-haze,
+    body.nd-stopped .nd-vignette,
+    body.nd-stopped .nd-flames-bottom,
+    body.nd-stopped .nd-embers,
+    body.nd-stopped .nd-inferno,
+    body.nd-stopped .nd-milestone-media,
+    body.nd-stopped .nd-ticker { display: none !important; }
+
+    /* ===== MILESTONE TICKER — chữ chạy ngang khi đạt mốc ===== */
+    .nd-ticker {
+        position: fixed; left: 0; right: 0; top: 50%;
+        transform: translateY(-50%);
+        z-index: 50;
+        pointer-events: none;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0;
+    }
+    .nd-ticker.show {
+        animation: nd-ticker-cycle 3.6s ease-out forwards;
+    }
+    .nd-ticker-text {
+        font-size: calc(64px * var(--ticker-scale, 1));
+        font-weight: 900;
+        color: #fff;
+        text-shadow:
+            0 0 20px #ff5b2e, 0 0 40px #ff8e3a,
+            0 4px 0 #c41818, 0 8px 16px rgba(0,0,0,0.8);
+        white-space: nowrap;
+        letter-spacing: 2px;
+        padding: calc(14px * var(--ticker-scale, 1)) calc(36px * var(--ticker-scale, 1));
+        background: linear-gradient(180deg, rgba(255,60,30,0.85), rgba(180,20,0,0.95));
+        border-radius: calc(20px * var(--ticker-scale, 1));
+        border: 3px solid #ffd54a;
+        box-shadow: 0 0 40px rgba(255,90,40,0.9);
+    }
+    @keyframes nd-ticker-cycle {
+        0%   { opacity: 0; transform: translateY(-50%) scale(0.4); }
+        15%  { opacity: 1; transform: translateY(-50%) scale(1.15); }
+        25%  { opacity: 1; transform: translateY(-50%) scale(1); }
+        75%  { opacity: 1; transform: translateY(-50%) scale(1); }
+        100% { opacity: 0; transform: translateY(-50%) scale(0.8); }
+    }
+
+    /* ===== MILESTONE VIDEO/IMAGE — toàn màn khi đạt mốc ===== */
+    .nd-milestone-media {
+        position: fixed; inset: 0;
+        z-index: 45;
+        pointer-events: none;
+        opacity: 0;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .nd-milestone-media video,
+    .nd-milestone-media img {
+        max-width: 90%; max-height: 70%; object-fit: contain;
+        filter: drop-shadow(0 0 40px rgba(255,90,40,0.6));
+    }
+    .nd-milestone-media.show {
+        animation: nd-milestone-cycle 4s ease-out forwards;
+    }
+    @keyframes nd-milestone-cycle {
+        0%   { opacity: 0; }
+        10%  { opacity: 1; }
+        90%  { opacity: 1; }
+        100% { opacity: 0; }
+    }
+
+    /* ===== TOP CONTRIBUTOR LEADERBOARD — góc trên-trái ===== */
+    .nd-top {
+        position: fixed;
+        z-index: 30;
+        pointer-events: none;
+        background: rgba(20, 10, 14, 0.65);
+        backdrop-filter: blur(6px);
+        border: 2px solid rgba(255, 90, 160, 0.5);
+        border-radius: 14px;
+        padding: 10px 14px;
+        min-width: 280px;
+        max-width: 360px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+        transition: left 250ms ease, top 250ms ease, right 250ms ease, bottom 250ms ease;
+    }
+    .nd-top-title {
+        font-weight: 900;
+        font-size: 22px;
+        color: #ffae8c;
+        text-align: center;
+        margin-bottom: 6px;
+        letter-spacing: 1px;
+        text-shadow: 0 2px 0 rgba(0,0,0,0.4);
+    }
+    .nd-top-list { display: flex; flex-direction: column; gap: 4px; }
+    .nd-top-row {
+        display: grid;
+        grid-template-columns: 26px 38px 1fr 80px;
+        gap: 6px;
+        align-items: center;
+        font-size: 17px;
+        color: #fff;
+        padding: 3px 4px;
+        border-radius: 6px;
+    }
+    .nd-top-row.rank-0 { background: linear-gradient(90deg, rgba(255,215,0,0.25), transparent); }
+    .nd-top-row.rank-1 { background: linear-gradient(90deg, rgba(192,192,192,0.22), transparent); }
+    .nd-top-row.rank-2 { background: linear-gradient(90deg, rgba(205,127,50,0.22), transparent); }
+    .nd-top-rank { font-weight: 900; color: #ffd54a; text-align: center; }
+    .nd-top-avatar {
+        width: 32px; height: 32px; border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(255,150,200,0.6);
+        background: #2a1a25;
+    }
+    .nd-top-name {
+        font-weight: 700;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .nd-top-deg {
+        font-weight: 900;
+        color: #ff8e3a;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 6px rgba(255,90,40,0.6);
+    }
+</style>
+</head>
+<body class="scheme-pinkfire">
+    <!-- Effect layers -->
+    <div class="nd-tint"></div>
+    <div class="nd-haze"></div>
+    <div class="nd-vignette"></div>
+    <div class="nd-embers" id="nd-embers"></div>
+    <div class="nd-flames-bottom"></div>
+    <div class="nd-inferno"></div>
+    <!-- Milestone media + ticker -->
+    <div class="nd-milestone-media" id="nd-milestone-media"></div>
+    <div class="nd-ticker" id="nd-ticker"><div class="nd-ticker-text" id="nd-ticker-text"></div></div>
+    <!-- Top contributor leaderboard -->
+    <div class="nd-top" id="nd-top" style="left: 24px; top: 24px;">
+        <div class="nd-top-title">🔥 TOP NGƯỜI ĐẨY NHIỆT</div>
+        <div class="nd-top-list" id="nd-top-list"></div>
+    </div>
+    <!-- Audio engine — hidden -->
+    <audio id="nd-audio-ambient" loop preload="auto" style="display:none"></audio>
+    <audio id="nd-audio-shot" preload="auto" style="display:none"></audio>
+
+    <!-- Thermometer stage -->
+    <div class="nd-stage" id="nd-stage">
+        <div class="nd-stage-inner" id="nd-stage-inner">
+            <div class="nd-thermo">
+                <div class="nd-frame">
+                    <div class="nd-zero">0°</div>
+                    <div class="nd-tube">
+                        <div class="nd-ticks" aria-hidden="true">
+                            <span>100°</span><span>—</span><span>75°</span><span>—</span><span>50°</span><span>—</span><span>25°</span><span>—</span><span>0°</span>
+                        </div>
+                        <div class="nd-fill" id="nd-fill"></div>
+                    </div>
+                    <div class="nd-bulb">
+                        <div class="nd-smile"></div>
+                    </div>
+                    <div class="nd-deg-text" id="nd-deg-text">0°</div>
+                    <div class="nd-caption">NHIỆT ĐỘ</div>
+                    <div class="nd-emoji" id="nd-emoji">😐</div>
+                </div>
+                <div class="nd-gain-layer" id="nd-gain-layer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/games/nhietdo/game.js"></script>
+    <script>
+    (function () {
+        'use strict';
+        const helper = window.HpGame.nhietdo;
+        const $stage = document.getElementById('nd-stage');
+        const $inner = document.getElementById('nd-stage-inner');
+        const $fill = document.getElementById('nd-fill');
+        const $deg = document.getElementById('nd-deg-text');
+        const $emoji = document.getElementById('nd-emoji');
+        const $embers = document.getElementById('nd-embers');
+        const $gainLayer = document.getElementById('nd-gain-layer');
+
+        // Edit mode (panel popout) — drag + wheel zoom
+        const isEdit = new URLSearchParams(location.search).get('edit') === '1';
+        if (isEdit) document.body.classList.add('nd-edit');
+
+        let state = null;        // server-authoritative snapshot
+        let config = null;       // game config (display etc.)
+
+        // ===== Render: temperature -> visuals =====
+        function applyTemp(temp, tempMax) {
+            const max = tempMax || 100;
+            const pct = helper.clamp(temp, 0, max) / max * 100;
+            $fill.style.height = pct.toFixed(2) + '%';
+            $deg.textContent = Math.round(temp) + '°';
+            const { stage } = helper.stageBlend(temp, max);
+            $emoji.textContent = stage.emoji;
+            // Tint + effect intensities
+            document.body.style.setProperty('--tint', stage.tint);
+            document.body.style.setProperty('--temp-pct', pct.toFixed(1));
+            document.body.style.setProperty('--stage', stage.id);
+            // Safeguard: ở temp ≤ 2°C → display:none mọi effect layer (animation CSS override
+            // opacity 0 nên phải dùng class .nd-cold thay vì set inline opacity)
+            const fxIntensity = ((config?.display?.fxIntensity ?? 100) / 100);
+            const cold = temp <= 2;
+            document.body.classList.toggle('nd-cold', cold);
+            const haze    = clampNum((pct - 30) / 50, 0, 1) * fxIntensity * 0.85;
+            const vign    = clampNum((pct - 50) / 40, 0, 1) * fxIntensity * 0.75;
+            const flame   = clampNum((pct - 30) / 50, 0, 1) * fxIntensity;
+            const ember   = clampNum((pct - 50) / 40, 0, 1) * fxIntensity;
+            const inferno = clampNum((pct - 75) / 20, 0, 1) * fxIntensity;
+            document.querySelector('.nd-haze').style.opacity = haze;
+            document.querySelector('.nd-vignette').style.opacity = vign;
+            document.querySelector('.nd-flames-bottom').style.opacity = flame;
+            $embers.style.opacity = ember;
+            document.querySelector('.nd-inferno').style.opacity = inferno;
+            if (cold) document.body.style.setProperty('--tint', 'rgba(0,0,0,0)');
+            // Peak mode (>=95)
+            document.body.classList.toggle('nd-peak', pct >= 95);
+            document.body.classList.toggle('nd-shake', pct >= 95 && (config?.display?.shakeAtMax !== false));
+            // Spawn embers proportional to ember intensity (cũng dừng khi cold)
+            spawnEmbers(ember);
+        }
+
+        function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        // ===== Embers spawner — auto throttled by intensity =====
+        let _emberTimer = null;
+        function spawnEmbers(intensity) {
+            if (_emberTimer) { clearInterval(_emberTimer); _emberTimer = null; }
+            if (intensity <= 0.05) return;
+            // higher intensity = faster spawn rate, more particles at once
+            const interval = Math.max(60, 320 - intensity * 260);
+            const perTick = Math.max(1, Math.round(intensity * 3));
+            _emberTimer = setInterval(() => {
+                for (let i = 0; i < perTick; i++) makeEmber(intensity);
+                // self-clean
+                const kids = $embers.children;
+                while (kids.length > 80) $embers.removeChild(kids[0]);
+            }, interval);
+        }
+        function makeEmber(intensity) {
+            const e = document.createElement('div');
+            e.className = 'nd-ember';
+            const dx = (Math.random() * 60 - 30) + 'px';
+            const left = (Math.random() * 100) + '%';
+            const dur = (2.5 + Math.random() * 2.5) / Math.max(0.5, intensity) + 's';
+            const size = (3 + Math.random() * 6) + 'px';
+            e.style.left = left;
+            e.style.setProperty('--dx', dx);
+            e.style.animationDuration = dur;
+            e.style.width = size; e.style.height = size;
+            $embers.appendChild(e);
+            setTimeout(() => e.remove(), 6000);
+        }
+
+        // ===== Apply config (position, scale, toggles, scheme) =====
+        function applyConfig(cfg) {
+            config = cfg || {};
+            const d = config.display || {};
+            $stage.style.left = (d.xPercent ?? 50) + '%';
+            $stage.style.top  = (d.yPercent ?? 50) + '%';
+            $inner.style.transform = 'scale(' + ((d.scale ?? 100) / 100) + ')';
+            document.body.classList.toggle('no-thermo', d.showThermo === false);
+            document.body.classList.toggle('no-label',  d.showLabel === false);
+            document.body.classList.toggle('no-degrees',d.showDegrees === false);
+            document.body.classList.toggle('no-emoji',  d.showEmoji === false);
+            document.body.classList.toggle('no-fire',   d.showFireEffect === false);
+            document.body.classList.toggle('no-haze',   d.showHaze === false);
+            document.body.classList.toggle('no-top',    d.showTopContrib === false);
+            // Scheme — 12 phong cách: 4 cũ + 8 mới
+            const schemes = ['scheme-pinkfire','scheme-classic','scheme-neon','scheme-lava',
+                'scheme-ice','scheme-galaxy','scheme-warrior','scheme-ocean',
+                'scheme-forest','scheme-sakura','scheme-halloween','scheme-vietnam'];
+            schemes.forEach(s => document.body.classList.remove(s));
+            document.body.classList.add('scheme-' + (d.colorScheme || 'pinkfire'));
+            // Ticker scale — config tickerScale (30..150) → CSS var
+            const ts = (Number(d.tickerScale) || 60) / 100;
+            document.body.style.setProperty('--ticker-scale', ts.toFixed(2));
+            // Top contributor position
+            const $top = document.getElementById('nd-top');
+            if ($top) {
+                $top.style.left = $top.style.right = $top.style.top = $top.style.bottom = '';
+                const pos = d.topContribPos || 'top-left';
+                if (pos.includes('top'))   $top.style.top    = '24px';
+                else                       $top.style.bottom = '40px';
+                if (pos.includes('right')) $top.style.right  = '24px';
+                else                       $top.style.left   = '24px';
+            }
+            // Ambient audio loop — pause if URL missing or audio disabled
+            const $amb = document.getElementById('nd-audio-ambient');
+            const ambUrl = (config.ambientAudio && config.ambientAudio.url) ? config.ambientAudio.url : '';
+            if ($amb) {
+                if (ambUrl) {
+                    if ($amb.src !== ambUrl && !$amb.src.endsWith(ambUrl)) {
+                        $amb.src = ambUrl;
+                    }
+                    $amb.volume = clampNum((config.ambientAudio.volume ?? 50) / 100, 0, 1);
+                    // play() can fail until user gesture — but on OBS browser source autoplay works
+                    if ($amb.paused) $amb.play().catch(() => {});
+                } else {
+                    $amb.pause();
+                    $amb.removeAttribute('src');
+                }
+            }
+        }
+
+        // ===== Update ambient audio volume based on temp (intensify with heat) =====
+        function updateAmbientVolume(temp, max) {
+            const $amb = document.getElementById('nd-audio-ambient');
+            if (!$amb || !$amb.src || !config?.ambientAudio?.url) return;
+            const pct = clampNum(temp / max, 0, 1);
+            // Quiet at temp 0, full vol at max. Use linear ramp with floor.
+            const userVol = clampNum((config.ambientAudio.volume ?? 50) / 100, 0, 1);
+            const scaledByHeat = pct * userVol;
+            // Only scale if ambientReactToHeat enabled (default true)
+            $amb.volume = (config.ambientAudio.reactToHeat === false) ? userVol : scaledByHeat;
+            if (pct <= 0.01 && (config.ambientAudio.reactToHeat !== false)) {
+                if (!$amb.paused) $amb.pause();
+            } else if ($amb.paused) {
+                $amb.play().catch(() => {});
+            }
+        }
+
+        // ===== Milestone — play media + ticker =====
+        function playMilestone(m) {
+            // Ticker
+            const $ticker = document.getElementById('nd-ticker');
+            const $tickerTxt = document.getElementById('nd-ticker-text');
+            if ($ticker && $tickerTxt && (m.tickerText || m.label)) {
+                $tickerTxt.textContent = m.tickerText || m.label || `${m.temp}°C!`;
+                $ticker.classList.remove('show');
+                void $ticker.offsetWidth;   // restart animation
+                $ticker.classList.add('show');
+                setTimeout(() => $ticker.classList.remove('show'), 3700);
+            }
+            // Media
+            const $mm = document.getElementById('nd-milestone-media');
+            if ($mm && m.mediaUrl) {
+                $mm.innerHTML = '';
+                if (m.mediaType === 'video') {
+                    const v = document.createElement('video');
+                    v.src = m.mediaUrl;
+                    v.autoplay = true; v.muted = false;
+                    v.volume = clampNum((m.volume ?? 80) / 100, 0, 1);
+                    v.addEventListener('ended', () => $mm.classList.remove('show'));
+                    $mm.appendChild(v);
+                } else if (m.mediaType === 'audio') {
+                    const shot = document.getElementById('nd-audio-shot');
+                    if (shot) {
+                        shot.src = m.mediaUrl;
+                        shot.volume = clampNum((m.volume ?? 80) / 100, 0, 1);
+                        shot.play().catch(() => {});
+                    }
+                } else if (m.mediaType === 'image') {
+                    const img = new Image();
+                    img.src = m.mediaUrl;
+                    $mm.appendChild(img);
+                }
+                if (m.mediaType !== 'audio') {
+                    $mm.classList.remove('show');
+                    void $mm.offsetWidth;
+                    $mm.classList.add('show');
+                    setTimeout(() => $mm.classList.remove('show'), 4000);
+                }
+            }
+        }
+
+        // ===== Top contributor leaderboard render =====
+        function renderTop(list) {
+            const $list = document.getElementById('nd-top-list');
+            if (!$list) return;
+            if (!Array.isArray(list) || !list.length) {
+                $list.innerHTML = '<div style="text-align:center;color:#8b93a8;padding:6px 0;font-size:14px">Chưa có ai đóng góp</div>';
+                return;
+            }
+            $list.innerHTML = list.slice(0, 5).map((u, i) => {
+                const av = u.avatar ? `<img class="nd-top-avatar" src="${u.avatar}" onerror="this.style.visibility='hidden'" />` : `<div class="nd-top-avatar"></div>`;
+                const nm = (u.nickname || u.uniqueId || 'unknown');
+                return `<div class="nd-top-row rank-${i}">
+                    <span class="nd-top-rank">#${i + 1}</span>
+                    ${av}
+                    <span class="nd-top-name">${escapeHtml(nm)}</span>
+                    <span class="nd-top-deg">+${Math.round(u.totalDegrees || 0)}°</span>
+                </div>`;
+            }).join('');
+        }
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        // ===== Gain popup =====
+        function showGain(delta) {
+            if (config?.display?.showFloatGain === false) return;
+            if (!delta) return;
+            const el = document.createElement('div');
+            const isNeg = delta < 0;
+            el.className = 'nd-gain' + (isNeg ? ' minus' : '');
+            el.textContent = (isNeg ? '' : '+') + delta.toFixed(1) + '°C';
+            $gainLayer.appendChild(el);
+            setTimeout(() => el.remove(), 1700);
+        }
+
+        // ===== Socket =====
+        const socket = io({ transports: ['websocket', 'polling'] });
+        socket.on('connect', () => {
+            socket.emit('subscribe', 'overlay');
+            // request initial state
+            fetch('/api/games/nhietdo/livestate').then(r => r.json()).then(s => {
+                state = s;
+                applyTemp(s.temp || 0, s.tempMax || 100);
+            }).catch(() => {});
+            fetch('/api/games/nhietdo/config').then(r => r.json()).then(cfg => applyConfig(cfg)).catch(() => {});
+        });
+        socket.on('nhietdo:state', (s) => {
+            state = s;
+            // Session active/stopped → toggle nd-stopped class (overlay hide khi stop)
+            document.body.classList.toggle('nd-stopped', s.sessionActive === false);
+            applyTemp(s.temp || 0, s.tempMax || 100);
+            updateAmbientVolume(s.temp || 0, s.tempMax || 100);
+            if (Array.isArray(s.top)) renderTop(s.top);
+        });
+        socket.on('nhietdo:gain', (g) => {
+            showGain(g.delta);
+        });
+        socket.on('nhietdo:milestone', (m) => {
+            try { playMilestone(m); } catch (e) { console.warn('milestone fail:', e); }
+        });
+        socket.on('gameConfig', ({ gameId, config: cfg }) => {
+            if (gameId !== 'nhietdo') return;
+            applyConfig(cfg);
+        });
+        socket.on('gameDisabled', ({ gameId }) => {
+            if (gameId !== 'nhietdo') return;
+            applyTemp(0, 100);
+        });
+        socket.on('overlay:reload', () => location.reload());
+
+        // ===== EDIT MODE — drag thermometer, wheel to zoom =====
+        if (isEdit) {
+            let dragging = null;
+            $stage.addEventListener('mousedown', (e) => {
+                dragging = { sx: e.clientX, sy: e.clientY, origX: parseFloat($stage.style.left) || 50, origY: parseFloat($stage.style.top) || 50 };
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const dx = (e.clientX - dragging.sx) / window.innerWidth * 100;
+                const dy = (e.clientY - dragging.sy) / window.innerHeight * 100;
+                const nx = clampNum(dragging.origX + dx, 0, 100);
+                const ny = clampNum(dragging.origY + dy, 0, 100);
+                $stage.style.left = nx + '%';
+                $stage.style.top = ny + '%';
+                if (config) { config.display = config.display || {}; config.display.xPercent = nx; config.display.yPercent = ny; }
+            });
+            window.addEventListener('mouseup', async () => {
+                if (!dragging) return;
+                dragging = null;
+                // persist
+                try {
+                    await fetch('/api/games/nhietdo/config', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                } catch (e) {}
+            });
+            $stage.addEventListener('wheel', async (e) => {
+                e.preventDefault();
+                const cur = parseFloat((config?.display?.scale) || 100);
+                const next = clampNum(cur + (e.deltaY < 0 ? 5 : -5), 30, 250);
+                config.display = config.display || {};
+                config.display.scale = next;
+                $inner.style.transform = 'scale(' + (next / 100) + ')';
+                clearTimeout($stage._wheelSaveT);
+                $stage._wheelSaveT = setTimeout(async () => {
+                    try {
+                        await fetch('/api/games/nhietdo/config', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(config)
+                        });
+                    } catch (e) {}
+                }, 350);
+            }, { passive: false });
+        }
+    })();
+    </script>
+</body>
+</html>

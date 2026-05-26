@@ -439,7 +439,7 @@
         const connErr    = document.getElementById('conn-err');
 
         // Whitelist game ổn định — phải khớp STABLE_GAMES trong app.js
-        const STABLE_IDS = ['thuytinh', 'caro', 'votecomment', 'level-quest', 'timer', 'liveTranslate'];
+        const STABLE_IDS = ['thuytinh', 'caro', 'votecomment', 'nhietdo', 'level-quest', 'timer', 'liveTranslate'];
         const LT_LS_KEY  = 'hp-live-translate-tool-enabled';
         const HISTORY_KEY = 'hp-tiktok-id-history';   // localStorage: lịch sử ID đã connect
         const VISIBLE_KEY = 'hp-quick-launch-visible-games';   // localStorage: array các gameId hiển thị
@@ -493,6 +493,7 @@
             updateCard(gameId);
         }
         socket.on('votecomment:state', (s) => setRunning('votecomment', !!s?.active));
+        socket.on('nhietdo:state',     (s) => setRunning('nhietdo',     !!s?.sessionActive));
         socket.on('timer:state',       (s) => setRunning('timer',       !!s?.running));
         socket.on('levelquest:state',  (s) => setRunning('level-quest', !!s?.timerActive));
         socket.on('quickLaunch:status', ({ gameId, running: r }) => setRunning(gameId, r));

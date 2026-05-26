@@ -112,6 +112,14 @@ const GAMES = {
         overlayPath: '/overlay/votecomment',
         defaultConfig: makeDefaultVoteCommentConfig()
     },
+    nhietdo: {
+        id: 'nhietdo',
+        name: 'Biểu Cảm Nhiệt Độ',
+        description: 'Thanh nhiệt 0-100°C tăng theo quà, tự giảm khi không có quà — càng nóng càng nhiều lửa trên overlay.',
+        icon: '🌡',
+        overlayPath: '/overlay/nhietdo',
+        defaultConfig: makeDefaultNhietDoConfig()
+    },
     'level-quest': {
         id: 'level-quest',
         name: 'LEVEL QUEST',
@@ -241,6 +249,57 @@ function makeDefaultVoteCommentConfig() {
             scale: 100,
             xPercent: 50,
             yPercent: 50
+        }
+    };
+}
+
+// ====== Biểu Cảm Nhiệt Độ — defaults ======
+// Thanh nhiệt 0..100°C. Mỗi quà tăng nhiệt theo công thức trong config (perCoin / perGift /
+// specificGifts). Cooling gifts giảm nhiệt ở mọi mode. Tick loop giảm nhiệt khi idle.
+// Mốc thưởng (milestones) phát media + ticker khi vượt qua. Top contributor leaderboard.
+function makeDefaultNhietDoMilestones() {
+    return [
+        { temp: 25,  label: '25°C — Ấm rồi!',     tickerText: '🔥 25°C — ẤM RỒI! 🔥',   mediaUrl: '', mediaName: '', mediaType: '', volume: 80,  enabled: true },
+        { temp: 50,  label: '50°C — Nóng!',       tickerText: '🔥 50°C — NÓNG QUÁ! 🔥',  mediaUrl: '', mediaName: '', mediaType: '', volume: 85,  enabled: true },
+        { temp: 75,  label: '75°C — Rất nóng!',   tickerText: '🔥🔥 75°C — RẤT NÓNG!',   mediaUrl: '', mediaName: '', mediaType: '', volume: 90,  enabled: true },
+        { temp: 100, label: '100°C — CHÁY!',      tickerText: '💥 100°C — BÙM! 💥',       mediaUrl: '', mediaName: '', mediaType: '', volume: 100, enabled: true }
+    ];
+}
+function makeDefaultNhietDoConfig() {
+    return {
+        enabled: true,
+        sessionActive: true,         // BẮT ĐẦU/KẾT THÚC phiên — false = overlay ẩn hết
+        heatMode: 'perCoin',
+        perCoinDegrees: 0.5,
+        perGiftDegrees: 5,
+        specificGifts: [],
+        coolingGifts: [],
+        decayPerSecond: 1.0,
+        idleSeconds: 5,
+        decayShape: 'linear',
+        tempMin: 0,
+        tempMax: 100,
+        initialTemp: 0,
+        milestones: makeDefaultNhietDoMilestones(),
+        ambientAudio: { url: '', name: '', volume: 50, reactToHeat: true },
+        display: {
+            xPercent: 50,
+            yPercent: 50,
+            scale: 100,
+            showThermo: true,
+            showLabel: true,
+            showDegrees: true,
+            showEmoji: true,
+            showFloatGain: true,
+            showFireEffect: true,
+            showHaze: true,
+            shakeAtMax: true,
+            showTopContrib: true,
+            topContribPos: 'top-left',
+            colorScheme: 'pinkfire',
+            shape: 'tube',
+            fxIntensity: 100,
+            tickerScale: 60
         }
     };
 }
@@ -2127,6 +2186,17 @@ function emitGift(g) {
             repeatCount: g.repeatCount || 1
         });
     } catch (e) { /* non-fatal */ }
+    // Biểu Cảm Nhiệt Độ — quà tăng/giảm nhiệt theo công thức trong config
+    try {
+        handleNhietDoGift({
+            uniqueId: g.uniqueId,
+            nickname: g.nickname,
+            profilePicture: g.profilePicture || enriched.image,
+            giftId: g.giftId,
+            coinValue: enriched.coinValue || 0,
+            repeatCount: g.repeatCount || 1
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 function makeTikTokConnectOptions(extra = {}) {
@@ -2611,6 +2681,11 @@ app.post('/api/games/:id/config', (req, res) => {
         try { voteCommentApplyConfigToState(appConfig.games.votecomment); } catch (e) {}
         broadcastVoteCommentState({ immediate: true });
     }
+    if (g.id === 'nhietdo') {
+        // Sync tempMin/Max/active với state — KHÔNG reset nhiệt độ đang có.
+        try { nhietDoApplyConfigToState(appConfig.games.nhietdo); } catch (e) {}
+        broadcastNhietDoState({ immediate: true });
+    }
     const newEnabled = appConfig.games[g.id].enabled !== false;
     saveAppConfig();
     io.emit('gameConfig', { gameId: g.id, config: appConfig.games[g.id] });
@@ -2625,6 +2700,10 @@ app.post('/api/games/:id/config', (req, res) => {
             io.emit('vipwelcome:queue', { size: 0 });
         } else if (g.id === 'votecomment') {
             voteCommentStop({ reason: 'gameDisabled' });
+        } else if (g.id === 'nhietdo') {
+            // Khi tắt game → giảm temp về min ngay để overlay clear hiệu ứng lửa
+            nhietDoState.temp = nhietDoState.tempMin;
+            broadcastNhietDoState({ immediate: true });
         }
         // Generic event cho mọi game — overlay nào lắng nghe sẽ tự clear
         io.emit('gameDisabled', { gameId: g.id, ts: Date.now() });
@@ -3546,6 +3625,337 @@ app.get('/api/games/votecomment/livestate', (req, res) => {
 });
 
 // ============================================================
+// BIỂU CẢM NHIỆT ĐỘ — live state + gift hook + decay tick + milestones + top contrib
+// ============================================================
+// In-memory state (không persist) — restart app sẽ reset về initialTemp.
+// Temperature 0..tempMax. Gift bumps/cools temp, idle decays temp.
+// userContrib tracks tổng °C đẩy lên cho mỗi user trong phiên — reset() xoá hết.
+let nhietDoState = {
+    temp: 0,
+    tempMax: 100,
+    tempMin: 0,
+    lastGiftAt: 0,
+    updatedAt: 0,
+    active: true,
+    userContrib: {},      // uniqueId(lower) → { totalDegrees, nickname, avatar, lastAt }
+    crossedMilestones: {} // temp(int) → ts crossed; reset on reset()
+};
+let nhietDoLastBroadcast = 0;
+let nhietDoPendingBroadcast = null;
+let nhietDoLastDecayAt = Date.now();
+
+function nhietDoTopList(limit = 5) {
+    const arr = Object.values(nhietDoState.userContrib || {})
+        .filter(u => u && u.totalDegrees > 0)
+        .sort((a, b) => b.totalDegrees - a.totalDegrees)
+        .slice(0, limit)
+        .map(u => ({
+            uniqueId: u.uniqueId,
+            nickname: u.nickname || u.uniqueId,
+            avatar: u.avatar || '',
+            totalDegrees: Math.round(u.totalDegrees * 10) / 10
+        }));
+    return arr;
+}
+
+function nhietDoSnapshot() {
+    const cfg = appConfig.games?.nhietdo;
+    return {
+        temp: Math.round(nhietDoState.temp * 10) / 10,
+        tempMax: nhietDoState.tempMax,
+        tempMin: nhietDoState.tempMin,
+        lastGiftAt: nhietDoState.lastGiftAt,
+        updatedAt: nhietDoState.updatedAt,
+        active: nhietDoState.active !== false,
+        sessionActive: cfg ? (cfg.sessionActive !== false) : true,
+        top: nhietDoTopList(5)
+    };
+}
+
+function broadcastNhietDoState({ immediate = false } = {}) {
+    const send = () => {
+        nhietDoLastBroadcast = Date.now();
+        nhietDoPendingBroadcast = null;
+        io.emit('nhietdo:state', nhietDoSnapshot());
+    };
+    if (immediate) {
+        if (nhietDoPendingBroadcast) { clearTimeout(nhietDoPendingBroadcast); nhietDoPendingBroadcast = null; }
+        return send();
+    }
+    const now = Date.now();
+    const wait = Math.max(0, 200 - (now - nhietDoLastBroadcast));
+    if (nhietDoPendingBroadcast) return;
+    nhietDoPendingBroadcast = setTimeout(send, wait);
+}
+
+function nhietDoClamp(v) {
+    if (!isFinite(v)) v = 0;
+    return Math.max(nhietDoState.tempMin, Math.min(nhietDoState.tempMax, v));
+}
+
+function nhietDoApplyConfigToState(cfg) {
+    if (!cfg) cfg = makeDefaultNhietDoConfig();
+    const prevMax = nhietDoState.tempMax;
+    nhietDoState.tempMin = Number(cfg.tempMin) || 0;
+    nhietDoState.tempMax = Math.max(10, Number(cfg.tempMax) || 100);
+    // Nếu max đổi, scale temp hiện tại để không vượt
+    if (prevMax > 0 && prevMax !== nhietDoState.tempMax) {
+        nhietDoState.temp = nhietDoClamp(nhietDoState.temp);
+    }
+    nhietDoState.active = cfg.enabled !== false;
+}
+
+function nhietDoReset() {
+    const cfg = appConfig.games.nhietdo || makeDefaultNhietDoConfig();
+    nhietDoApplyConfigToState(cfg);
+    nhietDoState.temp = nhietDoClamp(Number(cfg.initialTemp) || 0);
+    nhietDoState.lastGiftAt = 0;
+    nhietDoState.updatedAt = Date.now();
+    nhietDoState.userContrib = {};
+    nhietDoState.crossedMilestones = {};
+    broadcastNhietDoState({ immediate: true });
+}
+
+function nhietDoSetTemp(temp) {
+    const before = nhietDoState.temp;
+    nhietDoState.temp = nhietDoClamp(Number(temp) || 0);
+    nhietDoState.updatedAt = Date.now();
+    checkNhietDoMilestones(before, nhietDoState.temp);
+    broadcastNhietDoState({ immediate: true });
+}
+
+function nhietDoAddTemp(delta, { fromGift = false, contribUser = null } = {}) {
+    const d = Number(delta) || 0;
+    if (!d) return 0;
+    const before = nhietDoState.temp;
+    nhietDoState.temp = nhietDoClamp(before + d);
+    const actual = nhietDoState.temp - before;
+    if (fromGift) nhietDoState.lastGiftAt = Date.now();
+    nhietDoState.updatedAt = Date.now();
+    // Top contributor tracking — ONLY positive (heating) gifts count toward leaderboard
+    if (fromGift && contribUser && contribUser.uniqueId && actual > 0) {
+        const uid = String(contribUser.uniqueId).toLowerCase();
+        const u = nhietDoState.userContrib[uid] || { uniqueId: contribUser.uniqueId, totalDegrees: 0, nickname: '', avatar: '', lastAt: 0 };
+        u.totalDegrees += actual;
+        u.nickname = contribUser.nickname || u.nickname || contribUser.uniqueId;
+        u.avatar = contribUser.avatar || u.avatar || '';
+        u.lastAt = Date.now();
+        nhietDoState.userContrib[uid] = u;
+    }
+    // Gain popup
+    if (Math.abs(actual) >= 0.1) {
+        io.emit('nhietdo:gain', { delta: actual, fromGift: !!fromGift, ts: Date.now() });
+    }
+    // Milestone crossing detection — only on UPWARD crossing
+    checkNhietDoMilestones(before, nhietDoState.temp);
+    broadcastNhietDoState({ immediate: true });
+    return actual;
+}
+
+// Check if we crossed any milestone going UP
+function checkNhietDoMilestones(before, after) {
+    if (after <= before) return;
+    const cfg = appConfig.games?.nhietdo;
+    if (!cfg || !Array.isArray(cfg.milestones)) return;
+    for (const m of cfg.milestones) {
+        if (m.enabled === false) continue;
+        const t = Number(m.temp);
+        if (!isFinite(t)) continue;
+        if (before < t && after >= t) {
+            // Throttle: same milestone không fire lại trong vòng 5s
+            const last = nhietDoState.crossedMilestones[t] || 0;
+            if (Date.now() - last < 5000) continue;
+            nhietDoState.crossedMilestones[t] = Date.now();
+            io.emit('nhietdo:milestone', {
+                temp: t,
+                label: m.label || `${t}°C`,
+                tickerText: m.tickerText || '',
+                mediaUrl: m.mediaUrl || '',
+                mediaType: m.mediaType || '',
+                volume: Number(m.volume) || 80,
+                ts: Date.now()
+            });
+            console.log(`[nhietdo] milestone crossed: ${t}°C — "${m.label}"`);
+        }
+    }
+}
+
+// Compute degrees from heating gift (positive). Returns 0 if no match.
+function nhietDoComputeGiftHeat(cfg, { giftId, coinValue, repeatCount }) {
+    const repeat = Math.max(1, Number(repeatCount) || 1);
+    const coins = Math.max(0, Number(coinValue) || 0);
+    const mode = cfg.heatMode || 'perCoin';
+    if (mode === 'perCoin') {
+        return coins * repeat * (Number(cfg.perCoinDegrees) || 0);
+    }
+    if (mode === 'perGift') {
+        return repeat * (Number(cfg.perGiftDegrees) || 0);
+    }
+    if (mode === 'specificGifts') {
+        const list = Array.isArray(cfg.specificGifts) ? cfg.specificGifts : [];
+        const hit = list.find(g => String(g.giftId) === String(giftId));
+        if (!hit) return 0;
+        return repeat * (Number(hit.degrees) || 0);
+    }
+    return 0;
+}
+
+// Compute negative delta from cooling gift. Returns 0 if not in cooling list.
+// Cooling gifts hoạt động ở MỌI heatMode (luôn priority hơn heating).
+function nhietDoComputeGiftCool(cfg, { giftId, repeatCount }) {
+    const list = Array.isArray(cfg.coolingGifts) ? cfg.coolingGifts : [];
+    const hit = list.find(g => String(g.giftId) === String(giftId));
+    if (!hit) return 0;
+    const repeat = Math.max(1, Number(repeatCount) || 1);
+    const deg = Math.abs(Number(hit.degrees) || 0);
+    return -1 * deg * repeat;
+}
+
+function handleNhietDoGift({ uniqueId, nickname, profilePicture, giftId, coinValue, repeatCount }) {
+    if (appConfig.games?.nhietdo?.enabled === false) return;
+    if (appConfig.games?.nhietdo?.sessionActive === false) return;   // phiên đã KẾT THÚC
+    const cfg = appConfig.games.nhietdo || makeDefaultNhietDoConfig();
+    // Check cooling first — cooling gifts override heating ở mọi mode
+    const coolDelta = nhietDoComputeGiftCool(cfg, { giftId, repeatCount });
+    if (coolDelta < 0) {
+        nhietDoAddTemp(coolDelta, { fromGift: true });
+        return;
+    }
+    const heatDelta = nhietDoComputeGiftHeat(cfg, { giftId, coinValue, repeatCount });
+    if (heatDelta > 0) {
+        nhietDoAddTemp(heatDelta, {
+            fromGift: true,
+            contribUser: uniqueId ? { uniqueId, nickname, avatar: profilePicture } : null
+        });
+    }
+}
+
+// Decay tick — chạy mỗi 500ms, giảm nhiệt khi idle
+function nhietDoDecayTick() {
+    const now = Date.now();
+    const dt = (now - nhietDoLastDecayAt) / 1000;
+    nhietDoLastDecayAt = now;
+    if (nhietDoState.active === false) return;
+    const cfg = appConfig.games?.nhietdo;
+    if (!cfg || cfg.enabled === false) return;
+    const idleSec = nhietDoState.lastGiftAt ? (now - nhietDoState.lastGiftAt) / 1000 : Infinity;
+    if (idleSec < (Number(cfg.idleSeconds) || 0)) return;
+    if (nhietDoState.temp <= nhietDoState.tempMin) return;
+    const ratePerSec = Number(cfg.decayPerSecond) || 0;
+    if (ratePerSec <= 0) return;
+    let dropPerSec = ratePerSec;
+    if (cfg.decayShape === 'easeOut') {
+        // Càng gần min thì giảm càng chậm: scale theo (temp - min) / (max - min)
+        const span = Math.max(1, nhietDoState.tempMax - nhietDoState.tempMin);
+        const norm = (nhietDoState.temp - nhietDoState.tempMin) / span;
+        dropPerSec = ratePerSec * (0.2 + 0.8 * norm);
+    }
+    const drop = dropPerSec * dt;
+    if (drop <= 0) return;
+    const before = nhietDoState.temp;
+    nhietDoState.temp = nhietDoClamp(before - drop);
+    nhietDoState.updatedAt = now;
+    if (Math.abs(before - nhietDoState.temp) > 0.01) {
+        broadcastNhietDoState();
+    }
+}
+setInterval(nhietDoDecayTick, 500);
+
+// Initialize state from config on startup
+try { nhietDoApplyConfigToState(appConfig.games.nhietdo || makeDefaultNhietDoConfig()); } catch (e) {}
+try {
+    const cfg0 = appConfig.games.nhietdo || makeDefaultNhietDoConfig();
+    nhietDoState.temp = nhietDoClamp(Number(cfg0.initialTemp) || 0);
+} catch (e) {}
+
+// Overlay route
+app.get('/overlay/nhietdo', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'games', 'nhietdo', 'overlay.html'));
+});
+
+// Live state (custom path to avoid generic /api/games/:id/state route)
+app.get('/api/games/nhietdo/livestate', (req, res) => {
+    res.json(nhietDoSnapshot());
+});
+
+// Control endpoint — reset / setTemp / addTemp / testGift / testMilestone / start / stop
+app.post('/api/games/nhietdo/control', (req, res) => {
+    const cmd = String(req.body?.cmd || '').toLowerCase();
+    if (cmd === 'start') {
+        if (!appConfig.games.nhietdo) appConfig.games.nhietdo = makeDefaultNhietDoConfig();
+        appConfig.games.nhietdo.sessionActive = true;
+        saveAppConfig();
+        io.emit('gameConfig', { gameId: 'nhietdo', config: appConfig.games.nhietdo });
+        broadcastNhietDoState({ immediate: true });
+        console.log('[nhietdo] SESSION START');
+    } else if (cmd === 'stop') {
+        if (!appConfig.games.nhietdo) appConfig.games.nhietdo = makeDefaultNhietDoConfig();
+        appConfig.games.nhietdo.sessionActive = false;
+        saveAppConfig();
+        io.emit('gameConfig', { gameId: 'nhietdo', config: appConfig.games.nhietdo });
+        broadcastNhietDoState({ immediate: true });
+        console.log('[nhietdo] SESSION STOP — overlay ẩn');
+    } else if (cmd === 'reset') {
+        nhietDoReset();
+    } else if (cmd === 'settemp') {
+        nhietDoSetTemp(req.body?.temp);
+    } else if (cmd === 'addtemp') {
+        nhietDoAddTemp(req.body?.delta || 0, { fromGift: false });
+    } else if (cmd === 'testgift') {
+        handleNhietDoGift({
+            uniqueId: req.body?.uniqueId || 'tester',
+            nickname: req.body?.nickname || 'Người Thử',
+            profilePicture: req.body?.profilePicture || '',
+            giftId: req.body?.giftId || '',
+            coinValue: req.body?.coinValue || 10,
+            repeatCount: req.body?.repeatCount || 1
+        });
+    } else if (cmd === 'testmilestone') {
+        // Fire 1 milestone bất kỳ ngay (test media + ticker)
+        const cfg = appConfig.games.nhietdo || makeDefaultNhietDoConfig();
+        const idx = parseInt(req.body?.index, 10);
+        const m = (Array.isArray(cfg.milestones) && cfg.milestones[idx]) ? cfg.milestones[idx] : null;
+        if (!m) return res.status(400).json({ ok: false, error: 'index không hợp lệ' });
+        io.emit('nhietdo:milestone', {
+            temp: m.temp, label: m.label || '', tickerText: m.tickerText || '',
+            mediaUrl: m.mediaUrl || '', mediaType: m.mediaType || '',
+            volume: Number(m.volume) || 80, ts: Date.now()
+        });
+    } else {
+        return res.status(400).json({ ok: false, error: 'cmd phải là reset|setTemp|addTemp|testGift|testMilestone' });
+    }
+    res.json({ ok: true, state: nhietDoSnapshot() });
+});
+
+// Upload endpoint cho milestone media + ambient audio — raw bytes, pattern giống pktiktok
+const NHIETDO_ASSETS_DIR = path.join(DATA_DIR, 'nhietdo-assets');
+if (!fs.existsSync(NHIETDO_ASSETS_DIR)) fs.mkdirSync(NHIETDO_ASSETS_DIR, { recursive: true });
+const NHIETDO_ALLOWED_EXTS = ['mp4', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif'];
+app.post('/api/games/nhietdo/upload',
+    express.raw({ limit: '30mb', type: () => true }),
+    (req, res) => {
+        const ext = String(req.query.ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        if (!NHIETDO_ALLOWED_EXTS.includes(ext)) return res.status(400).json({ ok: false, error: 'invalid_ext' });
+        if (!req.body || !req.body.length) return res.status(400).json({ ok: false, error: 'empty_body' });
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const filename = `${id}.${ext}`;
+        const filePath = path.join(NHIETDO_ASSETS_DIR, filename);
+        try {
+            fs.writeFileSync(filePath, req.body);
+            res.json({ ok: true, url: `/api/games/nhietdo/asset/${filename}`, filename });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    }
+);
+app.get('/api/games/nhietdo/asset/:fn', (req, res) => {
+    const fn = String(req.params.fn || '').replace(/[^a-z0-9._-]/gi, '');
+    const fp = path.join(NHIETDO_ASSETS_DIR, fn);
+    if (!fs.existsSync(fp)) return res.status(404).end();
+    res.sendFile(fp);
+});
+
+// ============================================================
 // PK TikTok — upload / asset serve / trigger broadcast
 // ============================================================
 // Đường lưu file media: <DATA_DIR>/pktiktok-assets/<id>.<ext>. Tách khỏi appConfig
@@ -4302,6 +4712,7 @@ io.on('connection', (socket) => {
     // Quick Launch cần biết Vote Bình Luận đang chạy phiên không — gửi snapshot ngay
     // khi connect (kể cả cửa sổ Khởi động nhanh mở giữa chừng) thay vì chờ broadcast tiếp.
     socket.emit('votecomment:state', voteCommentSnapshot());
+    socket.emit('nhietdo:state', nhietDoSnapshot());
     // LEVEL QUEST + TIMER snapshot — overlay mở SAU lab nhận state ngay, không phải
     // Reset OBS mới buộc lab broadcast lại
     if (relayCache.levelquest.cfg)   socket.emit('levelquest:cfg',   relayCache.levelquest.cfg);
@@ -4352,6 +4763,8 @@ io.on('connection', (socket) => {
                 }
                 // Vote Bình Luận: state riêng (in-memory) — đẩy snapshot ngay
                 socket.emit('votecomment:state', voteCommentSnapshot());
+                // Biểu Cảm Nhiệt Độ: state riêng (in-memory)
+                socket.emit('nhietdo:state', nhietDoSnapshot());
             }
         }
     });
