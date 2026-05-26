@@ -1820,7 +1820,7 @@
                 dragging = null;
                 try {
                     await fetch('/api/games/bancung/config', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                         body: JSON.stringify(config)
                     });
                 } catch (e) {}
@@ -1840,7 +1840,7 @@
                     stage._wheelSaveT = setTimeout(async () => {
                         try {
                             await fetch('/api/games/bancung/config', {
-                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                                 body: JSON.stringify(config)
                             });
                         } catch (e) {}

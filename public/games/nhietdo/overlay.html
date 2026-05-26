@@ -818,7 +818,9 @@
             const fxIntensity = ((config?.display?.fxIntensity ?? 100) / 100);
             const cold = temp <= 2;
             document.body.classList.toggle('nd-cold', cold);
-            const haze    = clampNum((pct - 30) / 50, 0, 1) * fxIntensity * 0.85;
+            // Haze (lớp sương) bắt đầu sớm từ 15°C — ở 25°C đã có sương mờ nhẹ.
+            // Các effect lửa khác (flame/ember/inferno) giữ ngưỡng cao hơn cho phù hợp ngữ cảnh.
+            const haze    = clampNum((pct - 15) / 60, 0, 1) * fxIntensity * 0.85;
             const vign    = clampNum((pct - 50) / 40, 0, 1) * fxIntensity * 0.75;
             const flame   = clampNum((pct - 30) / 50, 0, 1) * fxIntensity;
             const ember   = clampNum((pct - 50) / 40, 0, 1) * fxIntensity;
@@ -1126,7 +1128,7 @@
                 // persist
                 try {
                     await fetch('/api/games/nhietdo/config', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                         body: JSON.stringify(config)
                     });
                 } catch (e) {}
@@ -1142,7 +1144,7 @@
                 $stage._wheelSaveT = setTimeout(async () => {
                     try {
                         await fetch('/api/games/nhietdo/config', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                             body: JSON.stringify(config)
                         });
                     } catch (e) {}
@@ -1170,7 +1172,7 @@
                     if (!glDrag) return; glDrag = null;
                     try {
                         await fetch('/api/games/nhietdo/config', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                             body: JSON.stringify(config)
                         });
                     } catch (e) {}
@@ -1186,7 +1188,7 @@
                     $giftList._wheelSaveT = setTimeout(async () => {
                         try {
                             await fetch('/api/games/nhietdo/config', {
-                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source': 'popout' },
                                 body: JSON.stringify(config)
                             });
                         } catch (e) {}

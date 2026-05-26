@@ -40,7 +40,7 @@
             sessionActive: true,       // BẮT ĐẦU / KẾT THÚC phiên — false = overlay ẩn hết
             // ===== Cách tăng nhiệt =====
             heatMode: 'perCoin',      // 'perCoin' | 'perGift' | 'specificGifts'
-            perCoinDegrees: 0.5,       // 1 xu = 0.5°C (perCoin mode)
+            perCoinDegrees: 0.1,       // user-curated: 1 xu = 0.1°C
             perGiftDegrees: 5,         // 1 quà bất kỳ = +5°C (perGift mode)
             specificGifts: [],         // [{giftId, giftName, giftImage, degrees}] — chỉ quà trong list mới tăng
             coolingGifts: [],          // [{giftId, giftName, giftImage, degrees}] — quà GIẢM nhiệt, hoạt động ở mọi mode
@@ -61,32 +61,32 @@
 
             // ===== Âm thanh nền — loop, volume scale theo nhiệt =====
             ambientAudio: {
-                url: '', name: '', volume: 50,
-                reactToHeat: true        // true: volume ramp theo nhiệt; false: cố định
+                url: '', name: '', volume: 60,
+                reactToHeat: true
             },
 
-            // ===== Hiển thị overlay =====
+            // ===== Hiển thị overlay — user-curated defaults =====
             display: {
-                xPercent: 50,           // vị trí ngang (0 trái, 100 phải)
-                yPercent: 50,           // vị trí dọc (0 trên, 100 dưới)
-                scale: 100,             // 30 .. 250%
-                showThermo: true,       // hiện khung thanh nhiệt
-                showLabel: true,        // hiện chữ "NHIỆT ĐỘ"
-                showDegrees: true,      // hiện số °C
-                showEmoji: true,        // hiện emoji theo stage
-                showFloatGain: true,    // +X°C bay lên khi nhận quà
-                showFireEffect: true,   // hiệu ứng lửa toàn màn theo stage
-                showHaze: true,         // hơi nóng làm méo
-                shakeAtMax: true,       // rung màn khi >= 95°C
-                showTopContrib: true,   // hiện bảng top contributor
-                topContribPos: 'top-left',  // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
-                colorScheme: 'pinkfire', // 12 schemes — xem SCHEME_LIST
-                shape: 'tube',          // 'tube' | 'capsule'
-                fxIntensity: 100,       // 0..150% — scale toàn bộ hiệu ứng
-                tickerScale: 60,        // 30..150 — kích thước chữ ticker mốc thưởng
+                xPercent: 86,
+                yPercent: 23,
+                scale: 40,
+                showThermo: true,
+                showLabel: false,
+                showDegrees: true,
+                showEmoji: true,
+                showFloatGain: true,
+                showFireEffect: true,
+                showHaze: true,
+                shakeAtMax: true,
+                showTopContrib: false,
+                topContribPos: 'bottom-right',
+                colorScheme: 'pinkfire',
+                shape: 'tube',
+                fxIntensity: 90,
+                tickerScale: 65,
                 showGiftList: true,
                 giftListXPercent: 4,
-                giftListYPercent: 28,
+                giftListYPercent: 30,
                 giftListScale: 100
             }
         };

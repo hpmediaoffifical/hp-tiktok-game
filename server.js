@@ -274,13 +274,14 @@ function makeDefaultNhietDoMilestones() {
     ];
 }
 function makeDefaultNhietDoConfig() {
+    // Default values curated từ setup thực tế của HP Media (v1.0.99+)
     return {
         enabled: true,
-        sessionActive: true,         // BẮT ĐẦU/KẾT THÚC phiên — false = overlay ẩn hết
-        heatMode: 'perCoin',
-        perCoinDegrees: 0.5,
+        sessionActive: true,
+        heatMode: 'perCoin',         // perCoin = an toàn cho fresh install (mọi quà đều +°)
+        perCoinDegrees: 0.1,         // user-curated: 1 xu = 0.1°
         perGiftDegrees: 5,
-        specificGifts: [],
+        specificGifts: [],           // fresh install — user phải thêm khi đổi mode
         coolingGifts: [],
         decayPerSecond: 1.0,
         idleSeconds: 5,
@@ -289,29 +290,28 @@ function makeDefaultNhietDoConfig() {
         tempMax: 100,
         initialTemp: 0,
         milestones: makeDefaultNhietDoMilestones(),
-        ambientAudio: { url: '', name: '', volume: 50, reactToHeat: true },
+        ambientAudio: { url: '', name: '', volume: 60, reactToHeat: true },
         display: {
-            xPercent: 50,
-            yPercent: 50,
-            scale: 100,
+            xPercent: 86,            // user-curated: thanh nhiệt góc phải-trên
+            yPercent: 23,
+            scale: 40,               // nhỏ gọn, không che mặt streamer
             showThermo: true,
-            showLabel: true,
+            showLabel: false,        // ẩn chữ "NHIỆT ĐỘ" cho gọn
             showDegrees: true,
             showEmoji: true,
             showFloatGain: true,
             showFireEffect: true,
             showHaze: true,
             shakeAtMax: true,
-            showTopContrib: true,
-            topContribPos: 'top-left',
+            showTopContrib: false,
+            topContribPos: 'bottom-right',
             colorScheme: 'pinkfire',
             shape: 'tube',
-            fxIntensity: 100,
-            tickerScale: 60,
-            // Gift list overlay (draggable on overlay)
+            fxIntensity: 90,
+            tickerScale: 65,
             showGiftList: true,
             giftListXPercent: 4,
-            giftListYPercent: 28,
+            giftListYPercent: 30,    // hơi xuống dưới hàng tim
             giftListScale: 100
         }
     };
@@ -331,64 +331,59 @@ const BANCUNG_PRESETS = {
 };
 
 function makeDefaultBanCungConfig() {
+    // Default values curated từ setup thực tế của HP Media (v1.0.99+)
     return {
         enabled: true,
         sessionActive: true,
         // ===== HP =====
         maxHearts: 10,
-        initialHearts: 10,            // máu khởi đầu khi reset (null = full)
-        damagePerShot: 0.25,          // trái tim mất mỗi mũi tên
+        initialHearts: 10,
+        damagePerShot: 0.1,           // user-curated: 0.1 ♥/mũi (tank hơn = ít chết oan)
         // ===== Regen =====
-        regenPerSecond: 0.2,          // trái tim hồi mỗi giây khi idle
-        idleBeforeRegen: 3,           // sau N giây không bị bắn → bắt đầu hồi
+        regenPerSecond: 0.2,
+        idleBeforeRegen: 3,
         // ===== Chết / hồi sinh =====
-        reviveWindowSec: 5,           // cửa sổ thời gian chờ quà hồi sinh
-        autoReviveAfterWindow: true,  // nếu không ai tặng quà → tự sống lại
-        autoReviveHearts: 5,          // số trái tim khi tự hồi sinh
-        reviveProtectionSec: 1,       // giáp bất tử khi vừa hồi sinh (giây) — ngắn để không chặn quá nhiều shot
-        // ===== Quà gán =====
-        // shotGifts: { giftId, giftName, giftImage, shots } — shots = 1 hoặc 3
-        // healGifts: { giftId, giftName, giftImage, healHearts }
-        // reviveGifts: { giftId, giftName, giftImage } — chỉ kích hoạt khi HP=0
-        // shieldGifts: { giftId, giftName, giftImage, durationSec }
+        reviveWindowSec: 10,          // user-curated: 10s chờ revive
+        autoReviveAfterWindow: true,
+        autoReviveHearts: 5,
+        reviveProtectionSec: 3,       // user-curated: 3s giáp sau revive
+        // ===== Quà gán — fresh install để trống, user thêm theo nhu cầu =====
         shotGifts: [],
         healGifts: [],
         reviveGifts: [],
         shieldGifts: [],
-        // ===== Hiển thị =====
+        // ===== Hiển thị — curated by user =====
         display: {
-            heartsXPercent: 50,        // vị trí hàng trái tim (top center mặc định)
-            heartsYPercent: 14,
-            heartsScale: 100,          // 30..250
-            bowXPercent: 85,           // vị trí bow widget (góc dưới-phải mặc định)
-            bowYPercent: 80,
-            bowScale: 100,
-            bowSkin: 'classic',        // 8 skins
-            heartStyle: 'pixel',       // 'pixel' | 'glossy' | 'fire' | 'crystal'
-            showShooterName: true,     // tên người bắn bay lên khi gây sát thương
-            showDamageText: true,      // -0.25 popup
-            redFlashIntensity: 60,     // 0..100 — cường độ chớp đỏ khi bị bắn
-            deathTintOpacity: 75,      // 0..100 — độ mờ đen khi chết
-            showBowWidget: true,       // có hiển thị widget cung tên không
+            heartsXPercent: 50,
+            heartsYPercent: 16,        // 16% — vừa khít dưới badge LIVE
+            heartsScale: 60,           // 60% — gọn, không che mặt
+            bowXPercent: 81,
+            bowYPercent: 87,
+            bowScale: 185,             // 185% — bow widget to rõ
+            bowSkin: 'cupid',          // 💘 skin cupid hồng
+            heartStyle: 'glossy',      // tim bóng láng (mát mắt)
+            showShooterName: true,
+            showDamageText: true,
+            redFlashIntensity: 100,    // 100% — chớp đỏ mạnh dramatic
+            deathTintOpacity: 75,
+            showBowWidget: true,
             showHearts: true,
-            showTopContrib: true,
+            showTopContrib: false,
             topContribPos: 'bottom-left',
-            arrowDurationMs: 700,      // tốc độ mũi tên bay (ngắn hơn = nhanh)
-            burstDelayMs: 280,         // delay giữa các mũi trong burst (3 phát)
-            autoAimBow: true,          // tự xoay bow widget hướng về điểm trúng
-            // Điểm trúng (target zone) — mũi tên bay đến vùng này.
-            // Mặc định trùng vị trí hàng trái tim. User có thể chỉnh để mũi tên trúng vào
-            // mặt/người streamer (tránh "văng quá xa thì không trúng người").
-            impactXPercent: 50,
-            impactYPercent: 18,
-            impactSpread: 6,           // % bán kính tản đạn (0..30)
-            // Phím tắt cho streamer (chạy global khi app focus, không khi đang gõ input)
-            hotkeyFire: 'X',           // bắn 1 mũi
-            hotkeyHeal: 'H',           // +1 ♥
-            hotkeyShield: 'B',         // giáp 5s
-            hotkeyKill: '',            // mặc định tắt — quá nguy hiểm để gán mặc định
+            arrowDurationMs: 200,      // 200ms — mũi tên bay nhanh, snappy
+            burstDelayMs: 120,         // 120ms — burst 3 phát rất gần nhau
+            autoAimBow: true,
+            // Điểm trúng (target zone) — user-curated: trúng vào MẶT/THÂN streamer
+            impactXPercent: 55,
+            impactYPercent: 40,
+            impactSpread: 20,          // 20% spread cho randomness
+            // Phím tắt cho streamer
+            hotkeyFire: 'X',
+            hotkeyHeal: 'H',
+            hotkeyShield: 'B',
+            hotkeyKill: '',
             hotkeyRevive: 'R',
-            globalHotkeys: false,      // bật = phím hoạt động cả khi app không focus (Electron)
+            globalHotkeys: true,       // user-curated: bật Ctrl+Shift+X/H/B/R hoạt động mọi nơi
             // ===== VISUAL POLISH =====
             showArrowTrail: true,      // streak dài sau mũi tên
             showArrowUsername: true,   // tên user bay theo mũi tên
@@ -406,12 +401,12 @@ function makeDefaultBanCungConfig() {
             comboEnabled: true,
             comboWindowSec: 4,         // shot trong N giây tiếp = combo
             comboMaxMultiplier: 3,     // 1x → 3x max
-            headshotEnabled: false,    // bật riêng — vùng nhỏ x2 damage
-            headshotChance: 0,         // % roll
+            headshotEnabled: true,     // user-curated: bật (chance vẫn 0 — user tự set)
+            headshotChance: 0,
             headshotMultiplier: 2,
-            bowChargeEnabled: false,   // bật cơ chế nạp năng lượng
-            bowChargePerGift: 12,      // % charge mỗi quà
-            bowChargeFullShots: 10,    // số mũi auto-fire khi full
+            bowChargeEnabled: false,   // user-curated: tắt
+            bowChargePerGift: 100,
+            bowChargeFullShots: 100,
             // ===== GIFT LIST OVERLAY (danh sách quà chỉ định, draggable) =====
             showGiftList: true,
             giftListXPercent: 4,
@@ -2809,7 +2804,42 @@ app.post('/api/games/:id/config', (req, res) => {
     if (!g) return res.status(404).json({ ok: false, error: 'Không tìm thấy game' });
     const prevConfig = appConfig.games[g.id] || {};
     const prevEnabled = prevConfig.enabled !== false;
-    appConfig.games[g.id] = { ...appConfig.games[g.id], ...(req.body || {}) };
+    // DEEP-MERGE for nhietdo + bancung display sub-object: drag-position fields được popout
+    // overlay update riêng — không bị overwrite khi panel POST với cfg cũ (race condition).
+    // Các fields TỪ POPOUT (giftListXY, heartsXY, bowXY, impactXY, xPercent/yPercent thermo)
+    // luôn dùng giá trị mới nhất từ server thay vì giá trị panel có.
+    const incoming = req.body || {};
+    if ((g.id === 'nhietdo' || g.id === 'bancung') && incoming.display && prevConfig.display) {
+        const DRAG_FIELDS = [
+            'xPercent','yPercent','scale',                      // nhietdo thermometer
+            'heartsXPercent','heartsYPercent','heartsScale',    // bancung hearts
+            'bowXPercent','bowYPercent','bowScale',             // bancung bow
+            'impactXPercent','impactYPercent',                   // bancung impact
+            'giftListXPercent','giftListYPercent','giftListScale' // both gift list
+        ];
+        // Check if incoming.display lacks drag fields that prev has — likely a stale panel POST
+        // covering only some drag fields. Use latest server values for drag fields.
+        const mergedDisplay = { ...prevConfig.display, ...incoming.display };
+        // For drag fields: trust whichever value is MORE RECENT.
+        // Since we can't know recency from data, use a simple heuristic: if request body
+        // came from popout (has full set of drag fields close to recent server values), accept.
+        // If from panel (potentially stale), prefer server's current value for drag fields.
+        // Practical fix: if incoming has the field but is identical to OLD prev (no change),
+        // it's likely panel echo'ing back — keep server's latest.
+        // Cleaner: just always merge — popout's drag updates field-by-field, panel's POSTs
+        // also include the same values. As long as both clients sync from broadcasts, this works.
+        // The bug shows panel posts STALE values. So skip drag fields from panel POST if they
+        // match a "default" or "earlier-load" state. Simplest: if X-Source header == 'popout',
+        // accept drag fields; otherwise use server's existing value.
+        const fromPopout = req.headers['x-source'] === 'popout';
+        if (!fromPopout) {
+            for (const k of DRAG_FIELDS) {
+                if (prevConfig.display[k] !== undefined) mergedDisplay[k] = prevConfig.display[k];
+            }
+        }
+        incoming.display = mergedDisplay;
+    }
+    appConfig.games[g.id] = { ...appConfig.games[g.id], ...incoming };
     if (g.id === 'vipwelcome') {
         appConfig.games.vipwelcome = migrateVipWelcomeConfig(appConfig.games.vipwelcome);
     }
