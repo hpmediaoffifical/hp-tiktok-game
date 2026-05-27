@@ -335,6 +335,14 @@
             virtual: true,
             config: { enabled: localStorage.getItem('hp-live-translate-tool-enabled') !== 'false' }
         });
+        games.push({
+            id: 'obs-effects',
+            name: 'Hiệu ứng OBS',
+            description: 'Bridge WebSocket → OBS Studio. Trigger Lua effects khi nhận gift TikTok.',
+            icon: '🎬',
+            virtual: true,
+            config: { enabled: localStorage.getItem('hp-obs-effects-enabled') !== 'false' }
+        });
         renderGameList();
         renderHomeGrid();
         renderQuickLaunch();
@@ -370,10 +378,13 @@
                 btn.classList.toggle('off', !next);
                 btn.title = next ? 'Đang BẬT — bấm để TẮT' : 'Đang TẮT — bấm để BẬT';
                 if (g.virtual) {
-                    localStorage.setItem('hp-live-translate-tool-enabled', next ? 'true' : 'false');
+                    // Mỗi virtual game có localStorage key riêng (tool-level enable/disable)
+                    const lsKey = g.id === 'obs-effects' ? 'hp-obs-effects-enabled' : 'hp-live-translate-tool-enabled';
+                    localStorage.setItem(lsKey, next ? 'true' : 'false');
                     if (g.config) g.config.enabled = next;
                     updateQuickLaunchCardState(g.id);
-                    if (!next) {
+                    // Side effects khi tắt — chỉ áp dụng cho liveTranslate (giữ behavior cũ)
+                    if (!next && g.id === 'liveTranslate') {
                         if (ltEnabled) ltEnabled.checked = false;
                         if (ccEnabled) ccEnabled.checked = false;
                         stopCreatorCaptionListening?.();
@@ -678,6 +689,7 @@
         else if (gameId === 'liveTranslate') openLiveTranslateView();
         else if (gameId === 'level-quest') showView('view-level-quest');
         else if (gameId === 'timer') showView('view-timer');
+        else if (gameId === 'obs-effects') showView('view-obs-effects');
     }
 
     function openVoteComment(game) {
@@ -3070,6 +3082,7 @@
     const ltExcludedSource = document.getElementById('lt-excluded-source');
     const ltTarget = document.getElementById('lt-target');
     const ltVoice = document.getElementById('lt-voice');
+    const ltTtsSource = document.getElementById('lt-tts-source');
     const ltTtsPreset = document.getElementById('lt-tts-preset');
     const ltReadMode = document.getElementById('lt-read-mode');
     const ltPriority = document.getElementById('lt-priority');
@@ -3221,6 +3234,7 @@
         if (ltExcludedSource) ltExcludedSource.value = liveTranslateConfig.excludedSourceLang || '';
         if (ltTarget) ltTarget.value = liveTranslateConfig.targetLang || 'vi';
         if (ltVoice) ltVoice.value = liveTranslateConfig.ttsVoice || 'auto';
+        if (ltTtsSource) ltTtsSource.value = ['browser', 'remote'].includes(liveTranslateConfig.ttsSource) ? liveTranslateConfig.ttsSource : 'browser';
         if (ltTtsPreset) ltTtsPreset.value = liveTranslateConfig.ttsPreset || 'auto';
         if (ltReadMode) ltReadMode.value = liveTranslateConfig.ttsReadMode || (liveTranslateConfig.readUsername === false ? 'commentOnly' : 'nameAndComment');
         if (ltPriority) ltPriority.value = liveTranslateConfig.ttsPriority || 'all';
@@ -3266,6 +3280,7 @@
             excludedSourceLang: ltExcludedSource?.value || '',
             targetLang: ltTarget?.value || 'vi',
             ttsVoice: ltVoice?.value || 'auto',
+            ttsSource: ['browser', 'remote'].includes(ltTtsSource?.value) ? ltTtsSource.value : 'browser',
             ttsPreset: ltTtsPreset?.value || 'auto',
             ttsReadMode: ltReadMode?.value || 'nameAndComment',
             ttsPriority: ltPriority?.value || 'all',
@@ -3851,6 +3866,10 @@
         const preset = ltTtsPreset.value;
         if (preset && preset !== 'auto' && ltTarget) ltTarget.value = preset;
     });
+    // TTS source: auto-save ngay khi đổi (UX: user thấy fix double-sound ngay lập tức)
+    ltTtsSource?.addEventListener('change', () => {
+        saveLiveTranslateConfig({ silent: false });
+    });
     ccSilence?.addEventListener('input', () => { if (ccSilenceV) ccSilenceV.textContent = (parseFloat(ccSilence.value || '2') || 2) + 's'; });
     ccWhisperExe?.addEventListener('change', saveCreatorCaptionConfigSilent);
     ccWhisperModel?.addEventListener('change', saveCreatorCaptionConfigSilent);
@@ -4161,6 +4180,793 @@
     });
 
     fetchVersionInfo();  // điền version hiện tại ngay khi load
+
+    // ===================================================================
+    // 🎬 OBS Effects — View riêng trong Game Library
+    //   - Connection management (URL/pass/autoConnect)
+    //   - Mapping Gift → Effect, gom theo NHÓM
+    //   - Gift Picker modal (chọn quà bằng visual grid)
+    //   - Group Name modal (tạo / đổi tên nhóm)
+    // ===================================================================
+    (function setupOBSEffectsView() {
+        // Elements (sẽ null nếu view không có trong DOM — guard ngay)
+        const $dot         = document.getElementById('obse-dot');
+        const $statusText  = document.getElementById('obse-status-text');
+        const $statusPill  = document.getElementById('obse-status-pill');
+        const $url         = document.getElementById('obse-url');
+        const $pass        = document.getElementById('obse-password');
+        const $auto        = document.getElementById('obse-autoconnect');
+        const $btnConn     = document.getElementById('btn-obse-connect');
+        const $btnDisc     = document.getElementById('btn-obse-disconnect');
+        const $btnRefresh  = document.getElementById('btn-obse-refresh-hotkeys');
+        const $btnAddGroup = document.getElementById('btn-obse-add-group');
+        const $groupsCt    = document.getElementById('obse-groups-container');
+        const $err         = document.getElementById('obse-error');
+        const $queuePill   = document.getElementById('obse-queue-pill');
+        const $queueCount  = document.getElementById('obse-queue-count');
+        const $btnQueueClr = document.getElementById('btn-obse-queue-clear');
+        if (!$dot) return; // view không có trong DOM (chưa add HTML)
+
+        // ===== Toast (feedback rõ ràng, hiện giữa màn) =====
+        let toastEl = null;
+        function toast(msg, kind = 'info', durationMs = 2500) {
+            if (!toastEl) {
+                toastEl = document.createElement('div');
+                toastEl.id = 'obse-toast';
+                toastEl.className = 'obse-toast';
+                document.body.appendChild(toastEl);
+            }
+            toastEl.className = 'obse-toast show ' + (kind === 'error' ? 'error' : kind === 'success' ? 'success' : '');
+            toastEl.textContent = msg;
+            clearTimeout(toastEl._t);
+            toastEl._t = setTimeout(() => { toastEl.classList.remove('show'); }, durationMs);
+        }
+
+        // Gift picker modal elements
+        const $gpModal  = document.getElementById('obse-gift-modal');
+        const $gpClose  = document.getElementById('obse-gp-close');
+        const $gpSearch = document.getElementById('obse-gp-search');
+        const $gpSort   = document.getElementById('obse-gp-sort');
+        const $gpCount  = document.getElementById('obse-gp-count');
+        const $gpGrid   = document.getElementById('obse-gp-grid');
+
+        // Group name modal elements
+        const $grmModal  = document.getElementById('obse-group-modal');
+        const $grmTitle  = document.getElementById('obse-grm-title');
+        const $grmClose  = document.getElementById('obse-grm-close');
+        const $grmCancel = document.getElementById('obse-grm-cancel');
+        const $grmSave   = document.getElementById('obse-grm-save');
+        const $grmInput  = document.getElementById('obse-grm-input');
+
+        // State
+        let cachedConfig  = { url: '', password: '', autoConnect: false, mapping: [] };
+        let cachedHotkeys = [];
+        let saveTimer = null;
+        let gpTargetMappingId = null;   // mapping id đang chờ chọn quà
+        let grmMode = 'create';          // 'create' | 'rename'
+        let grmRenameOldName = null;     // tên cũ khi rename
+        let collapsedGroups = (() => {
+            try { return new Set(JSON.parse(localStorage.getItem('obse:collapsedGroups') || '[]')); }
+            catch (e) { return new Set(); }
+        })();
+        function persistCollapsed() {
+            try { localStorage.setItem('obse:collapsedGroups', JSON.stringify([...collapsedGroups])); }
+            catch (e) {}
+        }
+
+        // ============== Connection ==============
+        function setStatus(s) {
+            $dot.classList.remove('connected', 'connecting');
+            if (s.connecting) {
+                $dot.classList.add('connecting');
+                $statusText.textContent = 'Đang kết nối...';
+            } else if (s.connected) {
+                $dot.classList.add('connected');
+                $statusText.textContent = 'Đã kết nối';
+                $statusPill.title = s.url || '';
+            } else {
+                $statusText.textContent = 'Chưa kết nối';
+            }
+            if (s.lastError && !s.connected) {
+                $err.hidden = false;
+                $err.textContent = '⚠ ' + s.lastError;
+            } else {
+                $err.hidden = true;
+            }
+            $btnConn.disabled = s.connecting || s.connected;
+            $btnDisc.disabled = !s.connected;
+        }
+        function showError(msg) { $err.hidden = false; $err.textContent = '⚠ ' + msg; }
+
+        async function loadConfig() {
+            try {
+                const r = await fetch('/api/obs-bridge/config');
+                const j = await r.json();
+                cachedConfig = {
+                    url: j.url || 'ws://localhost:4455',
+                    password: j.password || '',
+                    autoConnect: !!j.autoConnect,
+                    mapping: Array.isArray(j.mapping) ? j.mapping.map(normMapping) : []
+                };
+                $url.value = cachedConfig.url;
+                $pass.value = cachedConfig.password;
+                $auto.checked = cachedConfig.autoConnect;
+                if (j.status) setStatus(j.status);
+                renderGroups();
+                if (j.status && j.status.connected) fetchHotkeys();
+            } catch (e) { showError('Load config lỗi: ' + e.message); }
+        }
+        // Normalize mỗi mapping có đầy đủ fields + unique id
+        function normMapping(m) {
+            return {
+                id: m.id || ('m_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+                giftId: String(m.giftId || ''),
+                giftName: m.giftName || '',
+                giftImage: m.giftImage || '',
+                hotkey: m.hotkey || '',
+                actionName: m.actionName || '',
+                cooldownMs: Math.max(0, Number(m.cooldownMs) || 0),
+                group: m.group || '',
+                enabled: m.enabled !== false   // default true; chỉ false khi explicit set
+            };
+        }
+        // Track group disabled state (mảng tên nhóm bị TẮT)
+        function getGroupsDisabled() {
+            if (!Array.isArray(cachedConfig.groupsDisabled)) cachedConfig.groupsDisabled = [];
+            return cachedConfig.groupsDisabled;
+        }
+        function isGroupDisabled(name) {
+            return getGroupsDisabled().includes(name);
+        }
+        function setGroupDisabled(name, disabled) {
+            const arr = getGroupsDisabled();
+            const idx = arr.indexOf(name);
+            if (disabled && idx === -1) arr.push(name);
+            if (!disabled && idx !== -1) arr.splice(idx, 1);
+            saveConfig();
+        }
+        // Cache suggested duration để khỏi gọi server nhiều lần cho cùng 1 hotkey
+        const _hotkeyDurationCache = {};
+        async function fetchSuggestedDurationMs(hotkey) {
+            if (!hotkey) return 0;
+            if (_hotkeyDurationCache[hotkey] != null) return _hotkeyDurationCache[hotkey];
+            try {
+                const r = await fetch('/api/obs-bridge/lua-duration?hotkey=' + encodeURIComponent(hotkey));
+                const j = await r.json();
+                const ms = Number(j?.ms) || 0;
+                _hotkeyDurationCache[hotkey] = ms;
+                return ms;
+            } catch (e) { return 0; }
+        }
+        async function saveConfig(immediate = false) {
+            clearTimeout(saveTimer);
+            const doSave = async () => {
+                try {
+                    await fetch('/api/obs-bridge/config', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cachedConfig)
+                    });
+                    // Flash "Đã lưu" indicator
+                    flashSavedIndicator();
+                } catch (e) { showError('Lưu config lỗi: ' + e.message); }
+            };
+            if (immediate) return doSave();
+            // Hiển thị "Đang lưu..." ngay khi user thay đổi (trước debounce)
+            setSavingIndicator();
+            saveTimer = setTimeout(doSave, 400);
+        }
+        // Save indicator helpers — nhỏ + tinh tế, hiện cạnh title
+        function setSavingIndicator() {
+            const el = document.getElementById('obse-save-indicator');
+            if (!el) return;
+            el.textContent = '⏳ Đang lưu...';
+            el.className = 'obse-save-indicator saving';
+        }
+        function flashSavedIndicator() {
+            const el = document.getElementById('obse-save-indicator');
+            if (!el) return;
+            const now = new Date();
+            const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+            el.textContent = `💾 Đã lưu tự động (${hhmm})`;
+            el.className = 'obse-save-indicator saved';
+        }
+        setInterval(async () => {
+            // Poll status + queue mỗi 1s khi view active (1s để queue list update nhanh)
+            if (!document.getElementById('view-obs-effects')?.classList.contains('active')) return;
+            try {
+                const r = await fetch('/api/obs-bridge/config');
+                const j = await r.json();
+                if (j.status) setStatus(j.status);
+                if (j.queue) {
+                    updateQueuePill(j.queue);
+                    renderQueueList(j.queue);
+                }
+                if (j.status && j.status.connected && cachedHotkeys.length === 0) {
+                    fetchHotkeys();
+                }
+            } catch (e) {}
+        }, 1000);
+
+        function updateQueuePill(q) {
+            if (!q || !$queuePill) return;
+            if (q.pending > 0) {
+                $queuePill.hidden = false;
+                $queueCount.textContent = q.pending;
+            } else {
+                $queuePill.hidden = true;
+            }
+        }
+
+        // ============== Queue list panel ==============
+        const $queueCard = document.getElementById('obse-queue-card');
+        const $queueList = document.getElementById('obse-queue-list');
+        const $btnQueueClr2 = document.getElementById('btn-obse-queue-clear2');
+        if ($btnQueueClr2) {
+            $btnQueueClr2.onclick = async () => {
+                if (!confirm('Xóa tất cả effect đang chờ trong hàng đợi?')) return;
+                try {
+                    const r = await fetch('/api/obs-bridge/queue/clear', { method: 'POST' });
+                    const j = await r.json();
+                    toast(`🗑 Đã xóa ${j.removed || 0} effect`, 'success');
+                } catch (e) { toast('✗ ' + e.message, 'error'); }
+            };
+        }
+        // Cache queue data cho countdown render 5 lần/giây (server poll vẫn 1 lần/giây)
+        let _lastQueueData = null;
+        function renderQueueList(q) {
+            _lastQueueData = q || null;
+            renderQueueListInternal();
+        }
+        function renderQueueListInternal() {
+            if (!$queueCard || !$queueList) return;
+            const q = _lastQueueData;
+            const items = q && q.items ? q.items : [];
+            // Tính số "đang waiting có thật" — items có nowFiring "ảo" còn countdown thì coi như queue chưa rỗng
+            if (items.length === 0) {
+                $queueCard.hidden = true;
+                $queueList.innerHTML = '';
+                return;
+            }
+            $queueCard.hidden = false;
+            // Re-render LẠI toàn bộ list mỗi tick (rẻ vì <10 items)
+            $queueList.innerHTML = '';
+            const now = Date.now();
+            items.forEach((it, idx) => {
+                const row = document.createElement('div');
+                row.className = 'obse-queue-row ' + (it.status === 'running' ? 'running' : 'waiting');
+                // Icon = giftImage
+                const iconHtml = it.giftImage ?
+                    `<img class="obse-queue-icon" src="${escapeHtml(it.giftImage)}" onerror="this.style.display='none'"/>` :
+                    `<span class="obse-queue-icon-noimg">🎁</span>`;
+                const displayName = it.actionName || it.giftName || `Gift ${it.giftId}`;
+                const groupBadge = it.group ? `<span class="obse-queue-group">${escapeHtml(it.group)}</span>` : '';
+
+                // Position badge: #1 (đang chạy), #2, #3, ...
+                const posBadge = `<span class="obse-queue-pos">#${idx + 1}</span>`;
+
+                let statusBadge;
+                if (it.status === 'running' && it.firedAt && it.intervalMs) {
+                    const elapsed = now - it.firedAt;
+                    const remaining = Math.max(0, it.intervalMs - elapsed);
+                    const secLeft = (remaining / 1000).toFixed(1);
+                    // Progress bar bên trong badge
+                    const pct = Math.max(0, Math.min(100, (elapsed / it.intervalMs) * 100));
+                    statusBadge = `<span class="obse-queue-status running">
+                        <span class="obse-queue-progress" style="width:${pct.toFixed(1)}%"></span>
+                        <span class="obse-queue-status-text">▶ Đang chạy · còn ${secLeft}s</span>
+                    </span>`;
+                } else if (it.status === 'running') {
+                    statusBadge = '<span class="obse-queue-status running"><span class="obse-queue-status-text">▶ Đang chạy</span></span>';
+                } else {
+                    statusBadge = '<span class="obse-queue-status waiting">⏳ Chờ</span>';
+                }
+                row.innerHTML = `
+                    ${posBadge}
+                    ${iconHtml}
+                    <div class="obse-queue-info">
+                        <span class="obse-queue-name">${escapeHtml(displayName)}</span>
+                        <span class="obse-queue-meta">${groupBadge}${groupBadge ? ' · ' : ''}${escapeHtml(it.hotkey || '')}</span>
+                    </div>
+                    ${statusBadge}
+                `;
+                $queueList.appendChild(row);
+            });
+        }
+        // Countdown refresh: 200ms cho UI mượt (server poll vẫn 1s)
+        setInterval(() => {
+            if (!document.getElementById('view-obs-effects')?.classList.contains('active')) return;
+            if (!_lastQueueData) return;
+            // Chỉ re-render nếu có item running (cần update countdown)
+            const hasRunning = (_lastQueueData.items || []).some(it => it.status === 'running' && it.firedAt);
+            if (hasRunning) renderQueueListInternal();
+        }, 200);
+
+        async function doConnect() {
+            cachedConfig.url = $url.value.trim();
+            cachedConfig.password = $pass.value;
+            cachedConfig.autoConnect = $auto.checked;
+            await saveConfig(true);
+            $err.hidden = true;
+            $btnConn.disabled = true;
+            try {
+                const r = await fetch('/api/obs-bridge/connect', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: cachedConfig.url, password: cachedConfig.password })
+                });
+                const j = await r.json();
+                if (j.status) setStatus(j.status);
+                if (!j.ok) showError(j.error || 'Kết nối thất bại');
+                else fetchHotkeys();
+            } catch (e) { showError(e.message); $btnConn.disabled = false; }
+        }
+        async function doDisconnect() {
+            try {
+                const r = await fetch('/api/obs-bridge/disconnect', { method: 'POST' });
+                const j = await r.json();
+                if (j.status) setStatus(j.status);
+            } catch (e) { showError(e.message); }
+        }
+        async function fetchHotkeys() {
+            try {
+                const r = await fetch('/api/obs-bridge/hotkeys');
+                const j = await r.json();
+                if (j.ok) {
+                    cachedHotkeys = j.effectHotkeys || [];
+                    renderGroups();
+                }
+            } catch (e) {}
+        }
+
+        // ============== Groups rendering ==============
+        function getGroupNames() {
+            // Distinct groups từ mappings, sort: nhóm có tên (alphabet) → "" (Chưa nhóm) cuối
+            const names = new Set();
+            cachedConfig.mapping.forEach(m => names.add(m.group || ''));
+            const arr = [...names];
+            arr.sort((a, b) => {
+                if (a === '' && b === '') return 0;
+                if (a === '') return 1;
+                if (b === '') return -1;
+                return a.localeCompare(b, 'vi');
+            });
+            return arr;
+        }
+
+        function renderGroups() {
+            const names = getGroupNames();
+            $groupsCt.innerHTML = '';
+            if (cachedConfig.mapping.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'obse-groups-empty';
+                empty.innerHTML = '🎯 Chưa có mapping nào.<br>Bấm <b>+ Tạo nhóm mới</b> bên trên để bắt đầu, hoặc tạo nhóm mặc định:';
+                const btn = document.createElement('button');
+                btn.className = 'obse-btn primary';
+                btn.style.marginTop = '12px';
+                btn.textContent = '+ Tạo mapping đầu tiên (Chưa nhóm)';
+                btn.onclick = () => addMappingToGroup('');
+                empty.appendChild(btn);
+                $groupsCt.appendChild(empty);
+                return;
+            }
+            names.forEach(name => renderOneGroup(name));
+        }
+
+        function renderOneGroup(name) {
+            const displayName = name === '' ? '📁 Chưa nhóm' : '📂 ' + name;
+            const rows = cachedConfig.mapping.filter(m => (m.group || '') === name);
+            const isCollapsed = collapsedGroups.has(name);
+            const groupDisabled = isGroupDisabled(name);
+
+            const wrap = document.createElement('div');
+            wrap.className = 'obse-group';
+            if (isCollapsed) wrap.classList.add('collapsed');
+            if (groupDisabled) wrap.classList.add('group-disabled');
+            wrap.dataset.group = name;
+
+            // Header
+            const head = document.createElement('div');
+            head.className = 'obse-group-head';
+
+            const toggle = document.createElement('button');
+            toggle.className = 'obse-group-toggle';
+            toggle.textContent = isCollapsed ? '▸' : '▾';
+            toggle.onclick = () => {
+                if (collapsedGroups.has(name)) collapsedGroups.delete(name);
+                else collapsedGroups.add(name);
+                persistCollapsed();
+                renderGroups();
+            };
+            head.appendChild(toggle);
+
+            // Group enable toggle (bật/tắt cả nhóm)
+            const grpEnWrap = document.createElement('label');
+            grpEnWrap.className = 'obse-group-toggle-switch';
+            grpEnWrap.title = groupDisabled
+                ? `Nhóm "${displayName}" đang TẮT — tất cả gift trong nhóm bị bỏ qua. Click để bật lại.`
+                : `Nhóm "${displayName}" đang BẬT — click để tắt cả nhóm (mọi gift trong nhóm sẽ bị bỏ qua).`;
+            const grpChk = document.createElement('input');
+            grpChk.type = 'checkbox';
+            grpChk.checked = !groupDisabled;
+            grpChk.onchange = (e) => {
+                e.stopPropagation();
+                setGroupDisabled(name, !grpChk.checked);
+                renderGroups();
+                toast(grpChk.checked
+                    ? `✓ Đã BẬT nhóm "${displayName}"`
+                    : `✗ Đã TẮT nhóm "${displayName}" — gift trong nhóm sẽ bị bỏ qua`,
+                    grpChk.checked ? 'success' : 'warning', 3000);
+            };
+            const grpSlider = document.createElement('span');
+            grpSlider.className = 'obse-toggle-slider';
+            grpEnWrap.appendChild(grpChk);
+            grpEnWrap.appendChild(grpSlider);
+            head.appendChild(grpEnWrap);
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'obse-group-name';
+            nameSpan.textContent = displayName;
+            if (groupDisabled) nameSpan.innerHTML += ' <span class="obse-group-disabled-tag">TẮT</span>';
+            head.appendChild(nameSpan);
+
+            const countSpan = document.createElement('span');
+            countSpan.className = 'obse-group-count';
+            const enabledCount = rows.filter(r => r.enabled !== false).length;
+            countSpan.textContent = rows.length === enabledCount
+                ? `(${rows.length})`
+                : `(${enabledCount}/${rows.length})`;
+            head.appendChild(countSpan);
+
+            const actions = document.createElement('div');
+            actions.className = 'obse-group-actions';
+
+            const btnAdd = document.createElement('button');
+            btnAdd.className = 'obse-mini-btn';
+            btnAdd.title = 'Thêm mapping vào nhóm này';
+            btnAdd.textContent = '+';
+            btnAdd.onclick = () => addMappingToGroup(name);
+            actions.appendChild(btnAdd);
+
+            if (name !== '') {
+                const btnRename = document.createElement('button');
+                btnRename.className = 'obse-mini-btn';
+                btnRename.title = 'Đổi tên nhóm';
+                btnRename.textContent = '✎';
+                btnRename.onclick = () => openGroupModal('rename', name);
+                actions.appendChild(btnRename);
+
+                const btnDel = document.createElement('button');
+                btnDel.className = 'obse-mini-btn danger';
+                btnDel.title = 'Xóa cả nhóm (gồm các mapping)';
+                btnDel.textContent = '🗑';
+                btnDel.onclick = () => {
+                    if (!confirm(`Xóa nhóm "${name}" và ${rows.length} mapping trong đó?`)) return;
+                    cachedConfig.mapping = cachedConfig.mapping.filter(m => (m.group || '') !== name);
+                    saveConfig(true);
+                    renderGroups();
+                };
+                actions.appendChild(btnDel);
+            }
+            head.appendChild(actions);
+            wrap.appendChild(head);
+
+            // Body
+            const body = document.createElement('div');
+            body.className = 'obse-group-body';
+            if (rows.length === 0) {
+                const e = document.createElement('div');
+                e.className = 'obse-group-empty';
+                e.textContent = 'Nhóm rỗng — bấm + để thêm mapping';
+                body.appendChild(e);
+            } else {
+                rows.forEach(m => body.appendChild(renderMappingRow(m)));
+            }
+            wrap.appendChild(body);
+
+            $groupsCt.appendChild(wrap);
+        }
+
+        function renderMappingRow(m) {
+            const row = document.createElement('div');
+            row.className = 'obse-row';
+            if (m.enabled === false) row.classList.add('disabled');
+            row.dataset.id = m.id;
+
+            // Enable toggle (switch nhỏ bên trái)
+            const enWrap = document.createElement('label');
+            enWrap.className = 'obse-row-toggle';
+            enWrap.title = m.enabled === false ? 'Đang TẮT — click để bật lại' : 'Đang BẬT — click để tắt mapping này (gift đến vẫn không trigger)';
+            const enChk = document.createElement('input');
+            enChk.type = 'checkbox';
+            enChk.checked = m.enabled !== false;
+            enChk.onchange = () => {
+                m.enabled = enChk.checked;
+                saveConfig();
+                renderGroups();   // re-render để update class disabled
+            };
+            const enSlider = document.createElement('span');
+            enSlider.className = 'obse-toggle-slider';
+            enWrap.appendChild(enChk);
+            enWrap.appendChild(enSlider);
+            row.appendChild(enWrap);
+
+            // Gift picker button
+            const btnGift = document.createElement('button');
+            btnGift.className = 'obse-row-gift';
+            btnGift.title = 'Click để chọn quà / đổi quà';
+            if (m.giftId) {
+                btnGift.innerHTML = `
+                    ${m.giftImage ? `<img src="${m.giftImage}" onerror="this.style.display='none'"/>` : '<span class="obse-row-gift-noimg">🎁</span>'}
+                    <span class="obse-row-gift-info">
+                        <span class="obse-row-gift-name">${escapeHtml(m.giftName || '(chưa rõ tên)')}</span>
+                        <span class="obse-row-gift-id">ID ${m.giftId}</span>
+                    </span>`;
+            } else {
+                btnGift.innerHTML = `<span class="obse-row-gift-noimg">+</span><span class="obse-row-gift-info"><span class="obse-row-gift-name">Chọn quà</span></span>`;
+            }
+            btnGift.onclick = () => openGiftPicker(m.id);
+            row.appendChild(btnGift);
+
+            // Hotkey select
+            const sel = document.createElement('select');
+            sel.className = 'obse-row-hotkey';
+            const optEmpty = document.createElement('option');
+            optEmpty.value = ''; optEmpty.textContent = '— chọn effect —';
+            sel.appendChild(optEmpty);
+            const seen = new Set();
+            cachedHotkeys.forEach(hk => {
+                const o = document.createElement('option');
+                o.value = hk; o.textContent = hk;
+                sel.appendChild(o);
+                seen.add(hk);
+            });
+            if (m.hotkey && !seen.has(m.hotkey)) {
+                const o = document.createElement('option');
+                o.value = m.hotkey;
+                o.textContent = m.hotkey + ' (offline)';
+                sel.appendChild(o);
+            }
+            sel.value = m.hotkey || '';
+            sel.onchange = async () => {
+                m.hotkey = sel.value;
+                saveConfig();
+                // Auto-suggest duration nếu mapping chưa có cooldown HOẶC user chưa custom
+                // (chỉ overwrite khi cooldown=0 — tránh đè giá trị user đã chỉnh)
+                if (m.hotkey && (!m.cooldownMs || m.cooldownMs === 0)) {
+                    const suggested = await fetchSuggestedDurationMs(m.hotkey);
+                    if (suggested > 0) {
+                        m.cooldownMs = suggested;
+                        saveConfig();
+                        renderGroups();   // re-render để hiện số giây mới trong input
+                        toast(`✓ Đã đề xuất ${(suggested/1000).toFixed(1)}s cho "${m.hotkey}" — chỉnh lại nếu cần`, 'success', 4000);
+                    }
+                }
+            };
+            row.appendChild(sel);
+
+            // Action Name (tên hành động, hiển thị trong queue panel)
+            const nameInp = document.createElement('input');
+            nameInp.type = 'text';
+            nameInp.className = 'obse-row-actionname';
+            nameInp.placeholder = 'Tên hành động';
+            nameInp.value = m.actionName || '';
+            nameInp.title = 'Tên hành động hiển thị trong queue panel (vd "Hoa hồng đập chảo")';
+            nameInp.oninput = () => { m.actionName = nameInp.value.trim().slice(0, 80); saveConfig(); };
+            row.appendChild(nameInp);
+
+            // Effect Duration — nhập SỐ GIÂY (lưu nội bộ vẫn là ms)
+            // PHẢI ≥ duration thực tế của effect trong OBS (xem log dòng "TOTAL DURATION: ...ms")
+            const cdWrap = document.createElement('label');
+            cdWrap.className = 'obse-row-cd';
+            cdWrap.title = 'Thời gian hiệu ứng (giây) — số giây effect chạy xong hoàn toàn.\nQuà tiếp theo trong hàng đợi chỉ phát SAU khi đủ thời gian này.\nXem OBS Script log dòng "TOTAL DURATION: ...ms" để biết số chính xác.';
+            const cd = document.createElement('input');
+            cd.type = 'number'; cd.min = '0'; cd.step = '0.5';
+            cd.value = (Math.max(0, Number(m.cooldownMs) || 0) / 1000).toFixed(1);
+            cd.placeholder = 'Giây';
+            cd.oninput = () => {
+                const sec = Math.max(0, Number(cd.value) || 0);
+                m.cooldownMs = Math.round(sec * 1000);
+                saveConfig();
+            };
+            cdWrap.appendChild(cd);
+            const cdLbl = document.createElement('span');
+            cdLbl.textContent = 'giây';
+            cdWrap.appendChild(cdLbl);
+            row.appendChild(cdWrap);
+
+            // Test
+            const btnTest = document.createElement('button');
+            btnTest.className = 'obse-row-test';
+            btnTest.textContent = '🔥';
+            btnTest.title = 'Test trigger ngay (bỏ qua cooldown + queue)';
+            btnTest.onclick = async () => {
+                if (!m.hotkey) {
+                    toast('⚠ Row này chưa chọn effect — pick effect từ dropdown trước', 'error');
+                    return;
+                }
+                btnTest.disabled = true;
+                try {
+                    const r = await fetch('/api/obs-bridge/trigger', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ hotkey: m.hotkey })
+                    });
+                    const j = await r.json();
+                    if (!j.ok) {
+                        const reasonMap = {
+                            'unlicensed': 'License invalid — kích hoạt license trước',
+                            'disconnected': 'Chưa kết nối OBS — bấm "Kết nối" bên trái',
+                            'error': j.error || 'OBS trả lỗi'
+                        };
+                        toast('✗ ' + (reasonMap[j.reason] || j.reason || 'unknown'), 'error', 4000);
+                    } else {
+                        toast(`✓ Đã trigger "${m.hotkey}" — xem OBS preview`, 'success');
+                    }
+                } catch (e) { toast('✗ ' + e.message, 'error'); }
+                finally { setTimeout(() => btnTest.disabled = false, 300); }
+            };
+            row.appendChild(btnTest);
+
+            // Delete
+            const btnDel = document.createElement('button');
+            btnDel.className = 'obse-row-del';
+            btnDel.textContent = '🗑';
+            btnDel.title = 'Xóa mapping';
+            btnDel.onclick = () => {
+                cachedConfig.mapping = cachedConfig.mapping.filter(x => x.id !== m.id);
+                saveConfig(true);
+                renderGroups();
+            };
+            row.appendChild(btnDel);
+
+            return row;
+        }
+
+        function addMappingToGroup(groupName) {
+            // Default cooldown = 0 → tự được fill khi user chọn hotkey (theo registry server-side)
+            // User có thể chỉnh lại sau khi test
+            const m = normMapping({ group: groupName, cooldownMs: 0 });
+            cachedConfig.mapping.push(m);
+            saveConfig();
+            renderGroups();
+        }
+
+        // ============== Gift Picker Modal ==============
+        let gpFiltered = [];
+        function openGiftPicker(mappingId) {
+            gpTargetMappingId = mappingId;
+            $gpSearch.value = '';
+            $gpSort.value = 'diamond-asc';
+            $gpModal.hidden = false;
+            renderGiftPicker();
+            setTimeout(() => $gpSearch.focus(), 50);
+        }
+        function closeGiftPicker() { $gpModal.hidden = true; gpTargetMappingId = null; }
+        function renderGiftPicker() {
+            const sheet = window.__giftSheet || [];
+            const q = $gpSearch.value.trim().toLowerCase();
+            const sort = $gpSort.value;
+            let list = sheet.filter(g => {
+                if (!q) return true;
+                return String(g.id || '').toLowerCase().includes(q)
+                    || String(g.name || '').toLowerCase().includes(q);
+            });
+            if (sort === 'diamond-asc')  list.sort((a, b) => (a.diamond || 0) - (b.diamond || 0));
+            if (sort === 'diamond-desc') list.sort((a, b) => (b.diamond || 0) - (a.diamond || 0));
+            if (sort === 'name')         list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            if (sort === 'id')           list.sort((a, b) => Number(a.id) - Number(b.id));
+            gpFiltered = list;
+            $gpCount.textContent = `${list.length} / ${sheet.length}`;
+            $gpGrid.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            list.slice(0, 500).forEach(g => {
+                const c = document.createElement('div');
+                c.className = 'obse-gp-card';
+                c.innerHTML = `
+                    <img src="${g.image || ''}" onerror="this.style.display='none'"/>
+                    <div class="obse-gp-nm">${escapeHtml(g.name || '')}</div>
+                    <div class="obse-gp-id">ID ${g.id}</div>
+                    <div class="obse-gp-di">${g.diamond || 0}⭐</div>
+                `;
+                c.onclick = () => pickGift(g);
+                frag.appendChild(c);
+            });
+            $gpGrid.appendChild(frag);
+        }
+        function pickGift(g) {
+            const m = cachedConfig.mapping.find(x => x.id === gpTargetMappingId);
+            if (!m) return;
+            m.giftId = String(g.id);
+            m.giftName = g.name || '';
+            m.giftImage = g.image || '';
+            saveConfig(true);
+            closeGiftPicker();
+            renderGroups();
+        }
+
+        // ============== Group Name Modal ==============
+        function openGroupModal(mode, oldName) {
+            grmMode = mode;
+            grmRenameOldName = oldName || null;
+            $grmTitle.textContent = mode === 'rename' ? `Đổi tên nhóm "${oldName}"` : 'Tạo nhóm mới';
+            $grmInput.value = mode === 'rename' ? oldName : '';
+            $grmModal.hidden = false;
+            setTimeout(() => { $grmInput.focus(); $grmInput.select(); }, 50);
+        }
+        function closeGroupModal() { $grmModal.hidden = true; }
+        function saveGroupModal() {
+            const newName = $grmInput.value.trim();
+            if (!newName) { $grmInput.focus(); return; }
+            if (grmMode === 'rename' && grmRenameOldName) {
+                // Rename: update tất cả mapping group == oldName → newName
+                cachedConfig.mapping.forEach(m => {
+                    if ((m.group || '') === grmRenameOldName) m.group = newName;
+                });
+                // Migrate collapsed state
+                if (collapsedGroups.has(grmRenameOldName)) {
+                    collapsedGroups.delete(grmRenameOldName);
+                    collapsedGroups.add(newName);
+                    persistCollapsed();
+                }
+                saveConfig(true);
+                renderGroups();
+            } else {
+                // Create: tạo 1 mapping rỗng trong group này (để group hiển thị)
+                addMappingToGroup(newName);
+            }
+            closeGroupModal();
+        }
+
+        // ============== Wire events ==============
+        $btnConn.onclick = doConnect;
+        $btnDisc.onclick = doDisconnect;
+        $btnRefresh.onclick = async () => {
+            await fetchHotkeys();
+            toast(`✓ Đã tải ${cachedHotkeys.length} effect hotkey từ OBS`, 'success');
+        };
+        $btnAddGroup.onclick = () => openGroupModal('create');
+
+        // Queue clear button
+        if ($btnQueueClr) {
+            $btnQueueClr.onclick = async (e) => {
+                e.stopPropagation();
+                try {
+                    const r = await fetch('/api/obs-bridge/queue/clear', { method: 'POST' });
+                    const j = await r.json();
+                    toast(`🗑 Đã xóa ${j.removed || 0} effect khỏi hàng đợi`, 'success');
+                    updateQueuePill(j.queue || { pending: 0 });
+                } catch (e) { toast('✗ ' + e.message, 'error'); }
+            };
+        }
+        $url.oninput  = () => { cachedConfig.url = $url.value.trim(); saveConfig(); };
+        $pass.oninput = () => { cachedConfig.password = $pass.value; saveConfig(); };
+        $auto.onchange = () => { cachedConfig.autoConnect = $auto.checked; saveConfig(true); };
+
+        $gpClose.onclick = closeGiftPicker;
+        $gpSearch.oninput = renderGiftPicker;
+        $gpSort.onchange = renderGiftPicker;
+        $gpModal.addEventListener('click', (e) => { if (e.target === $gpModal) closeGiftPicker(); });
+
+        $grmClose.onclick = closeGroupModal;
+        $grmCancel.onclick = closeGroupModal;
+        $grmSave.onclick = saveGroupModal;
+        $grmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveGroupModal(); });
+        $grmModal.addEventListener('click', (e) => { if (e.target === $grmModal) closeGroupModal(); });
+
+        // ESC close cho modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (!$gpModal.hidden)  { closeGiftPicker();  return; }
+            if (!$grmModal.hidden) { closeGroupModal();  return; }
+        });
+
+        // Helper
+        function escapeHtml(s) {
+            return String(s || '').replace(/[<>&"']/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
+        }
+
+        // Initial
+        loadConfig();
+    })();
 
     // ===== Police Force popup (FAB) =====
     function mountThuySidePanel(active = 'police') {

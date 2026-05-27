@@ -8,6 +8,7 @@ const express = require('express');
 const { Server: SocketIOServer } = require('socket.io');
 const fetch = require('node-fetch');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
+const { OBSBridge } = require('./lib/obs-bridge');
 
 const PORT = process.env.PORT || 3000;
 
@@ -497,6 +498,252 @@ function saveAppConfig() {
     } catch (e) { /* backup is best-effort */ }
 }
 const appConfig = loadAppConfig();
+
+// ====== OBS Bridge — kết nối OBS Studio qua WebSocket để trigger Lua effects ======
+// License-gated: chỉ trigger nếu license activated.
+if (!appConfig.obsBridge) {
+    appConfig.obsBridge = {
+        url: 'ws://localhost:4455',
+        password: '',
+        autoConnect: false,
+        mapping: [],            // Array<{ giftId, hotkey, cooldownMs, enabled }>
+        groupsDisabled: []      // Array<string> — group names BẬT CỜ TẮT (skip enqueue)
+    };
+}
+// Backward-compat: thêm groupsDisabled nếu config cũ chưa có
+if (!Array.isArray(appConfig.obsBridge.groupsDisabled)) {
+    appConfig.obsBridge.groupsDisabled = [];
+}
+
+// ====== LUA Duration Registry ======
+// Map hotkey name → suggested duration ms (auto-fill khi user pick effect).
+// Số liệu khớp với compute_total_duration_ms() của từng LUA file.
+// User có thể tinh chỉnh sau khi test (xem dòng "TOTAL DURATION: ..." trong OBS Script log).
+const OBS_LUA_DURATION_REGISTRY = {
+    'effect_chao_dap_trigger': 8000,   // Pan smash (~6-8s tùy config)
+    'effect_chao_fall_trigger': 4000,  // Pan fall đơn giản
+    'effect_chay_trigger': 6000,       // Chạy bộ (visible time)
+    'effect_dap_bua_trigger': 9000,    // Whack-a-mole 4 pops + hit + dizzy
+    'effect_ho_den_trigger': 9000,     // Stand+fall+gone+return+stay
+    'effect_lo_xo_trigger': 10000,     // Spring 9.4s
+    'effect_may_giat_trigger': 7000,   // Washing machine
+};
+function obsBridgeSuggestDurationMs(hotkey) {
+    if (!hotkey) return 0;
+    if (OBS_LUA_DURATION_REGISTRY[hotkey] != null) return OBS_LUA_DURATION_REGISTRY[hotkey];
+    // Fallback heuristic: hotkey có chứa "effect_" → trả về 8s (an toàn)
+    if (/^effect_/.test(hotkey)) return 8000;
+    return 0;
+}
+const obsBridge = new OBSBridge({
+    isLicensed: () => Boolean(appConfig.license && appConfig.license.activated),
+    autoReconnect: true,
+    reconnectDelayMs: 5000,
+    logger: {
+        log: (...args) => console.log('[obs-bridge]', ...args)
+    }
+});
+// ===== Effect Queue — PER-GROUP serialization =====
+// Logic: mỗi mapping có field `group`. Effect cùng group → chạy tuần tự (queue chung).
+//        Effect khác group → chạy parallel (queue riêng).
+// → User đặt effects chung source vào cùng group để chống overlap conflict.
+//
+// "" (group rỗng / "Chưa nhóm") cũng là 1 group hợp lệ, items "" share 1 queue chung.
+const obsBridgeQueues       = new Map();    // groupKey → Array of items
+const obsBridgeDraining     = new Map();    // groupKey → bool (worker đang chạy)
+const obsBridgeLastTriggerAt = new Map();   // groupKey → timestamp last trigger
+const obsBridgeLastIntervalMs = new Map();  // groupKey → intervalMs của effect VỪA CHẠY (để wait đúng duration)
+const obsBridgeNowFiring     = new Map();   // groupKey → item đang fire (status='running')
+let obsBridgeQueueLastResult = null;        // global last result (across all groups)
+const OBS_QUEUE_PER_GROUP_CAP = 100;        // cap PER GROUP để tránh RAM bomb
+
+function obsBridgeGetGroupQueue(groupKey) {
+    if (!obsBridgeQueues.has(groupKey)) obsBridgeQueues.set(groupKey, []);
+    return obsBridgeQueues.get(groupKey);
+}
+
+// ⚠ STRICT GLOBAL SERIAL — tất cả effect xếp 1 hàng FIFO duy nhất
+// Lý do: nếu nhiều effect chạy song song trên cùng idol source/scene → loạn
+// (effect A đang play thì effect B vào, idol bị 2 anim ghi đè nhau)
+// Group trong UI chỉ dùng để PHÂN LOẠI hiển thị, không ảnh hưởng queueing.
+const OBS_QUEUE_KEY = '__global__';
+
+function obsBridgeEnqueueForGift(giftId, repeatCount, opts = {}) {
+    if (!giftId) return { enqueued: 0, reason: 'no-gift-id' };
+    const mapping = (appConfig.obsBridge && appConfig.obsBridge.mapping) || [];
+    const match = mapping.find(m => String(m.giftId) === String(giftId));
+    if (!match || !match.hotkey) return { enqueued: 0, reason: 'no-mapping' };
+
+    // ⛔ Skip nếu mapping bị TẮT (enabled === false)
+    if (match.enabled === false) {
+        console.log(`[obs-bridge] SKIP giftId=${giftId} hotkey='${match.hotkey}': mapping DISABLED`);
+        return { enqueued: 0, reason: 'mapping-disabled' };
+    }
+    // ⛔ Skip nếu CẢ NHÓM bị TẮT
+    const groupName = String(match.group || '');
+    const groupsDisabled = (appConfig.obsBridge && appConfig.obsBridge.groupsDisabled) || [];
+    if (groupsDisabled.includes(groupName)) {
+        console.log(`[obs-bridge] SKIP giftId=${giftId} hotkey='${match.hotkey}': group '${groupName}' DISABLED`);
+        return { enqueued: 0, reason: 'group-disabled' };
+    }
+
+    const groupKey = OBS_QUEUE_KEY;                       // ★ luôn dùng key global
+    const groupLabel = groupName;                          // label hiển thị UI
+    const queue = obsBridgeGetGroupQueue(groupKey);
+
+    let n = Math.max(1, Math.min(100, Number(repeatCount) || 1));
+    // Cap TOTAL (max 100 items đợi cho toàn bộ queue)
+    if (queue.length + n > OBS_QUEUE_PER_GROUP_CAP) {
+        n = Math.max(0, OBS_QUEUE_PER_GROUP_CAP - queue.length);
+    }
+    const intervalMs = Math.max(200, Number(match.cooldownMs) || 1000);
+    for (let i = 0; i < n; i++) {
+        queue.push({
+            hotkey: match.hotkey,
+            intervalMs,
+            giftId: String(giftId),
+            giftName: match.giftName || '',
+            giftImage: match.giftImage || '',
+            actionName: match.actionName || '',   // dùng để hiển thị trong UI queue list
+            group: groupKey,
+            groupLabel,                            // ★ label group cho UI hiển thị (badge)
+            source: opts.source || 'gift',
+            enqueuedAt: Date.now()
+        });
+    }
+    console.log(`[obs-bridge] ENQUEUE ${n}× '${match.hotkey}' giftId=${giftId} groupLabel='${groupLabel}' source='${opts.source || 'gift'}' (queue=${queue.length}, intervalMs=${intervalMs})`);
+    obsBridgeDrainGroup(groupKey);
+    return { enqueued: n, pending: queue.length, group: groupLabel };
+}
+
+async function obsBridgeDrainGroup(groupKey) {
+    if (obsBridgeDraining.get(groupKey)) return;
+    const queue = obsBridgeGetGroupQueue(groupKey);
+    if (queue.length === 0) return;
+    obsBridgeDraining.set(groupKey, true);
+    try {
+        // do-while: sau khi drain hết, chờ effect cuối play xong DURATION rồi mới clear nowFiring.
+        // Nếu trong lúc chờ có item mới enqueue → loop quay lại drain tiếp (no stuck).
+        do {
+            while (queue.length > 0) {
+                const item = queue[0];
+                // Spacing — chờ đủ DURATION của effect VỪA CHẠY (không phải effect sắp chạy)
+                // → đảm bảo effect trước hoàn tất rồi mới fire effect sau (no overlap)
+                const lastAt   = obsBridgeLastTriggerAt.get(groupKey)   || 0;
+                const lastDur  = obsBridgeLastIntervalMs.get(groupKey) || 0;
+                if (lastAt > 0 && lastDur > 0) {
+                    const elapsed = Date.now() - lastAt;
+                    if (elapsed < lastDur) {
+                        await new Promise(r => setTimeout(r, lastDur - elapsed));
+                    }
+                }
+                queue.shift();
+                obsBridgeNowFiring.set(groupKey, { ...item, firedAt: Date.now() });
+                console.log(`[obs-bridge] queue fire: hotkey='${item.hotkey}' giftId='${item.giftId}' source='${item.source}' (remaining=${queue.length})`);
+                try {
+                    const result = await obsBridge.triggerHotkey(item.hotkey);
+                    obsBridgeQueueLastResult = {
+                        ...result, hotkey: item.hotkey, giftId: item.giftId,
+                        group: item.groupLabel || '', ts: Date.now()
+                    };
+                } catch (e) {
+                    obsBridgeQueueLastResult = {
+                        ok: false, reason: 'exception', error: String(e),
+                        hotkey: item.hotkey, group: item.groupLabel || '', ts: Date.now()
+                    };
+                }
+                obsBridgeLastTriggerAt.set(groupKey, Date.now());
+                obsBridgeLastIntervalMs.set(groupKey, item.intervalMs);
+            }
+            // POST-DRAIN: chờ effect CUỐI play xong DURATION trước khi clear nowFiring
+            // → UI countdown đếm tới 0 tự nhiên thay vì biến mất ngay
+            // → nếu trong lúc chờ có item mới enqueue, while-outer sẽ pick lên
+            const finalAt  = obsBridgeLastTriggerAt.get(groupKey)  || 0;
+            const finalDur = obsBridgeLastIntervalMs.get(groupKey) || 0;
+            if (finalAt > 0 && finalDur > 0) {
+                const waitEnd = finalAt + finalDur;
+                while (Date.now() < waitEnd && queue.length === 0) {
+                    const left = waitEnd - Date.now();
+                    await new Promise(r => setTimeout(r, Math.min(100, Math.max(20, left))));
+                }
+            }
+        } while (queue.length > 0);
+        obsBridgeNowFiring.delete(groupKey);   // queue rỗng + effect cuối đã play xong → clear
+    } finally {
+        obsBridgeDraining.set(groupKey, false);
+    }
+}
+
+function obsBridgeQueueClear() {
+    let removed = 0;
+    for (const q of obsBridgeQueues.values()) {
+        removed += q.length;
+        q.length = 0;
+    }
+    return removed;
+}
+
+function obsBridgeQueueStatus() {
+    const groups = {};
+    const items = [];     // mảng tất cả items đang chờ + đang chạy (per UI display)
+    let totalPending = 0;
+    let anyDraining = false;
+    // Now firing items first (running row đầu tiên)
+    for (const [key, fItem] of obsBridgeNowFiring.entries()) {
+        items.push({
+            status: 'running',
+            group: fItem.groupLabel || '',     // ★ label hiển thị (không phải internal key)
+            hotkey: fItem.hotkey,
+            giftId: fItem.giftId,
+            giftName: fItem.giftName || '',
+            giftImage: fItem.giftImage || '',
+            actionName: fItem.actionName || '',
+            intervalMs: fItem.intervalMs,
+            firedAt: fItem.firedAt              // ← UI dùng cái này để countdown
+        });
+    }
+    // Then waiting items (FIFO order — oldest first, newest last)
+    for (const [key, q] of obsBridgeQueues.entries()) {
+        const draining = !!obsBridgeDraining.get(key);
+        if (q.length > 0 || draining) {
+            groups[key === OBS_QUEUE_KEY ? '(global)' : (key || '(Chưa nhóm)')] = { pending: q.length, draining };
+        }
+        for (const it of q) {
+            items.push({
+                status: 'waiting',
+                group: it.groupLabel || '',     // ★ label hiển thị
+                hotkey: it.hotkey,
+                giftId: it.giftId,
+                giftName: it.giftName || '',
+                giftImage: it.giftImage || '',
+                actionName: it.actionName || '',
+                intervalMs: it.intervalMs,
+                enqueuedAt: it.enqueuedAt
+            });
+        }
+        totalPending += q.length;
+        if (draining) anyDraining = true;
+    }
+    return {
+        pending: totalPending,
+        draining: anyDraining,
+        groups,
+        items,                          // ← chi tiết để UI hiện list
+        lastResult: obsBridgeQueueLastResult
+    };
+}
+
+// BACKCOMPAT alias — code cũ gọi tên này
+function obsBridgeMaybeTriggerForGift(giftId, repeatCount = 1) {
+    return obsBridgeEnqueueForGift(giftId, repeatCount);
+}
+// Auto-connect ở startup nếu user đã enable
+if (appConfig.obsBridge.autoConnect && appConfig.obsBridge.url) {
+    setTimeout(() => {
+        obsBridge.connect(appConfig.obsBridge.url, appConfig.obsBridge.password || '')
+            .catch(e => console.log('[obs-bridge] autoConnect FAIL:', e.message));
+    }, 2000); // delay 2s để các hệ thống khác init xong
+}
 const DEFAULT_LIVE_TRANSLATE_CONFIG = {
     enabled: false,
     sourceLang: 'auto',
@@ -510,6 +757,10 @@ const DEFAULT_LIVE_TRANSLATE_CONFIG = {
     ttsPreset: 'auto',
     ttsVolume: 85,
     ttsRate: 1,
+    // 'browser' = đọc bằng SpeechSynthesis của trình duyệt (mặc định, giọng đẹp)
+    // 'remote'  = đọc bằng Google translate_tts (single voice, fallback)
+    // → Chỉ chọn 1 trong 2 để tránh phát 2 tiếng đè nhau khi network race
+    ttsSource: 'browser',
     aiFilterEnabled: true,
     ignoreIcons: true,
     cleanUnreadable: true,
@@ -744,6 +995,8 @@ function sanitizeLiveTranslateConfig(input) {
     if (cfg.excludedSourceLang === 'auto') cfg.excludedSourceLang = '';
     cfg.targetLang = String(cfg.targetLang || 'vi').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'vi';
     cfg.ttsVoice = ['auto', 'male', 'female', 'random', 'randomGender', 'variant1', 'variant2', 'variant3', 'variant4', 'variant5'].includes(cfg.ttsVoice) ? cfg.ttsVoice : 'auto';
+    // ttsSource: 'browser' (mặc định) hoặc 'remote' — chống phát 2 tiếng đè
+    cfg.ttsSource = ['browser', 'remote'].includes(cfg.ttsSource) ? cfg.ttsSource : DEFAULT_LIVE_TRANSLATE_CONFIG.ttsSource;
     cfg.ttsPreset = Object.prototype.hasOwnProperty.call(LIVE_TRANSLATE_TTS_PRESETS, cfg.ttsPreset) ? cfg.ttsPreset : 'auto';
     cfg.ttsReadMode = ['nameAndComment', 'commentOnly', 'nameOnly'].includes(cfg.ttsReadMode) ? cfg.ttsReadMode : (cfg.readUsername === false ? 'commentOnly' : 'nameAndComment');
     cfg.ttsPriority = ['all', 'gifters', 'members', 'giftersOrMembers'].includes(cfg.ttsPriority) ? cfg.ttsPriority : 'all';
@@ -1231,6 +1484,7 @@ function processLiveTranslateChat(chat) {
                 ttsReadMode: cfg.ttsReadMode,
                 ttsVolume: cfg.ttsVolume,
                 ttsRate: cfg.ttsRate,
+                ttsSource: cfg.ttsSource,
                 toxic: !!toxicReason,
                 canSpeak: !toxicReason && shouldSpeakLiveTranslate(chat, cfg),
                 createTime: chat.createTime || Date.now()
@@ -1263,6 +1517,7 @@ function processLiveTranslateChat(chat) {
                 ttsReadMode: cfg.ttsReadMode,
                 ttsVolume: cfg.ttsVolume,
                 ttsRate: cfg.ttsRate,
+                ttsSource: cfg.ttsSource,
                 toxic: !!toxicReason,
                 canSpeak: !toxicReason && shouldSpeakLiveTranslate(chat, cfg),
                 error: err?.message || 'translate_failed',
@@ -1555,6 +1810,16 @@ function attachConnectionEvents(conn) {
             repeatCount: normalizeGiftRepeatCount(data),
             source: 'tiktok'
         });
+
+        // ===== OBS Bridge — enqueue effect cho mỗi gift trong combo =====
+        // Tặng 1x → enqueue 1; tặng 5x → enqueue 5; ... drain tuần tự theo cooldownMs.
+        try {
+            const giftIdStr = String(data?.giftId ?? data?.gift?.gift_id ?? data?.giftDetails?.giftId ?? '');
+            const rc = normalizeGiftRepeatCount(data);
+            obsBridgeEnqueueForGift(giftIdStr, rc);
+        } catch (e) {
+            console.error('[obs-bridge] enqueue from gift event error:', e.message);
+        }
     });
 
     conn.on(WebcastEvent.MEMBER, (data) => {
@@ -5424,6 +5689,119 @@ try {
 } catch (e) {
     console.warn('[soundfx] không mount được:', e.message);
 }
+
+// ====== 🎬 OBS Bridge — REST API ======
+// Tab "Hiệu ứng OBS" trong Cài đặt gọi các endpoint này để config + test.
+
+// GET /api/obs-bridge/config — lấy config + status + queue hiện tại
+app.get('/api/obs-bridge/config', (req, res) => {
+    const cfg = appConfig.obsBridge || {};
+    res.json({
+        url: cfg.url || '',
+        password: cfg.password || '',
+        autoConnect: !!cfg.autoConnect,
+        mapping: Array.isArray(cfg.mapping) ? cfg.mapping : [],
+        groupsDisabled: Array.isArray(cfg.groupsDisabled) ? cfg.groupsDisabled : [],
+        status: obsBridge.getStatus(),
+        queue: obsBridgeQueueStatus()
+    });
+});
+
+// GET /api/obs-bridge/lua-duration?hotkey=effect_xxx — gợi ý duration (ms) cho LUA đã biết
+app.get('/api/obs-bridge/lua-duration', (req, res) => {
+    const hotkey = String(req.query.hotkey || '').trim();
+    const ms = obsBridgeSuggestDurationMs(hotkey);
+    res.json({ hotkey, ms, suggested: ms > 0 });
+});
+
+// POST /api/obs-bridge/queue/clear — xóa hàng đợi (hủy effect chưa chạy)
+app.post('/api/obs-bridge/queue/clear', (req, res) => {
+    const removed = obsBridgeQueueClear();
+    res.json({ ok: true, removed, queue: obsBridgeQueueStatus() });
+});
+
+// POST /api/obs-bridge/queue/simulate-gift — TEST queue bằng cách giả lập gift
+// Body: { giftId, repeatCount }
+app.post('/api/obs-bridge/queue/simulate-gift', express.json(), (req, res) => {
+    const giftId = String(req.body?.giftId || '');
+    const repeatCount = Number(req.body?.repeatCount) || 1;
+    if (!giftId) return res.status(400).json({ ok: false, error: 'Thiếu giftId' });
+    const result = obsBridgeEnqueueForGift(giftId, repeatCount, { source: 'simulate' });
+    res.json({ ok: true, ...result, queue: obsBridgeQueueStatus() });
+});
+
+// PUT /api/obs-bridge/config — lưu config (URL/pass/autoConnect/mapping)
+app.put('/api/obs-bridge/config', express.json(), (req, res) => {
+    const body = req.body || {};
+    if (!appConfig.obsBridge) appConfig.obsBridge = {};
+    if (typeof body.url === 'string') appConfig.obsBridge.url = body.url.trim();
+    if (typeof body.password === 'string') appConfig.obsBridge.password = body.password;
+    if (typeof body.autoConnect === 'boolean') appConfig.obsBridge.autoConnect = body.autoConnect;
+    if (Array.isArray(body.mapping)) {
+        // Validate & sanitize each mapping row — KHÔNG filter để giữ row đang edit (giftId/hotkey rỗng)
+        appConfig.obsBridge.mapping = body.mapping
+            .filter(m => m && typeof m === 'object')
+            .map(m => ({
+                id:         String(m.id || ('m_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8))),
+                giftId:     String(m.giftId || '').trim(),
+                giftName:   String(m.giftName || '').trim().slice(0, 200),
+                giftImage:  String(m.giftImage || '').trim().slice(0, 500),
+                actionName: String(m.actionName || '').trim().slice(0, 80),   // tên hành động hiển thị trong queue
+                hotkey:     String(m.hotkey || '').trim(),
+                cooldownMs: Math.max(0, Number(m.cooldownMs) || 0),
+                group:      String(m.group || '').trim().slice(0, 40),
+                enabled:    m.enabled !== false   // default true; chỉ false khi explicit set
+            }));
+    }
+    if (Array.isArray(body.groupsDisabled)) {
+        // Sanitize: chỉ giữ string, max 80 group disabled
+        appConfig.obsBridge.groupsDisabled = body.groupsDisabled
+            .filter(g => typeof g === 'string')
+            .map(g => String(g).trim().slice(0, 40))
+            .slice(0, 80);
+    }
+    saveAppConfig();
+    res.json({ ok: true, config: appConfig.obsBridge });
+});
+
+// POST /api/obs-bridge/connect — kết nối ngay (dùng URL/pass đã lưu)
+app.post('/api/obs-bridge/connect', async (req, res) => {
+    const cfg = appConfig.obsBridge || {};
+    const url = (req.body && req.body.url) || cfg.url;
+    const pass = (req.body && req.body.password !== undefined) ? req.body.password : (cfg.password || '');
+    if (!url) return res.status(400).json({ ok: false, error: 'Thiếu URL' });
+    try {
+        await obsBridge.connect(url, pass);
+        res.json({ ok: true, status: obsBridge.getStatus() });
+    } catch (e) {
+        res.json({ ok: false, error: e.message || String(e), status: obsBridge.getStatus() });
+    }
+});
+
+// POST /api/obs-bridge/disconnect — ngắt kết nối + tắt auto-reconnect
+app.post('/api/obs-bridge/disconnect', async (req, res) => {
+    await obsBridge.disconnect();
+    res.json({ ok: true, status: obsBridge.getStatus() });
+});
+
+// GET /api/obs-bridge/hotkeys — list hotkey hiện đang đăng ký trong OBS
+app.get('/api/obs-bridge/hotkeys', async (req, res) => {
+    if (!obsBridge.isConnected()) {
+        return res.json({ ok: false, error: 'Chưa kết nối OBS', hotkeys: [] });
+    }
+    const hotkeys = await obsBridge.listHotkeys();
+    // Lọc chỉ effect_/hp_ để UI gợi ý
+    const effectHotkeys = hotkeys.filter(h => /^(effect_|hp_)/i.test(h));
+    res.json({ ok: true, hotkeys, effectHotkeys });
+});
+
+// POST /api/obs-bridge/trigger — test trigger 1 hotkey (bypass cooldown + mapping)
+app.post('/api/obs-bridge/trigger', express.json(), async (req, res) => {
+    const hotkey = req.body && req.body.hotkey;
+    if (!hotkey) return res.status(400).json({ ok: false, error: 'Thiếu hotkey' });
+    const result = await obsBridge.triggerHotkey(hotkey);
+    res.json(result);
+});
 
 // ====== 🚀 Quick Launch — cửa sổ điều khiển nhanh tách rời, always-on-top ======
 app.get('/quick-launch', (req, res) =>

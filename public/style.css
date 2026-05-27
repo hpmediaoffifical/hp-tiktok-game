@@ -6566,3 +6566,759 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
     background: #0c0e15; padding: 2px 6px; border-radius: 4px;
 }
 @media (max-width: 800px) { .nd-scheme-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* ====== 🎬 OBS Bridge — settings popup block ====== */
+.settings-popup .obs-conn {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-bottom: 12px;
+}
+.settings-popup .obs-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+}
+.settings-popup .obs-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #6b7280; flex-shrink: 0;
+    box-shadow: 0 0 0 2px rgba(107,114,128,0.2);
+}
+.settings-popup .obs-dot.connected {
+    background: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.25);
+}
+.settings-popup .obs-dot.connecting {
+    background: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245,158,11,0.25);
+    animation: obsDotPulse 1s ease-in-out infinite;
+}
+@keyframes obsDotPulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+}
+.settings-popup .obs-status-text { color: #c8cad4; }
+.settings-popup .obs-input {
+    background: #0e1118; border: 1px solid #2a3140;
+    border-radius: 8px; padding: 7px 10px;
+    color: #e6e8ee; font-size: 12px;
+    width: 100%; box-sizing: border-box;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.settings-popup .obs-input:focus {
+    outline: none; border-color: #3b82f6;
+    background: #11151f;
+}
+.settings-popup .obs-row-check {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #8b93a8;
+    cursor: pointer; user-select: none;
+}
+.settings-popup .obs-row-check input { cursor: pointer; }
+.settings-popup .obs-actions {
+    display: flex; gap: 6px;
+}
+.settings-popup .obs-btn {
+    flex: 1; padding: 6px 10px;
+    background: #1a1f2c; border: 1px solid #2c3243;
+    border-radius: 8px; color: #c8cad4;
+    font-size: 12px; cursor: pointer;
+    transition: all 0.15s;
+}
+.settings-popup .obs-btn:hover {
+    background: #232936; border-color: #3a4255;
+}
+.settings-popup .obs-btn.primary {
+    background: linear-gradient(135deg, #2563eb, #1e40af);
+    border-color: #1d4ed8; color: #fff;
+}
+.settings-popup .obs-btn.primary:hover {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+.settings-popup .obs-btn:disabled {
+    opacity: 0.5; cursor: not-allowed;
+}
+.settings-popup .obs-error {
+    font-size: 11px; color: #ef4444;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 6px; padding: 5px 8px;
+    margin-top: 4px;
+}
+.settings-popup .obs-map-wrap {
+    padding-top: 12px;
+    border-top: 1px solid #232936;
+}
+.settings-popup .obs-map-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700;
+    color: #8b93a8; text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.settings-popup .obs-map-head > span { flex: 1; }
+.settings-popup .obs-mini-btn {
+    width: 22px; height: 22px;
+    background: #1a1f2c; border: 1px solid #2c3243;
+    border-radius: 6px; color: #c8cad4;
+    cursor: pointer; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1; padding: 0;
+}
+.settings-popup .obs-mini-btn:hover {
+    background: #232936; border-color: #3a4255;
+}
+.settings-popup .obs-map-list {
+    display: flex; flex-direction: column; gap: 6px;
+}
+.settings-popup .obs-map-empty {
+    font-size: 11px; color: #6b7280;
+    text-align: center; padding: 12px 0;
+    background: #0e1118; border-radius: 8px;
+    border: 1px dashed #2a3140;
+}
+.settings-popup .obs-map-row {
+    display: grid;
+    grid-template-columns: 70px 1fr 50px auto auto;
+    gap: 4px; align-items: center;
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 8px; padding: 5px;
+}
+.settings-popup .obs-map-row input,
+.settings-popup .obs-map-row select {
+    background: #131722; border: 1px solid #232936;
+    border-radius: 5px; padding: 4px 6px;
+    color: #e6e8ee; font-size: 11px;
+    min-width: 0;
+    font-family: inherit;
+}
+.settings-popup .obs-map-row .obs-map-gift { font-family: ui-monospace, Consolas, monospace; }
+.settings-popup .obs-map-row .obs-map-cooldown { text-align: center; }
+.settings-popup .obs-map-row .obs-row-test,
+.settings-popup .obs-map-row .obs-row-del {
+    width: 24px; height: 24px;
+    background: transparent; border: 0;
+    cursor: pointer; font-size: 13px;
+    padding: 0; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+}
+.settings-popup .obs-map-row .obs-row-test:hover { background: rgba(245,158,11,0.15); }
+.settings-popup .obs-map-row .obs-row-del:hover  { background: rgba(239,68,68,0.15); }
+.settings-popup .obs-hint {
+    font-size: 10px; color: #6b7280;
+    margin-top: 6px; line-height: 1.4;
+}
+
+/* ====== 🎬 OBS Effects — Game View ====== */
+
+/* Status pill in header */
+.obse-status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 999px;
+    font-size: 12px; color: #c8cad4;
+}
+.obse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #6b7280;
+    box-shadow: 0 0 0 2px rgba(107,114,128,0.2);
+}
+.obse-dot.connected {
+    background: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.25);
+}
+.obse-dot.connecting {
+    background: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245,158,11,0.25);
+    animation: obseDotPulse 1s ease-in-out infinite;
+}
+@keyframes obseDotPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Body 2-column layout */
+.obse-body {
+    display: grid !important;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+    padding: 16px;
+    align-items: start;
+}
+.obse-col-left {
+    display: flex; flex-direction: column; gap: 12px;
+    position: sticky; top: 0;
+}
+.obse-col-left .card,
+.obse-col-right .card {
+    background: #131722; border: 1px solid #232936;
+    border-radius: 12px; padding: 14px;
+}
+.obse-card-title {
+    font-size: 13px; font-weight: 700;
+    color: #e6e8ee; margin: 0 0 12px 0;
+}
+
+/* Left form */
+.obse-form { display: flex; flex-direction: column; gap: 10px; }
+.obse-label { display: flex; flex-direction: column; gap: 4px; }
+.obse-label > span { font-size: 11px; color: #8b93a8; font-weight: 600; }
+.obse-input {
+    background: #0e1118; border: 1px solid #2a3140;
+    border-radius: 8px; padding: 8px 10px;
+    color: #e6e8ee; font-size: 12px;
+    width: 100%; box-sizing: border-box;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-input:focus {
+    outline: none; border-color: #3b82f6;
+    background: #11151f;
+}
+.obse-check {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #c8cad4;
+    cursor: pointer; user-select: none;
+}
+.obse-actions { display: flex; gap: 6px; margin-top: 4px; }
+.obse-btn {
+    flex: 1; padding: 7px 12px;
+    background: #1a1f2c; border: 1px solid #2c3243;
+    border-radius: 8px; color: #c8cad4;
+    font-size: 12px; cursor: pointer; font-weight: 600;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+.obse-btn:hover { background: #232936; border-color: #3a4255; }
+.obse-btn.primary {
+    background: linear-gradient(135deg, #2563eb, #1e40af);
+    border-color: #1d4ed8; color: #fff;
+}
+.obse-btn.primary:hover {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+.obse-btn.ghost { background: transparent; }
+.obse-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.obse-error {
+    font-size: 11px; color: #ef4444;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 6px; padding: 6px 8px;
+}
+
+/* Guide card */
+.obse-guide-card .obse-guide {
+    margin: 0; padding-left: 18px;
+    font-size: 12px; color: #c8cad4; line-height: 1.6;
+}
+.obse-guide-card .obse-guide li { margin-bottom: 4px; }
+.obse-guide-card .obse-guide code {
+    background: #0e1118; padding: 1px 6px;
+    border-radius: 4px; font-size: 11px;
+    color: #67e8f9;
+}
+.obse-tip {
+    margin-top: 10px; padding: 8px 10px;
+    background: rgba(59,130,246,0.08);
+    border-left: 3px solid #3b82f6;
+    border-radius: 4px;
+    font-size: 11px; color: #93c5fd;
+}
+
+/* Right: mappings */
+.obse-mappings-card { min-height: 400px; }
+.obse-mappings-head {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #1f2533;
+}
+.obse-mappings-head .obse-card-title { margin: 0; flex: 1; }
+.obse-mappings-actions { display: flex; gap: 6px; }
+.obse-mappings-actions .obse-btn { flex: 0 0 auto; padding: 6px 10px; font-size: 11px; }
+
+.obse-groups { display: flex; flex-direction: column; gap: 10px; }
+.obse-groups-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #6b7280; font-size: 13px;
+    background: #0e1118;
+    border-radius: 10px;
+    border: 1px dashed #2a3140;
+    line-height: 1.7;
+}
+
+/* Group block */
+.obse-group {
+    background: #0e1118;
+    border: 1px solid #232936;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.obse-group-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    background: #161b27;
+    border-bottom: 1px solid #232936;
+}
+.obse-group-toggle {
+    width: 22px; height: 22px;
+    background: transparent; border: 0;
+    color: #c8cad4; cursor: pointer;
+    font-size: 11px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+}
+.obse-group-toggle:hover { background: #232936; }
+.obse-group-name {
+    font-size: 13px; font-weight: 700;
+    color: #e6e8ee;
+}
+.obse-group-count {
+    font-size: 11px; color: #6b7280;
+    margin-right: auto;
+}
+.obse-group-actions { display: flex; gap: 4px; }
+.obse-mini-btn {
+    width: 26px; height: 26px;
+    background: #1a1f2c; border: 1px solid #2c3243;
+    border-radius: 6px; color: #c8cad4;
+    cursor: pointer; font-size: 12px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+.obse-mini-btn:hover { background: #232936; border-color: #3a4255; }
+.obse-mini-btn.danger:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4); color: #fca5a5; }
+
+.obse-group-body {
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.obse-group.collapsed .obse-group-body { display: none; }
+.obse-group-empty {
+    font-size: 11px; color: #6b7280;
+    padding: 12px; text-align: center;
+    font-style: italic;
+}
+
+/* Mapping row */
+.obse-row {
+    display: grid;
+    grid-template-columns: 1fr 220px 100px auto auto;
+    gap: 6px; align-items: center;
+    background: #131722; border: 1px solid #1f2533;
+    border-radius: 8px; padding: 6px;
+}
+.obse-row:hover { border-color: #2a3140; }
+
+.obse-row-gift {
+    display: flex; align-items: center; gap: 8px;
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 6px; padding: 6px 8px;
+    cursor: pointer; color: #c8cad4;
+    text-align: left; min-height: 38px;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+.obse-row-gift:hover { background: #161b27; border-color: #3a4255; }
+.obse-row-gift img { width: 28px; height: 28px; border-radius: 4px; object-fit: contain; flex-shrink: 0; }
+.obse-row-gift-noimg {
+    width: 28px; height: 28px; border-radius: 4px;
+    background: #1a1f2c;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; color: #6b7280;
+    flex-shrink: 0;
+}
+.obse-row-gift-info { display: flex; flex-direction: column; min-width: 0; }
+.obse-row-gift-name {
+    font-size: 12px; color: #e6e8ee; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.obse-row-gift-id { font-size: 10px; color: #6b7280; }
+
+.obse-row-hotkey {
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 6px; padding: 7px 8px;
+    color: #e6e8ee; font-size: 11px;
+    font-family: ui-monospace, Consolas, monospace;
+    min-width: 0;
+}
+
+.obse-row-cd {
+    display: flex; align-items: center; gap: 4px;
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 6px; padding: 4px 6px;
+}
+.obse-row-cd input {
+    background: transparent; border: 0;
+    color: #e6e8ee; font-size: 11px;
+    width: 100%; min-width: 0;
+    text-align: right;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-row-cd input:focus { outline: none; }
+.obse-row-cd span { font-size: 10px; color: #6b7280; }
+
+.obse-row-test, .obse-row-del {
+    width: 32px; height: 32px;
+    background: transparent; border: 1px solid transparent;
+    cursor: pointer; font-size: 14px;
+    padding: 0; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.obse-row-test:hover { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.4); }
+.obse-row-del:hover  { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4); }
+
+/* ====== OBS Modals (gift picker + group name) ====== */
+.obse-modal {
+    position: fixed; inset: 0;
+    background: rgba(8,11,18,0.75);
+    z-index: 9500;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(2px);
+    animation: obseModalFade 0.2s;
+}
+.obse-modal[hidden] { display: none; }
+@keyframes obseModalFade { from { opacity: 0; } to { opacity: 1; } }
+.obse-modal-card {
+    width: 920px; max-width: 92vw;
+    max-height: 85vh;
+    background: linear-gradient(180deg, #1a1f2c, #131722);
+    border: 1px solid #2c3243;
+    border-radius: 14px;
+    color: #e6e8ee;
+    box-shadow: 0 26px 70px rgba(0,0,0,0.6);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.obse-modal-small { width: 420px; }
+.obse-modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid #232936;
+}
+.obse-modal-head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.obse-modal-toolbar {
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 18px;
+    border-bottom: 1px solid #1f2533;
+}
+.obse-modal-toolbar input[type=text] {
+    flex: 1;
+    background: #0e1118; border: 1px solid #2a3140;
+    border-radius: 8px; padding: 7px 10px;
+    color: #e6e8ee; font-size: 12px;
+}
+.obse-modal-toolbar select {
+    background: #0e1118; border: 1px solid #2a3140;
+    border-radius: 8px; padding: 7px 10px;
+    color: #e6e8ee; font-size: 12px;
+}
+.obse-gp-count {
+    font-size: 11px; color: #6b7280;
+    background: #0e1118; padding: 5px 10px;
+    border-radius: 6px;
+}
+.obse-gp-grid {
+    flex: 1; overflow-y: auto;
+    padding: 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+}
+.obse-gp-card {
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 10px; padding: 10px 8px;
+    cursor: pointer;
+    text-align: center;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+    transition: all 0.15s;
+}
+.obse-gp-card:hover {
+    border-color: #3b82f6; background: #11151f;
+    transform: translateY(-1px);
+}
+.obse-gp-card img { width: 56px; height: 56px; object-fit: contain; }
+.obse-gp-nm {
+    font-size: 11px; color: #e6e8ee; font-weight: 600;
+    width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.obse-gp-id { font-size: 10px; color: #6b7280; }
+.obse-gp-di { font-size: 10px; color: #f59e0b; font-weight: 700; }
+
+.obse-modal-body { padding: 18px; }
+.obse-modal-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 16px;
+}
+.obse-modal-actions .obse-btn { flex: 0 0 auto; padding: 8px 16px; }
+
+/* Responsive — narrow screen → stack column */
+@media (max-width: 900px) {
+    .obse-body { grid-template-columns: 1fr; }
+    .obse-col-left { position: static; }
+    .obse-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* ====== Toast notification cho OBS Effects ====== */
+.obse-toast {
+    position: fixed;
+    top: 24px; left: 50%;
+    transform: translate(-50%, -20px);
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    color: #e6e8ee;
+    padding: 12px 20px;
+    border-radius: 10px;
+    border: 1px solid #2c3243;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    z-index: 99999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    max-width: 500px;
+}
+.obse-toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+.obse-toast.success {
+    background: linear-gradient(135deg, #065f46, #064e3b);
+    border-color: #10b981;
+}
+.obse-toast.error {
+    background: linear-gradient(135deg, #7f1d1d, #5f1010);
+    border-color: #ef4444;
+}
+
+/* ====== Queue pill in header ====== */
+.obse-queue-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 6px 4px 10px;
+    background: linear-gradient(135deg, #92400e, #7c2d12);
+    border: 1px solid #f59e0b;
+    border-radius: 999px;
+    font-size: 12px; color: #fef3c7;
+    margin-right: 8px;
+    animation: queuePulse 1.2s ease-in-out infinite;
+}
+@keyframes queuePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+    50%      { box-shadow: 0 0 0 4px rgba(245,158,11,0); }
+}
+.obse-queue-pill[hidden] { display: none; }
+.obse-queue-pill b { color: #fff; font-weight: 800; }
+.obse-queue-clear {
+    width: 18px; height: 18px;
+    background: rgba(0,0,0,0.3); border: 0;
+    border-radius: 50%; color: #fef3c7;
+    cursor: pointer; font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; margin-left: 4px;
+    font-family: inherit;
+}
+.obse-queue-clear:hover { background: rgba(0,0,0,0.6); }
+
+/* ====== Queue list panel + actionName input ====== */
+.obse-row-actionname {
+    background: #0e1118; border: 1px solid #232936;
+    border-radius: 6px; padding: 7px 8px;
+    color: #e6e8ee; font-size: 11px;
+    min-width: 0;
+    font-family: inherit;
+}
+.obse-row-actionname:focus {
+    outline: none; border-color: #3b82f6; background: #11151f;
+}
+.obse-row {
+    /* update grid layout — thêm cột actionName, cột cuối: cooldown (giây) */
+    grid-template-columns: 1fr 180px 130px 100px auto auto !important;
+}
+.obse-queue-card { margin-top: 12px; }
+.obse-queue-list { display: flex; flex-direction: column; gap: 6px; }
+.obse-queue-row {
+    display: grid;
+    grid-template-columns: 28px 32px 1fr auto;   /* ★ thêm cột position #1 #2 ... */
+    gap: 10px; align-items: center;
+    background: #131722;
+    border: 1px solid #232936;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+.obse-queue-row.running {
+    border-color: #22c55e;
+    background: linear-gradient(90deg, rgba(34,197,94,0.08), #131722);
+    animation: obseQueuePulse 1.5s ease-in-out infinite;
+}
+.obse-queue-row.waiting {
+    border-color: rgba(245,158,11,0.3);
+}
+@keyframes obseQueuePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+    50%      { box-shadow: 0 0 0 3px rgba(34,197,94,0); }
+}
+.obse-queue-pos {
+    font-size: 11px; font-weight: 800;
+    color: #6b7280;
+    text-align: center;
+    background: #0e131c;
+    border-radius: 4px;
+    padding: 3px 0;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-queue-row.running .obse-queue-pos {
+    color: #22c55e; background: rgba(34,197,94,0.12);
+}
+.obse-queue-icon {
+    width: 32px; height: 32px; border-radius: 6px; object-fit: contain;
+}
+.obse-queue-icon-noimg {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: #1a1f2c;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #6b7280;
+}
+.obse-queue-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.obse-queue-name {
+    font-size: 12px; font-weight: 700; color: #e6e8ee;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.obse-queue-meta {
+    font-size: 10px; color: #6b7280;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-queue-group {
+    background: #232936; padding: 1px 6px; border-radius: 4px;
+    color: #93c5fd;
+}
+.obse-queue-status {
+    font-size: 11px; font-weight: 700;
+    padding: 4px 10px; border-radius: 6px;
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+    min-width: 130px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.obse-queue-status.running {
+    background: rgba(34,197,94,0.15);
+    color: #22c55e;
+    border: 1px solid rgba(34,197,94,0.4);
+}
+.obse-queue-status.waiting {
+    background: rgba(245,158,11,0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245,158,11,0.3);
+}
+/* Progress bar fill — đếm ngược thời gian effect */
+.obse-queue-progress {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: rgba(34,197,94,0.25);
+    transition: width 0.2s linear;
+    z-index: 0;
+}
+.obse-queue-status-text {
+    position: relative;
+    z-index: 1;
+}
+
+/* ====== Enable/Disable toggles cho mapping + group ====== */
+/* Toggle switch — re-usable cho cả per-mapping và per-group */
+.obse-row-toggle, .obse-group-toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.obse-row-toggle input, .obse-group-toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+.obse-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #3a4252;
+    border-radius: 18px;
+    transition: background 0.18s;
+}
+.obse-toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 14px; width: 14px;
+    left: 2px; top: 2px;
+    background: #e5e7eb;
+    border-radius: 50%;
+    transition: transform 0.18s;
+}
+.obse-row-toggle input:checked + .obse-toggle-slider,
+.obse-group-toggle-switch input:checked + .obse-toggle-slider {
+    background: #22c55e;
+}
+.obse-row-toggle input:checked + .obse-toggle-slider::before,
+.obse-group-toggle-switch input:checked + .obse-toggle-slider::before {
+    transform: translateX(16px);
+}
+
+/* Mapping row disabled state */
+.obse-row.disabled {
+    opacity: 0.45;
+    background: rgba(60, 60, 70, 0.15);
+    filter: grayscale(0.7);
+}
+.obse-row.disabled .obse-row-gift,
+.obse-row.disabled select,
+.obse-row.disabled input,
+.obse-row.disabled .obse-row-test {
+    /* Cho phép click để bật lại, nhưng visual rõ là disabled */
+}
+
+/* Group disabled state */
+.obse-group.group-disabled {
+    opacity: 0.55;
+    background: rgba(60, 60, 70, 0.1);
+}
+.obse-group-disabled-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    background: rgba(245,158,11,0.18);
+    color: #f59e0b;
+    font-size: 9px;
+    font-weight: 800;
+    border-radius: 3px;
+    border: 1px solid rgba(245,158,11,0.4);
+    vertical-align: middle;
+}
+
+/* Grid update: thêm cột enable toggle ở đầu */
+.obse-row {
+    grid-template-columns: 40px 1fr 180px 130px 100px auto auto !important;
+}
+
+/* Save indicator — flash nhỏ ở góc title */
+.obse-save-indicator {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(34,197,94,0.12);
+    color: #22c55e;
+    border: 1px solid rgba(34,197,94,0.3);
+    font-weight: 600;
+    transition: opacity 0.3s;
+    display: inline-flex; align-items: center;
+}
+.obse-save-indicator.saving {
+    background: rgba(59,130,246,0.12);
+    color: #60a5fa;
+    border-color: rgba(59,130,246,0.3);
+}
+.obse-save-indicator.saved {
+    animation: obseSavedFlash 0.5s ease-out;
+}
+@keyframes obseSavedFlash {
+    0% { transform: scale(1.08); background: rgba(34,197,94,0.3); }
+    100% { transform: scale(1); }
+}

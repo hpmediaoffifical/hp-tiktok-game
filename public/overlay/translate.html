@@ -102,7 +102,7 @@
     (function () {
         const wrap = document.getElementById('wrap');
         const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
-        let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsPreset: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi' };
+        let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsPreset: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi', ttsSource: 'browser' };
         let voices = [];
         let voicesReadyResolved = false;
         let voicesReadyPromise = null;
@@ -238,27 +238,43 @@
                 const volume = Math.max(0, Math.min(1, (parseInt(item?.ttsVolume == null ? config.ttsVolume : item.ttsVolume, 10) || 85) / 100));
                 const rate = Math.max(0.5, Math.min(2, parseFloat(item?.ttsRate || config.ttsRate || 1) || 1));
                 const speechLang = presetLang(item);
-                // Ưu tiên browser TTS nếu có local voice cho lang đó để áp dụng được Giọng đọc/Preset.
-                if (hasLocalVoice(speechLang)) {
-                    speakWithBrowser(value, volume, rate, item, speechLang, resolve);
+                // ★ TTS source — user chọn 1 trong 2 để tránh phát 2 tiếng đè nhau
+                const source = (item?.ttsSource || config.ttsSource || 'browser');
+
+                let finished = false;
+                let fallbackFired = false;     // ⛔ chống fallback fire 2 lần (race: error event + play().catch)
+                const done = () => { if (finished) return; finished = true; resolve(); };
+
+                // ===== Path 1: BROWSER TTS (mặc định) =====
+                if (source === 'browser') {
+                    if ('speechSynthesis' in window && hasLocalVoice(speechLang)) {
+                        speakWithBrowser(value, volume, rate, item, speechLang, done);
+                    } else {
+                        // Không có browser voice → skip (KHÔNG fallback remote để tránh phát 2 tiếng)
+                        console.log('[translate-tts] SKIP: source=browser nhưng không có voice cho', speechLang);
+                        done();
+                    }
                     return;
                 }
-                // Fallback remote TTS (Google translate_tts) — không hỗ trợ chọn giọng nam/nữ.
+
+                // ===== Path 2: REMOTE TTS (Google translate_tts) =====
+                // Single path: chỉ remote, KHÔNG fallback sang browser (tránh phát 2 tiếng)
                 const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(speechLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
                 audio.volume = volume;
                 audio.playbackRate = rate;
-                let finished = false;
-                const done = () => { if (finished) return; finished = true; resolve(); };
                 audio.addEventListener('ended', done, { once: true });
                 audio.addEventListener('error', () => {
-                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang, done);
-                    else done();
+                    if (fallbackFired || finished) return;
+                    fallbackFired = true;
+                    console.log('[translate-tts] remote audio error → done (no fallback to avoid double-speak)');
+                    done();
                 }, { once: true });
-                // Safety: nếu audio không phát/không bắn event trong 12s, thả queue.
                 setTimeout(done, 12000);
                 audio.play().catch(() => {
-                    if ('speechSynthesis' in window) speakWithBrowser(value, volume, rate, item, speechLang, done);
-                    else done();
+                    if (fallbackFired || finished) return;
+                    fallbackFired = true;
+                    console.log('[translate-tts] remote audio play rejected → done');
+                    done();
                 });
             });
         }

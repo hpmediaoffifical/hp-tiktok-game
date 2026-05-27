@@ -1565,6 +1565,140 @@
                 </header>
                 <div id="live-translate-workspace" class="live-translate-workspace"></div>
             </section>
+
+            <!-- GAME VIEW: HIỆU ỨNG OBS — bridge OBS WebSocket trigger Lua effects -->
+            <section id="view-obs-effects" class="view game-view">
+                <header class="game-header">
+                    <div>
+                        <h2>🎬 Hiệu ứng OBS</h2>
+                        <div class="game-sub">Trigger Lua effects trong OBS qua WebSocket khi nhận gift TikTok</div>
+                    </div>
+                    <div class="overlay-bar">
+                        <span class="obse-queue-pill" id="obse-queue-pill" hidden title="Số effect đang chờ trong hàng đợi">
+                            🕐 <b id="obse-queue-count">0</b> đợi
+                            <button id="btn-obse-queue-clear" class="obse-queue-clear" title="Xóa hàng đợi">✕</button>
+                        </span>
+                        <span class="obse-status-pill" id="obse-status-pill">
+                            <span class="obse-dot" id="obse-dot"></span>
+                            <span id="obse-status-text">Chưa kết nối</span>
+                        </span>
+                    </div>
+                </header>
+
+                <div class="game-body obse-body">
+                    <!-- LEFT: Kết nối + Hướng dẫn -->
+                    <aside class="obse-col-left">
+                        <div class="card">
+                            <h3 class="obse-card-title">⚙ Kết nối OBS WebSocket</h3>
+                            <div class="obse-form">
+                                <label class="obse-label">
+                                    <span>URL</span>
+                                    <input type="text" id="obse-url" placeholder="ws://localhost:4455" class="obse-input">
+                                </label>
+                                <label class="obse-label">
+                                    <span>Password</span>
+                                    <input type="password" id="obse-password" placeholder="(trống nếu OBS không bật auth)" class="obse-input">
+                                </label>
+                                <label class="obse-check">
+                                    <input type="checkbox" id="obse-autoconnect">
+                                    <span>Tự kết nối khi mở app</span>
+                                </label>
+                                <div class="obse-actions">
+                                    <button id="btn-obse-connect" class="obse-btn primary">Kết nối</button>
+                                    <button id="btn-obse-disconnect" class="obse-btn">Ngắt</button>
+                                </div>
+                                <div class="obse-error" id="obse-error" hidden></div>
+                            </div>
+                        </div>
+
+                        <div class="card obse-guide-card">
+                            <h3 class="obse-card-title">📚 Cách dùng</h3>
+                            <ol class="obse-guide">
+                                <li>Trong OBS: <b>Tools → WebSocket Server Settings</b> → enable.</li>
+                                <li>Load file <code>.lua</code> vào OBS (Tools → Scripts).</li>
+                                <li>Bấm <b>Kết nối</b> bên trên → check dot xanh.</li>
+                                <li>Tạo <b>Nhóm</b> bên phải → thêm mapping <b>Quà → Effect</b>.</li>
+                                <li>Khi user TikTok tặng quà đó → effect tự chạy.</li>
+                            </ol>
+                            <div class="obse-tip">💡 Test trigger thủ công bằng nút 🔥 không cần đợi gift thật.</div>
+                        </div>
+                    </aside>
+
+                    <!-- RIGHT: Mappings nhóm theo group -->
+                    <main class="obse-col-right">
+                        <div class="card obse-mappings-card">
+                            <div class="obse-mappings-head">
+                                <h3 class="obse-card-title">🎁 Mapping Gift → Effect</h3>
+                                <div class="obse-mappings-actions">
+                                    <span id="obse-save-indicator" class="obse-save-indicator">💾 Tự động lưu</span>
+                                    <button id="btn-obse-refresh-hotkeys" class="obse-btn ghost" title="Tải lại danh sách hotkey từ OBS">↻ Refresh hotkeys</button>
+                                    <button id="btn-obse-add-group" class="obse-btn primary">+ Tạo nhóm mới</button>
+                                </div>
+                            </div>
+                            <div id="obse-groups-container" class="obse-groups">
+                                <!-- Groups render dynamically here -->
+                            </div>
+                        </div>
+
+                        <!-- 🕐 Queue list — pending + running effects -->
+                        <div class="card obse-queue-card" id="obse-queue-card" hidden>
+                            <div class="obse-mappings-head">
+                                <h3 class="obse-card-title">🕐 Hàng đợi (chạy lần lượt — ai tặng trước phát trước)</h3>
+                                <div class="obse-mappings-actions">
+                                    <button id="btn-obse-queue-clear2" class="obse-btn ghost">🗑 Xóa hết</button>
+                                </div>
+                            </div>
+                            <div class="obse-queue-hint" style="font-size:11px; color:#6b7280; padding:0 4px 8px;">
+                                #1 đang chạy (xanh) — các quà sau (vàng) chờ tới lượt. Tiếp theo phát ngay khi effect trước hoàn tất.
+                            </div>
+                            <div id="obse-queue-list" class="obse-queue-list">
+                                <!-- Queue items render dynamically -->
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            </section>
+
+            <!-- 🎁 OBS Gift Picker Modal — chọn quà cho mapping -->
+            <div id="obse-gift-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card">
+                    <div class="obse-modal-head">
+                        <h3>🎁 Chọn quà cho mapping</h3>
+                        <button id="obse-gp-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-toolbar">
+                        <input type="text" id="obse-gp-search" placeholder="Tìm theo ID hoặc tên quà...">
+                        <select id="obse-gp-sort">
+                            <option value="diamond-asc">Diamond ↑</option>
+                            <option value="diamond-desc">Diamond ↓</option>
+                            <option value="name">Tên A-Z</option>
+                            <option value="id">ID</option>
+                        </select>
+                        <span class="obse-gp-count" id="obse-gp-count">0 / 0</span>
+                    </div>
+                    <div id="obse-gp-grid" class="obse-gp-grid"></div>
+                </div>
+            </div>
+
+            <!-- 🆕 OBS Group Name Modal — đặt tên nhóm mới hoặc đổi tên -->
+            <div id="obse-group-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card obse-modal-small">
+                    <div class="obse-modal-head">
+                        <h3 id="obse-grm-title">Tạo nhóm mới</h3>
+                        <button id="obse-grm-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-body">
+                        <label class="obse-label">
+                            <span>Tên nhóm</span>
+                            <input type="text" id="obse-grm-input" placeholder="VD: Đập, Rơi, Hot Effects..." maxlength="40">
+                        </label>
+                        <div class="obse-modal-actions">
+                            <button id="obse-grm-cancel" class="obse-btn">Hủy</button>
+                            <button id="obse-grm-save" class="obse-btn primary">Lưu</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -1670,6 +1804,13 @@
                         <option value="auto">Tự chọn theo máy</option><option value="female">Ưu tiên giọng Nữ</option><option value="male">Ưu tiên giọng Nam</option>
                         <option value="random">Giọng ngẫu nhiên</option><option value="randomGender">Nam/Nữ ngẫu nhiên</option>
                         <option value="variant1">Giọng 1</option><option value="variant2">Giọng 2</option><option value="variant3">Giọng 3</option><option value="variant4">Giọng 4</option><option value="variant5">Giọng 5</option>
+                    </select>
+                </div>
+                <div class="translate-row" title="CHỌN 1 nguồn TTS để tránh phát 2 tiếng đè nhau. Trình duyệt: chất lượng tốt, nhiều giọng. Google Remote: 1 giọng duy nhất, dùng khi máy không có voice.">
+                    <label>Nguồn đọc</label>
+                    <select id="lt-tts-source">
+                        <option value="browser">🖥 Trình duyệt (giọng máy, nhiều giọng)</option>
+                        <option value="remote">🌐 Google Remote (1 giọng, fallback)</option>
                     </select>
                 </div>
                 <div class="translate-row">

@@ -2151,6 +2151,23 @@
     refreshTriggerList();
     renderTrigger();
     updateStartBtn();
+
+    // ★ FIX: Lab/Panel mode KHÔNG nhận gameConfig auto từ server (chỉ overlay/preview room nhận)
+    // → fetch trực tiếp HTTP để biết trạng thái BẬT/TẮT trong Thư viện Game
+    // → tránh bug: user TẮT game trong Thư viện rồi mở panel, nhạc vẫn phát khi gift đến
+    if (!IS_OVERLAY) {
+      fetch('/api/games/timer/config')
+        .then(r => r.json())
+        .then(cfg => {
+          if (cfg && cfg.enabled === false) {
+            state.gameEnabled = false;
+            log('⏻ Game ĐANG TẮT trong Thư viện Game — mọi quà sẽ bị bỏ qua. Bật lại trong "🎮 Thư viện Game" nếu muốn dùng.', 'warn');
+            // Đảm bảo không còn audio nào đang phát từ session trước
+            if (state.trigger) { state.trigger = null; renderTrigger(); broadcastTrigger(); }
+          }
+        })
+        .catch(() => {});
+    }
     // Sync trgEnabled checkbox với cfg
     const trgEn = $('trgEnabled'); if (trgEn) trgEn.checked = cfg.triggers.enabled !== false;
 
@@ -2205,6 +2222,11 @@
           if (state.gameEnabled !== newEnabled) {
             state.gameEnabled = newEnabled;
             log(newEnabled ? '✓ Game BẬT — nhận quà bình thường' : '⏻ Game TẮT — bỏ qua mọi quà', newEnabled ? 'ok' : 'warn');
+            // ★ FIX: Nếu chuyển từ BẬT → TẮT mà có trigger media đang phát, dừng ngay
+            if (!newEnabled && state.trigger) {
+              log('  → Đang có trigger media phát → dừng ngay', 'warn');
+              state.trigger = null; renderTrigger(); broadcastTrigger();
+            }
           }
         }
       });
