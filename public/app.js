@@ -4890,28 +4890,19 @@
         }
 
         async function doLuaOpenFolder() {
-            // Simple mode: mở thẳng không cần password
+            // SECURITY: prompt mật khẩu (101016) chống vô tình expose path khi share screen
+            const pwd = await showPasswordPrompt('Nhập mật khẩu để mở folder cache:');
+            if (pwd === null) return;   // user cancelled
             try {
                 const r = await fetch('/api/lua-sync/open-folder', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
+                    body: JSON.stringify({ password: pwd })
                 });
                 const j = await r.json();
                 if (j.ok) toast('📁 Đã mở folder cache', 'success', 2000);
-                else if (r.status === 403) {
-                    // Fallback: nếu vẫn cần password (security mode), prompt
-                    const pwd = await showPasswordPrompt('Nhập mật khẩu để mở folder cache:');
-                    if (pwd === null) return;
-                    const r2 = await fetch('/api/lua-sync/open-folder', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password: pwd })
-                    });
-                    const j2 = await r2.json();
-                    if (j2.ok) toast('📁 Đã mở folder', 'success', 2000);
-                    else toast('🔒 ' + (j2.error || 'fail'), 'error', 3000);
-                } else toast('✗ ' + (j.error || 'fail'), 'error', 3000);
+                else if (r.status === 403) toast('🔒 Sai mật khẩu — không mở được', 'error', 3500);
+                else toast('✗ ' + (j.error || 'fail'), 'error', 3000);
             } catch (e) { toast('✗ ' + e.message, 'error'); }
         }
         // SECURITY: KHÔNG còn copy path. Dùng "+ Thêm hiệu ứng" để auto-create mapping.
