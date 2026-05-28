@@ -6056,17 +6056,20 @@ app.post('/api/obs-settings/backup-all', express.json(), (req, res) => {
     }
 });
 
-// POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer (CẦN MẬT KHẨU)
-// SECURITY: prompt password trước khi expose cache dir → chống vô tình mở khi share screen
-const LUA_FOLDER_PASSWORD = '101016';   // mật khẩu mở folder cache
+// POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer
+// Simple mode (default): không cần password. Security mode: cần password 101016.
+const LUA_FOLDER_PASSWORD = '101016';
 app.post('/api/lua-sync/open-folder', express.json(), (req, res) => {
-    const pwd = String(req.body?.password || '');
-    if (pwd !== LUA_FOLDER_PASSWORD) {
-        return res.status(403).json({ ok: false, error: 'Sai mật khẩu' });
+    // Trong simple mode (mặc định), bỏ qua password check
+    if (!luaSync.simpleMode) {
+        const pwd = String(req.body?.password || '');
+        if (pwd !== LUA_FOLDER_PASSWORD) {
+            return res.status(403).json({ ok: false, error: 'Sai mật khẩu' });
+        }
     }
     try {
         const { shell } = require('electron');
-        shell.openPath(LUA_CACHE_DIR);
+        shell.openPath(luaSync.cacheDir);
         res.json({ ok: true });
     } catch (e) {
         res.json({ ok: false, error: 'Electron shell không available' });

@@ -42,6 +42,33 @@
                 if (typeof toast === 'function') toast(`✓ Đã đổi sang ${sel.value === '4k' ? '4K 2160' : 'HD 1080'}`, 'success', 2000);
             });
         }
+
+        // ★ Toggle ẩn/hiện preview thuytinh (giảm lag khi không cần thấy hũ animation)
+        const previewBtn = document.getElementById('btn-toggle-thuytinh-preview');
+        const gameBody = document.querySelector('#view-thuytinh .game-body');
+        if (previewBtn && gameBody) {
+            // Default: ẨN preview (giảm lag), localStorage nhớ user choice
+            const isHidden = localStorage.getItem('hp-thuytinh-preview-hidden') !== 'false';
+            const updateUI = () => {
+                const hidden = gameBody.classList.contains('preview-hidden');
+                previewBtn.textContent = hidden ? '👁 Hiện preview' : '🙈 Ẩn preview';
+                previewBtn.classList.toggle('preview-shown', !hidden);
+                previewBtn.title = hidden
+                    ? 'Preview đang ẩn — bấm để hiện khi cần config hũ position'
+                    : 'Preview đang hiện — bấm để ẩn cho đỡ lag';
+            };
+            if (isHidden) gameBody.classList.add('preview-hidden');
+            updateUI();
+            previewBtn.addEventListener('click', () => {
+                gameBody.classList.toggle('preview-hidden');
+                const nowHidden = gameBody.classList.contains('preview-hidden');
+                localStorage.setItem('hp-thuytinh-preview-hidden', String(nowHidden));
+                updateUI();
+                if (typeof toast === 'function') {
+                    toast(nowHidden ? '🙈 Đã ẨN preview (giảm lag)' : '👁 Đã HIỆN preview', 'info', 1800);
+                }
+            });
+        }
     });
     const $ = (sel) => document.querySelector(sel);
 
@@ -4863,19 +4890,28 @@
         }
 
         async function doLuaOpenFolder() {
-            // SECURITY: custom modal prompt mật khẩu (chống Electron prompt() limitation)
-            const pwd = await showPasswordPrompt('Nhập mật khẩu để mở folder cache:');
-            if (pwd === null) return;   // user cancelled
+            // Simple mode: mở thẳng không cần password
             try {
                 const r = await fetch('/api/lua-sync/open-folder', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: pwd })
+                    body: JSON.stringify({})
                 });
                 const j = await r.json();
                 if (j.ok) toast('📁 Đã mở folder cache', 'success', 2000);
-                else if (r.status === 403) toast('🔒 Sai mật khẩu — không mở được', 'error', 3500);
-                else toast('✗ ' + (j.error || 'fail'), 'error', 3000);
+                else if (r.status === 403) {
+                    // Fallback: nếu vẫn cần password (security mode), prompt
+                    const pwd = await showPasswordPrompt('Nhập mật khẩu để mở folder cache:');
+                    if (pwd === null) return;
+                    const r2 = await fetch('/api/lua-sync/open-folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: pwd })
+                    });
+                    const j2 = await r2.json();
+                    if (j2.ok) toast('📁 Đã mở folder', 'success', 2000);
+                    else toast('🔒 ' + (j2.error || 'fail'), 'error', 3000);
+                } else toast('✗ ' + (j.error || 'fail'), 'error', 3000);
             } catch (e) { toast('✗ ' + e.message, 'error'); }
         }
         // SECURITY: KHÔNG còn copy path. Dùng "+ Thêm hiệu ứng" để auto-create mapping.

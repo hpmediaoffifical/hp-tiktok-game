@@ -198,9 +198,10 @@
                     <div class="overlay-bar">
                         <input id="overlay-url" type="text" readonly hidden />
                         <button id="btn-reset-session-top" class="ghost small" title="Reset session: clear hũ + reset stats / leaderboard / mục tiêu">↺ HŨ MỚI</button>
-                        <select id="overlay-resolution-select" class="overlay-res-select" title="Độ phân giải overlay khi copy URL — 4K nét hơn khi scale xuống">
+                        <button id="btn-toggle-thuytinh-preview" class="ghost small" title="Ẩn/hiện preview hũ để giảm lag — khi cần config thì bật lại">🙈 Ẩn preview</button>
+                        <select id="overlay-resolution-select" class="overlay-res-select" title="HD: OBS Source 1080×1920 (mặc định). 4K: OBS Source 2160×3840 + Ctrl+F để fit canvas → text sắc nét hơn">
                             <option value="hd">📺 HD 1080</option>
-                            <option value="4k">🖥 4K 2160 (sharper)</option>
+                            <option value="4k">🖥 4K 2160 (set OBS 2160×3840 + Ctrl+F)</option>
                         </select>
                         <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Overlay OBS</button>
                         <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
