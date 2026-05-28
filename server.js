@@ -9,6 +9,7 @@ const { Server: SocketIOServer } = require('socket.io');
 const fetch = require('node-fetch');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 const { OBSBridge } = require('./lib/obs-bridge');
+const { LuaSync } = require('./lib/lua-sync');
 
 const PORT = process.env.PORT || 3000;
 
@@ -744,6 +745,41 @@ if (appConfig.obsBridge.autoConnect && appConfig.obsBridge.url) {
         obsBridge.connect(appConfig.obsBridge.url, appConfig.obsBridge.password || '')
             .catch(e => console.log('[obs-bridge] autoConnect FAIL:', e.message));
     }, 2000); // delay 2s để các hệ thống khác init xong
+}
+
+// ====== 📚 LUA Sync — fetch manifest từ hpvn.media/luas/, cache vào %APPDATA% ======
+// Strategy C: thay thế Strategy B (manual copy). User chỉ cần add cached file vào OBS Scripts.
+if (!appConfig.luaSync) {
+    appConfig.luaSync = {
+        manifestUrl: 'https://hpvn.media/luas/manifest.json',
+        autoCheckEnabled: true,
+        autoCheckIntervalSec: 300   // 5 phút
+    };
+}
+const LUA_CACHE_DIR = path.join(
+    process.env.APPDATA || require('os').homedir(),
+    'hp-action-live', 'luas'
+);
+const luaSync = new LuaSync({
+    cacheDir: LUA_CACHE_DIR,
+    defaultManifestUrl: appConfig.luaSync.manifestUrl,
+    isLicensed: () => Boolean(appConfig.license && appConfig.license.activated),
+    logger: { log: (...args) => console.log('[lua-sync]', ...args) }
+});
+luaSync.on('updates_available', (updates) => {
+    console.log(`[lua-sync] 📢 ${updates.length} update(s) available`);
+    io.emit('luaSync:updatesAvailable', updates);
+});
+luaSync.on('downloaded', (data) => {
+    io.emit('luaSync:downloaded', data);
+});
+// Auto-check khi license đã activated + autoCheck enabled
+if (appConfig.luaSync.autoCheckEnabled) {
+    // Delay 5s sau startup để license validate xong
+    setTimeout(() => {
+        try { luaSync.startAutoCheck(appConfig.luaSync.autoCheckIntervalSec); }
+        catch (e) { console.log('[lua-sync] autoCheck start FAIL:', e.message); }
+    }, 5000);
 }
 const DEFAULT_LIVE_TRANSLATE_CONFIG = {
     enabled: false,
@@ -5713,6 +5749,118 @@ app.get('/api/obs-bridge/lua-duration', (req, res) => {
     const hotkey = String(req.query.hotkey || '').trim();
     const ms = obsBridgeSuggestDurationMs(hotkey);
     res.json({ hotkey, ms, suggested: ms > 0 });
+});
+
+// ====== 📚 LUA Sync — REST API ======
+// GET /api/lua-sync/status — get full state (luas list, status, cache dir)
+app.get('/api/lua-sync/status', (req, res) => {
+    res.json({
+        ok: true,
+        config: {
+            manifestUrlConfigured: !!(appConfig.luaSync && appConfig.luaSync.manifestUrl),
+            autoCheckEnabled: !!(appConfig.luaSync && appConfig.luaSync.autoCheckEnabled),
+            autoCheckIntervalSec: (appConfig.luaSync && appConfig.luaSync.autoCheckIntervalSec) || 300,
+        },
+        state: luaSync.getFullState()
+    });
+});
+
+// POST /api/lua-sync/check — fetch manifest from hpvn.media
+app.post('/api/lua-sync/check', async (req, res) => {
+    try {
+        await luaSync.fetchManifest();
+        res.json({ ok: true, state: luaSync.getFullState() });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message, state: luaSync.getFullState() });
+    }
+});
+
+// POST /api/lua-sync/download — download specific LUA
+// Body: { luaId }
+app.post('/api/lua-sync/download', express.json(), async (req, res) => {
+    const luaId = String(req.body?.luaId || '').trim();
+    if (!luaId) return res.status(400).json({ ok: false, error: 'Thiếu luaId' });
+    try {
+        const r = await luaSync.downloadLua(luaId);
+        res.json({ ok: true, ...r, state: luaSync.getFullState() });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/lua-sync/download-all — download tất cả LUAs trong manifest
+app.post('/api/lua-sync/download-all', async (req, res) => {
+    try {
+        const results = await luaSync.downloadAll();
+        const okCount = results.filter(r => r.ok).length;
+        res.json({ ok: true, results, okCount, failCount: results.length - okCount, state: luaSync.getFullState() });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// PUT /api/lua-sync/config — update auto-check settings
+app.put('/api/lua-sync/config', express.json(), (req, res) => {
+    const body = req.body || {};
+    if (!appConfig.luaSync) appConfig.luaSync = {};
+    if (typeof body.autoCheckEnabled === 'boolean') {
+        appConfig.luaSync.autoCheckEnabled = body.autoCheckEnabled;
+    }
+    if (typeof body.autoCheckIntervalSec === 'number') {
+        appConfig.luaSync.autoCheckIntervalSec = Math.max(30, Math.min(3600, Math.floor(body.autoCheckIntervalSec)));
+    }
+    saveAppConfig();
+    // Restart auto-check
+    if (appConfig.luaSync.autoCheckEnabled) {
+        luaSync.startAutoCheck(appConfig.luaSync.autoCheckIntervalSec);
+    } else {
+        luaSync.stopAutoCheck();
+    }
+    res.json({ ok: true, config: appConfig.luaSync });
+});
+
+// POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer
+app.post('/api/lua-sync/open-folder', (req, res) => {
+    try {
+        const { shell } = require('electron');
+        shell.openPath(LUA_CACHE_DIR);
+        res.json({ ok: true, path: LUA_CACHE_DIR });
+    } catch (e) {
+        res.json({ ok: false, error: 'Electron shell không available', path: LUA_CACHE_DIR });
+    }
+});
+
+// GET /api/obs-bridge/check-bg-removal — kiểm tra Background Removal plugin có cài chưa
+// Strategy: thử lấy default settings của filter kind "background_removal" qua OBS WS.
+// Nếu OBS trả response OK → plugin installed. Lỗi "not found" → chưa cài.
+app.get('/api/obs-bridge/check-bg-removal', async (req, res) => {
+    if (!obsBridge.isConnected()) {
+        return res.json({ ok: false, reason: 'disconnected', installed: null,
+            message: 'Chưa kết nối OBS — bấm Kết nối trước rồi thử lại' });
+    }
+    try {
+        // Try multiple filter kind names (different plugin versions)
+        const candidateKinds = ['background_removal', 'obs-backgroundremoval', 'background-removal-filter'];
+        let foundKind = null;
+        for (const kind of candidateKinds) {
+            try {
+                await obsBridge.obs.call('GetSourceFilterDefaultSettings', { filterKind: kind });
+                foundKind = kind;
+                break;
+            } catch (e) {
+                // continue to next candidate
+            }
+        }
+        if (foundKind) {
+            return res.json({ ok: true, installed: true, filterKind: foundKind,
+                message: `✓ Plugin đã cài (filter kind: "${foundKind}")` });
+        }
+        return res.json({ ok: true, installed: false,
+            message: '❌ Plugin Background Removal CHƯA cài trên OBS' });
+    } catch (e) {
+        return res.json({ ok: false, reason: 'error', error: e.message || String(e),
+            installed: null, message: 'Lỗi check: ' + (e.message || e) });
+    }
 });
 
 // POST /api/obs-bridge/queue/clear — xóa hàng đợi (hủy effect chưa chạy)

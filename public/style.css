@@ -6818,6 +6818,206 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
     font-size: 11px; color: #93c5fd;
 }
 
+/* ========== LUA Effects auto-sync card ========== */
+.obse-lua-sync-card { margin-top: 12px; }
+.obse-lua-sync-head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+}
+.obse-lua-sync-head .obse-card-title { margin: 0; flex: 1; }
+.obse-btn.mini {
+    padding: 4px 8px;
+    font-size: 11px;
+    flex: 0 0 auto;
+}
+.obse-lua-sync-meta {
+    font-size: 10px; color: #6b7280;
+    margin-bottom: 8px;
+    padding: 4px 6px;
+    background: #0e131c;
+    border-radius: 4px;
+}
+.obse-lua-meta-text { font-family: ui-monospace, Consolas, monospace; }
+.obse-lua-meta-text .err { color: #f87171; }
+.obse-lua-sync-list {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-bottom: 10px;
+    max-height: 280px; overflow-y: auto;
+}
+.obse-lua-sync-empty {
+    text-align: center;
+    padding: 16px 8px;
+    color: #6b7280;
+    font-size: 11px;
+    background: #131722;
+    border-radius: 6px;
+}
+.obse-lua-row {
+    display: grid;
+    grid-template-columns: 24px 1fr auto auto;
+    gap: 8px; align-items: center;
+    background: #131722;
+    border: 1px solid #232936;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+.obse-lua-row.ok { border-color: rgba(34,197,94,0.3); }
+.obse-lua-row.warn { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.05); }
+.obse-lua-row.missing { border-color: rgba(59,130,246,0.3); }
+.obse-lua-row.err { border-color: rgba(239,68,68,0.4); }
+.obse-lua-row-icon {
+    font-size: 18px; text-align: center;
+}
+.obse-lua-row-info { min-width: 0; overflow: hidden; }
+.obse-lua-row-name {
+    font-size: 12px; font-weight: 700; color: #e6e8ee;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.obse-lua-version {
+    font-size: 10px; font-weight: 600;
+    color: #93c5fd;
+    background: rgba(59,130,246,0.15);
+    padding: 1px 5px; border-radius: 3px;
+    margin-left: 4px;
+}
+.obse-lua-row-meta {
+    font-size: 10px; color: #6b7280;
+    font-family: ui-monospace, Consolas, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.obse-lua-status {
+    font-size: 10px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px;
+    white-space: nowrap;
+}
+.obse-lua-status.ok { background: rgba(34,197,94,0.15); color: #4ade80; }
+.obse-lua-status.warn { background: rgba(245,158,11,0.2); color: #fbbf24; }
+.obse-lua-status.missing { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.obse-lua-status.err { background: rgba(239,68,68,0.15); color: #f87171; }
+.obse-btn.warn {
+    background: #f59e0b; color: #0e131c;
+    border: 1px solid #f59e0b;
+}
+.obse-btn.warn:hover { background: #d97706; }
+.obse-lua-sync-actions {
+    display: flex; gap: 6px;
+    margin-bottom: 8px;
+}
+.obse-lua-sync-actions .obse-btn { padding: 5px 10px; font-size: 11px; }
+.obse-lua-sync-actions .obse-btn.ghost { flex: 1; }
+.obse-lua-sync-actions .obse-btn.primary { flex: 2; }
+.obse-lua-sync-settings {
+    padding: 8px 10px;
+    background: #0e131c;
+    border-radius: 4px;
+    margin-top: 4px;
+}
+.obse-lua-set-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #d1d5db;
+    margin-bottom: 4px;
+}
+.obse-lua-set-row input[type="checkbox"] { margin: 0; }
+.obse-lua-set-row select {
+    background: #131722;
+    color: #e6e8ee;
+    border: 1px solid #232936;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 11px;
+}
+
+/* ========== Background Removal helper card ========== */
+.obse-bgremoval-card {
+    margin-top: 12px;
+}
+.obse-bgremoval-status {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; margin: 10px 0;
+    background: #131722;
+    border: 1px solid #232936;
+    border-radius: 6px;
+    font-size: 12px;
+}
+.obse-bgremoval-status.ok {
+    background: rgba(34,197,94,0.10);
+    border-color: rgba(34,197,94,0.35);
+    color: #4ade80;
+}
+.obse-bgremoval-status.err {
+    background: rgba(239,68,68,0.10);
+    border-color: rgba(239,68,68,0.35);
+    color: #f87171;
+}
+.obse-bgremoval-status.wait {
+    background: rgba(59,130,246,0.10);
+    border-color: rgba(59,130,246,0.35);
+    color: #60a5fa;
+}
+.obse-bgremoval-icon { font-size: 16px; }
+.obse-bgremoval-text { flex: 1; }
+.obse-bgremoval-desc {
+    font-size: 11px; color: #9ca3af;
+    margin: 8px 0;
+}
+.obse-bgremoval-actions {
+    display: flex; gap: 8px; margin-top: 8px;
+}
+.obse-bgremoval-actions .obse-btn { flex: 1; padding: 6px 10px; font-size: 11px; }
+
+/* ===== Background Removal install modal ===== */
+.obse-bgremoval-body { padding: 16px 20px; max-width: 600px; }
+.obse-bgremoval-intro {
+    font-size: 13px; color: #d1d5db; margin-bottom: 14px;
+    line-height: 1.5;
+}
+.obse-bgremoval-body h4 {
+    font-size: 13px; color: #e6e8ee;
+    margin: 14px 0 8px;
+}
+.obse-bgremoval-steps {
+    margin: 0; padding-left: 22px;
+    font-size: 12px; color: #d1d5db; line-height: 1.6;
+}
+.obse-bgremoval-steps li { margin-bottom: 8px; }
+.obse-bgremoval-steps code {
+    background: #0e131c;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #93c5fd;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-bgremoval-url-row {
+    display: flex; gap: 6px; align-items: center;
+    margin-top: 6px; padding: 8px;
+    background: #0e131c;
+    border-radius: 4px;
+    flex-wrap: wrap;
+}
+.obse-bgremoval-url-row code {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis;
+    background: transparent;
+    padding: 0;
+    font-size: 11px;
+    word-break: break-all;
+}
+.obse-bgremoval-url-row .obse-btn.mini { padding: 4px 8px; font-size: 10px; }
+.obse-bgremoval-tip {
+    margin-top: 12px; padding: 8px 12px;
+    background: rgba(59,130,246,0.08);
+    border-left: 3px solid #3b82f6;
+    border-radius: 4px;
+    font-size: 11px; color: #93c5fd;
+    line-height: 1.5;
+}
+.obse-bgremoval-tip.warn {
+    background: rgba(245,158,11,0.08);
+    border-left-color: #f59e0b;
+    color: #fcd34d;
+}
+
 /* Right: mappings */
 .obse-mappings-card { min-height: 400px; }
 .obse-mappings-head {

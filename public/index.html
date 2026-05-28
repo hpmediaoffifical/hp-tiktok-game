@@ -1622,6 +1622,57 @@
                             </ol>
                             <div class="obse-tip">💡 Test trigger thủ công bằng nút 🔥 không cần đợi gift thật.</div>
                         </div>
+
+                        <!-- 📚 LUA Effects (auto-sync từ hpvn.media) -->
+                        <div class="card obse-lua-sync-card">
+                            <div class="obse-lua-sync-head">
+                                <h3 class="obse-card-title">📚 LUA Effects</h3>
+                                <button id="btn-obse-lua-settings" class="obse-btn ghost mini" title="Cài đặt auto-sync">⚙</button>
+                            </div>
+                            <div class="obse-lua-sync-meta" id="obse-lua-sync-meta">
+                                <span class="obse-lua-meta-text">Chưa kiểm tra</span>
+                            </div>
+                            <div class="obse-lua-sync-list" id="obse-lua-sync-list">
+                                <div class="obse-lua-sync-empty">Bấm <b>↻ Check</b> để fetch danh sách effects từ HP Media</div>
+                            </div>
+                            <div class="obse-lua-sync-actions">
+                                <button id="btn-obse-lua-check" class="obse-btn primary">↻ Check</button>
+                                <button id="btn-obse-lua-download-all" class="obse-btn ghost" disabled>⬇ Tải tất cả</button>
+                                <button id="btn-obse-lua-open-folder" class="obse-btn ghost" title="Mở folder cache trong Windows Explorer">📁</button>
+                            </div>
+                            <!-- Settings collapse -->
+                            <div class="obse-lua-sync-settings" id="obse-lua-sync-settings" hidden>
+                                <label class="obse-lua-set-row">
+                                    <input type="checkbox" id="obse-lua-auto-check"> Tự động check update
+                                </label>
+                                <label class="obse-lua-set-row">
+                                    Tần suất:
+                                    <select id="obse-lua-interval">
+                                        <option value="60">1 phút</option>
+                                        <option value="300" selected>5 phút</option>
+                                        <option value="600">10 phút</option>
+                                        <option value="1800">30 phút</option>
+                                        <option value="3600">1 giờ</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 📥 Background Removal helper -->
+                        <div class="card obse-bgremoval-card">
+                            <h3 class="obse-card-title">🎭 Background Removal</h3>
+                            <div class="obse-bgremoval-status" id="obse-bgremoval-status">
+                                <span class="obse-bgremoval-icon">❓</span>
+                                <span class="obse-bgremoval-text">Chưa kiểm tra plugin</span>
+                            </div>
+                            <p class="obse-bgremoval-desc">
+                                Plugin tách nền (xóa phông NPC) cần thiết cho hầu hết LUA effects.
+                            </p>
+                            <div class="obse-bgremoval-actions">
+                                <button id="btn-obse-check-bgremoval" class="obse-btn ghost">🔍 Kiểm tra</button>
+                                <button id="btn-obse-install-bgremoval" class="obse-btn primary">📥 Cài đặt</button>
+                            </div>
+                        </div>
                     </aside>
 
                     <!-- RIGHT: Mappings nhóm theo group -->
@@ -1695,6 +1746,44 @@
                         <div class="obse-modal-actions">
                             <button id="obse-grm-cancel" class="obse-btn">Hủy</button>
                             <button id="obse-grm-save" class="obse-btn primary">Lưu</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 📥 Background Removal install modal -->
+            <div id="obse-bgremoval-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card">
+                    <div class="obse-modal-head">
+                        <h3>🎭 Cài Background Removal cho OBS</h3>
+                        <button id="obse-bgremoval-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-body obse-bgremoval-body">
+                        <p class="obse-bgremoval-intro">
+                            Plugin <b>obs-backgroundremoval</b> giúp <b>tách nền (xóa phông) NPC</b>
+                            qua AI — bắt buộc cho hầu hết LUA effects (Mario, Chạy bộ, Hố đen, v.v.)
+                        </p>
+                        <h4>📋 Các bước cài:</h4>
+                        <ol class="obse-bgremoval-steps">
+                            <li><b>Đóng OBS</b> hoàn toàn (kiểm tra Task Manager nếu OBS vẫn chạy nền).</li>
+                            <li>Tải installer từ trang chính thức:
+                                <div class="obse-bgremoval-url-row">
+                                    <code id="obse-bgremoval-url">https://github.com/locaal-ai/obs-backgroundremoval/releases/latest</code>
+                                    <button id="btn-obse-bgremoval-copy" class="obse-btn ghost mini">📋 Copy</button>
+                                    <button id="btn-obse-bgremoval-open" class="obse-btn primary mini">🌐 Mở trang</button>
+                                </div>
+                            </li>
+                            <li>Trên trang GitHub, tải file <code>obs-backgroundremoval-X.Y.Z-windows-x64-Installer.exe</code> (file <b>Installer</b>, không phải zip).</li>
+                            <li>Chạy installer <b>với quyền Admin</b> (right-click → Run as administrator) → Next → Install.</li>
+                            <li>Mở lại OBS → vào source webcam → bấm <b>⚙ Filters</b> → <b>+</b> → chọn <b>Background Removal</b>.</li>
+                            <li>Quay lại HP Action LIVE → bấm <b>🔍 Kiểm tra</b> để verify.</li>
+                        </ol>
+                        <div class="obse-bgremoval-tip">
+                            💡 <b>Lưu ý:</b> Plugin ~100MB (chứa AI model ONNX). Quá trình cài cần internet để download model.
+                            Sau khi cài, mặc định filter name là <b>"Background Removal"</b> — khớp với config trong các LUA.
+                        </div>
+                        <div class="obse-bgremoval-tip warn">
+                            ⚠ <b>Tương thích:</b> Plugin support OBS 28+ (64-bit). Nếu OBS cũ hơn → nâng cấp OBS trước.
                         </div>
                     </div>
                 </div>

@@ -4205,6 +4205,25 @@
         const $queuePill   = document.getElementById('obse-queue-pill');
         const $queueCount  = document.getElementById('obse-queue-count');
         const $btnQueueClr = document.getElementById('btn-obse-queue-clear');
+        // ★ LUA Sync elements
+        const $btnLuaCheck    = document.getElementById('btn-obse-lua-check');
+        const $btnLuaDlAll    = document.getElementById('btn-obse-lua-download-all');
+        const $btnLuaFolder   = document.getElementById('btn-obse-lua-open-folder');
+        const $btnLuaSettings = document.getElementById('btn-obse-lua-settings');
+        const $luaList        = document.getElementById('obse-lua-sync-list');
+        const $luaMeta        = document.getElementById('obse-lua-sync-meta');
+        const $luaSettings    = document.getElementById('obse-lua-sync-settings');
+        const $luaAutoCheck   = document.getElementById('obse-lua-auto-check');
+        const $luaInterval    = document.getElementById('obse-lua-interval');
+        // ★ Background Removal helper elements
+        const $btnCheckBg  = document.getElementById('btn-obse-check-bgremoval');
+        const $btnInstBg   = document.getElementById('btn-obse-install-bgremoval');
+        const $bgStatus    = document.getElementById('obse-bgremoval-status');
+        const $bgModal     = document.getElementById('obse-bgremoval-modal');
+        const $bgClose     = document.getElementById('obse-bgremoval-close');
+        const $bgUrl       = document.getElementById('obse-bgremoval-url');
+        const $btnBgCopy   = document.getElementById('btn-obse-bgremoval-copy');
+        const $btnBgOpen   = document.getElementById('btn-obse-bgremoval-open');
         if (!$dot) return; // view không có trong DOM (chưa add HTML)
 
         // ===== Toast (feedback rõ ràng, hiện giữa màn) =====
@@ -4338,6 +4357,238 @@
                 return ms;
             } catch (e) { return 0; }
         }
+        // ====== LUA Sync ======
+        const STATUS_BADGES = {
+            latest:   { icon: '✓', label: 'Đã tải', cls: 'ok' },
+            outdated: { icon: '⬆', label: 'Có update', cls: 'warn' },
+            missing:  { icon: '⬇', label: 'Chưa tải', cls: 'missing' },
+            unknown:  { icon: '?', label: 'Chưa check', cls: '' },
+            orphan:   { icon: '⚠', label: 'Không trong manifest', cls: 'err' }
+        };
+
+        async function fetchLuaSyncStatus() {
+            try {
+                const r = await fetch('/api/lua-sync/status');
+                const j = await r.json();
+                if (j.ok) renderLuaSync(j.config, j.state);
+            } catch (e) { /* silent */ }
+        }
+        async function doLuaCheck() {
+            if (!$btnLuaCheck) return;
+            $btnLuaCheck.disabled = true;
+            $btnLuaCheck.textContent = '⏳ Đang check...';
+            try {
+                const r = await fetch('/api/lua-sync/check', { method: 'POST' });
+                const j = await r.json();
+                if (j.ok) {
+                    renderLuaSync(null, j.state);
+                    const count = j.state.luaCount || 0;
+                    toast(`✓ Manifest loaded — ${count} effects`, 'success', 3000);
+                } else {
+                    toast('✗ Check fail: ' + (j.error || 'unknown'), 'error', 5000);
+                    renderLuaSync(null, j.state);
+                }
+            } catch (e) {
+                toast('✗ ' + e.message, 'error');
+            } finally {
+                $btnLuaCheck.disabled = false;
+                $btnLuaCheck.textContent = '↻ Check';
+            }
+        }
+        async function doLuaDownload(luaId) {
+            try {
+                const r = await fetch('/api/lua-sync/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ luaId })
+                });
+                const j = await r.json();
+                if (j.ok) {
+                    toast(`✓ Đã tải ${luaId} v${j.version} (${Math.round(j.size/1024)}KB)`, 'success', 3500);
+                    fetchLuaSyncStatus();
+                } else {
+                    toast('✗ ' + (j.error || 'download fail'), 'error', 5000);
+                }
+            } catch (e) {
+                toast('✗ ' + e.message, 'error');
+            }
+        }
+        async function doLuaDownloadAll() {
+            if (!$btnLuaDlAll) return;
+            $btnLuaDlAll.disabled = true;
+            $btnLuaDlAll.textContent = '⏳ Đang tải...';
+            try {
+                const r = await fetch('/api/lua-sync/download-all', { method: 'POST' });
+                const j = await r.json();
+                if (j.ok) {
+                    toast(`✓ Tải xong: ${j.okCount} thành công, ${j.failCount} fail`, 'success', 4000);
+                    renderLuaSync(null, j.state);
+                } else {
+                    toast('✗ ' + (j.error || 'fail'), 'error');
+                }
+            } catch (e) { toast('✗ ' + e.message, 'error'); }
+            finally {
+                $btnLuaDlAll.disabled = false;
+                $btnLuaDlAll.textContent = '⬇ Tải tất cả';
+            }
+        }
+        async function doLuaOpenFolder() {
+            try {
+                const r = await fetch('/api/lua-sync/open-folder', { method: 'POST' });
+                const j = await r.json();
+                if (j.ok) toast('📁 Đã mở folder cache', 'success', 2000);
+                else toast('⚠ Path: ' + (j.path || ''), 'info', 4000);
+            } catch (e) { toast('✗ ' + e.message, 'error'); }
+        }
+        function copyTextToClipboard(text) {
+            navigator.clipboard?.writeText(text).then(
+                () => toast('✓ Đã copy path', 'success', 2000),
+                () => toast('✗ Copy fail — chọn + Ctrl+C thủ công', 'error')
+            );
+        }
+        function renderLuaSync(config, state) {
+            if (config) {
+                if ($luaAutoCheck) $luaAutoCheck.checked = !!config.autoCheckEnabled;
+                if ($luaInterval) $luaInterval.value = String(config.autoCheckIntervalSec || 300);
+            }
+            if (!state) return;
+            // Meta info
+            if ($luaMeta) {
+                const luaCount = state.luaCount || 0;
+                const ts = state.lastCheckAt ? new Date(state.lastCheckAt) : null;
+                const tsStr = ts ? `${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}:${String(ts.getSeconds()).padStart(2,'0')}` : '—';
+                const errPart = state.lastError ? ` · <span class="err">⚠ ${escapeHtml(state.lastError)}</span>` : '';
+                $luaMeta.innerHTML = `<span class="obse-lua-meta-text">📦 ${luaCount} effects · Last check: ${tsStr}${errPart}</span>`;
+            }
+            // List
+            if (!$luaList) return;
+            const luas = state.luas || [];
+            if (luas.length === 0) {
+                $luaList.innerHTML = '<div class="obse-lua-sync-empty">Manifest chưa load — bấm <b>↻ Check</b></div>';
+                if ($btnLuaDlAll) $btnLuaDlAll.disabled = true;
+                return;
+            }
+            $luaList.innerHTML = '';
+            luas.forEach(lua => {
+                const badge = STATUS_BADGES[lua.status] || STATUS_BADGES.unknown;
+                const row = document.createElement('div');
+                row.className = 'obse-lua-row ' + badge.cls;
+                const localPath = lua.localPath || '';
+                const localPathShort = localPath.split(/[\\/]/).pop() || '';
+                // Action button based on status
+                let actionBtn = '';
+                if (lua.status === 'missing') {
+                    actionBtn = `<button class="obse-btn primary mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬇ Tải</button>`;
+                } else if (lua.status === 'outdated') {
+                    actionBtn = `<button class="obse-btn warn mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬆ Update</button>`;
+                } else if (lua.status === 'latest') {
+                    actionBtn = `<button class="obse-btn ghost mini" data-action="copy" data-path="${escapeHtml(localPath)}" title="${escapeHtml(localPath)}">📋 Copy path</button>`;
+                }
+                row.innerHTML = `
+                    <div class="obse-lua-row-icon">${lua.icon || '📜'}</div>
+                    <div class="obse-lua-row-info">
+                        <div class="obse-lua-row-name">${escapeHtml(lua.name || lua.id)} <span class="obse-lua-version">v${escapeHtml(lua.version || '?')}</span></div>
+                        <div class="obse-lua-row-meta">${escapeHtml(lua.hotkey || '')}${lua.localVersion && lua.localVersion !== lua.version ? ` · local v${escapeHtml(lua.localVersion)}` : ''}</div>
+                    </div>
+                    <span class="obse-lua-status ${badge.cls}">${badge.icon} ${badge.label}</span>
+                    ${actionBtn}
+                `;
+                $luaList.appendChild(row);
+            });
+            // Wire up dynamic buttons
+            $luaList.querySelectorAll('button[data-action="dl"]').forEach(b => {
+                b.addEventListener('click', () => doLuaDownload(b.dataset.id));
+            });
+            $luaList.querySelectorAll('button[data-action="copy"]').forEach(b => {
+                b.addEventListener('click', () => copyTextToClipboard(b.dataset.path));
+            });
+            // Enable "Download all" if có ít nhất 1 missing/outdated
+            const hasMissingOrOutdated = luas.some(l => l.status === 'missing' || l.status === 'outdated');
+            if ($btnLuaDlAll) $btnLuaDlAll.disabled = !hasMissingOrOutdated;
+        }
+        // Wire up handlers
+        if ($btnLuaCheck) $btnLuaCheck.addEventListener('click', doLuaCheck);
+        if ($btnLuaDlAll) $btnLuaDlAll.addEventListener('click', doLuaDownloadAll);
+        if ($btnLuaFolder) $btnLuaFolder.addEventListener('click', doLuaOpenFolder);
+        if ($btnLuaSettings && $luaSettings) {
+            $btnLuaSettings.addEventListener('click', () => { $luaSettings.hidden = !$luaSettings.hidden; });
+        }
+        async function saveLuaConfig() {
+            try {
+                await fetch('/api/lua-sync/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        autoCheckEnabled: !!($luaAutoCheck?.checked),
+                        autoCheckIntervalSec: Number($luaInterval?.value) || 300
+                    })
+                });
+                toast('✓ Đã lưu cài đặt auto-sync', 'success', 2000);
+            } catch (e) { toast('✗ ' + e.message, 'error'); }
+        }
+        if ($luaAutoCheck) $luaAutoCheck.addEventListener('change', saveLuaConfig);
+        if ($luaInterval) $luaInterval.addEventListener('change', saveLuaConfig);
+        // Socket events
+        if (typeof socket !== 'undefined' && socket) {
+            socket.on('luaSync:updatesAvailable', (updates) => {
+                const names = updates.map(u => u.id).join(', ');
+                toast(`📢 Có update: ${names}`, 'info', 6000);
+                fetchLuaSyncStatus();
+            });
+            socket.on('luaSync:downloaded', () => fetchLuaSyncStatus());
+        }
+        // Initial fetch khi view active
+        fetchLuaSyncStatus();
+
+        // ====== Background Removal helper ======
+        function setBgStatus(state, text) {
+            // state: 'installed' | 'missing' | 'checking' | 'unknown'
+            if (!$bgStatus) return;
+            const iconEl = $bgStatus.querySelector('.obse-bgremoval-icon');
+            const textEl = $bgStatus.querySelector('.obse-bgremoval-text');
+            const icons = { installed: '✅', missing: '❌', checking: '⏳', unknown: '❓' };
+            const colors = { installed: 'ok', missing: 'err', checking: 'wait', unknown: '' };
+            if (iconEl) iconEl.textContent = icons[state] || '❓';
+            if (textEl) textEl.textContent = text || '';
+            $bgStatus.className = 'obse-bgremoval-status ' + (colors[state] || '');
+        }
+        if ($btnCheckBg) $btnCheckBg.addEventListener('click', async () => {
+            setBgStatus('checking', 'Đang kiểm tra qua OBS WebSocket...');
+            try {
+                const r = await fetch('/api/obs-bridge/check-bg-removal');
+                const j = await r.json();
+                if (!j.ok) {
+                    setBgStatus('unknown', j.message || 'Không kiểm tra được');
+                    toast('⚠ ' + (j.message || 'Check FAIL'), 'error', 4000);
+                    return;
+                }
+                if (j.installed === true) {
+                    setBgStatus('installed', j.message || '✓ Plugin đã cài');
+                    toast('✓ Background Removal đã cài', 'success', 3000);
+                } else {
+                    setBgStatus('missing', j.message || '❌ Plugin chưa cài');
+                    toast('❌ Plugin chưa cài — bấm 📥 Cài đặt để xem hướng dẫn', 'error', 4000);
+                }
+            } catch (e) {
+                setBgStatus('unknown', 'Lỗi: ' + (e.message || e));
+                toast('✗ ' + e.message, 'error');
+            }
+        });
+        if ($btnInstBg && $bgModal) $btnInstBg.addEventListener('click', () => { $bgModal.hidden = false; });
+        if ($bgClose && $bgModal) $bgClose.addEventListener('click', () => { $bgModal.hidden = true; });
+        if ($bgModal) $bgModal.addEventListener('click', (e) => { if (e.target === $bgModal) $bgModal.hidden = true; });
+        if ($btnBgCopy && $bgUrl) $btnBgCopy.addEventListener('click', () => {
+            const url = $bgUrl.textContent.trim();
+            navigator.clipboard?.writeText(url).then(() => toast('✓ Đã copy URL', 'success', 2000))
+                .catch(() => toast('✗ Copy fail — chọn text và Ctrl+C thủ công', 'error'));
+        });
+        if ($btnBgOpen && $bgUrl) $btnBgOpen.addEventListener('click', () => {
+            const url = $bgUrl.textContent.trim();
+            // Electron: window.open → setWindowOpenHandler catch → shell.openExternal
+            // Browser: window.open new tab
+            window.open(url, '_blank');
+        });
+
         async function saveConfig(immediate = false) {
             clearTimeout(saveTimer);
             const doSave = async () => {
@@ -4384,6 +4635,14 @@
                 }
                 if (j.status && j.status.connected && cachedHotkeys.length === 0) {
                     fetchHotkeys();
+                }
+                // Auto-check BG removal 1 lần sau khi connect (giúp user biết có cần cài plugin không)
+                if (j.status && j.status.connected && !window.__bgRemovalChecked && $btnCheckBg) {
+                    window.__bgRemovalChecked = true;
+                    $btnCheckBg.click();
+                }
+                if (j.status && !j.status.connected) {
+                    window.__bgRemovalChecked = false;  // reset để check lại sau lần connect tiếp
                 }
             } catch (e) {}
         }, 1000);
