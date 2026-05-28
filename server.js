@@ -527,6 +527,7 @@ const OBS_LUA_DURATION_REGISTRY = {
     'effect_ho_den_trigger': 9000,     // Stand+fall+gone+return+stay
     'effect_lo_xo_trigger': 10000,     // Spring 9.4s
     'effect_may_giat_trigger': 7000,   // Washing machine
+    'effect_mario_trigger': 15000,     // Mario v5: 4 keyframes (hold+lerp) + mushroom + final_hold
 };
 function obsBridgeSuggestDurationMs(hotkey) {
     if (!hotkey) return 0;
