@@ -132,7 +132,7 @@
         });
         $('#nd-cfg-enabled')?.addEventListener('change', e => { cfg.enabled = !!e.target.checked; schedulePersist(); });
         // Overlay URL — copy to clipboard
-        const url = location.origin + '/overlay/nhietdo';
+        const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/nhietdo') : (location.origin + '/overlay/nhietdo'));
         $('#nd-btn-copy')?.addEventListener('click', async () => {
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
             ok ? toastOk('Đã copy link OBS: ' + url) : toastWarn('Copy thất bại — link: ' + url);

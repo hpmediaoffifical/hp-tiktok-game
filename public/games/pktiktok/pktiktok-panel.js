@@ -365,7 +365,7 @@
 
     function wireOverlayCopy() {
         const inp = $('#pktiktok-overlay-url');
-        const url = location.origin + '/overlay/pktiktok';
+        const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/pktiktok') : (location.origin + '/overlay/pktiktok'));
         if (inp) inp.value = url;
         $('#pktiktok-btn-copy')?.addEventListener('click', async () => {
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;

@@ -1,5 +1,48 @@
 (function () {
     const socket = io();
+
+    // ★ Overlay resolution helper — append ?res=4k khi user chọn 4K
+    // Apply globally cho TẤT CẢ overlay URLs (thuytinh, caro, vipwelcome, translate, ...)
+    function getOverlayResolution() {
+        return localStorage.getItem('hp-overlay-res') === '4k' ? '4k' : 'hd';
+    }
+    function setOverlayResolution(res) {
+        localStorage.setItem('hp-overlay-res', res === '4k' ? '4k' : 'hd');
+        // Re-render tất cả overlay URL inputs đang hiển thị
+        document.querySelectorAll('input[id$="-overlay-url"], #overlay-url').forEach(inp => {
+            if (inp._baseOverlayPath) {
+                inp.value = buildOverlayURL(inp._baseOverlayPath);
+            } else if (inp.value && inp.value.includes('/overlay/')) {
+                // Re-apply on existing URL
+                const baseUrl = inp.value.replace(/\?res=[^&]*&?/, '').replace(/[?&]$/, '');
+                inp.value = buildOverlayURL(baseUrl.replace(location.origin, ''));
+            }
+        });
+    }
+    function buildOverlayURL(pathOrFull) {
+        if (!pathOrFull) return '';
+        let url = pathOrFull.startsWith('http') ? pathOrFull : (location.origin + pathOrFull);
+        const res = getOverlayResolution();
+        if (res === '4k') {
+            // Append ?res=4k (xử lý nếu URL đã có query khác)
+            url += (url.includes('?') ? '&' : '?') + 'res=4k';
+        }
+        return url;
+    }
+    // Expose ra window để game panels (bancung, caro, ...) dùng được
+    window.buildOverlayURL = buildOverlayURL;
+    window.getOverlayResolution = getOverlayResolution;
+    // Wire up resolution toggle (chỉ có ở header thuytinh nhưng global cho tất cả)
+    document.addEventListener('DOMContentLoaded', () => {
+        const sel = document.getElementById('overlay-resolution-select');
+        if (sel) {
+            sel.value = getOverlayResolution();
+            sel.addEventListener('change', () => {
+                setOverlayResolution(sel.value);
+                if (typeof toast === 'function') toast(`✓ Đã đổi sang ${sel.value === '4k' ? '4K 2160' : 'HD 1080'}`, 'success', 2000);
+            });
+        }
+    });
     const $ = (sel) => document.querySelector(sel);
 
     // ===== State =====
@@ -765,8 +808,8 @@
         mountThuySidePanel?.('police');
         dom.gTitle.textContent = `${game.icon} ${game.name}`;
         if (dom.gSub) dom.gSub.textContent = '';
-        const overlayUrl = location.origin + game.overlayPath;
-        dom.overlayUrl.value = overlayUrl;
+        dom.overlayUrl._baseOverlayPath = game.overlayPath;
+        dom.overlayUrl.value = buildOverlayURL(game.overlayPath);
 
         // Tạo lớp ảnh hũ overlay vào stage (nằm sau canvas qua DOM order, nhưng z-index nâng cao)
         if (!dom.stageFrame.querySelector('.jar-bottom')) {
@@ -2320,7 +2363,7 @@
     // Old license save handler đã chuyển sang gate flow (xem phần License Gate ở cuối file)
 
     dom.btnCopyOverlay.addEventListener('click', async () => {
-        const url = dom.overlayUrl?.value || (location.origin + '/overlay/thuytinh');
+        const url = dom.overlayUrl?.value || buildOverlayURL('/overlay/thuytinh');
         const ok = await copyText(url);
         const t = dom.btnCopyOverlay.textContent;
         dom.btnCopyOverlay.textContent = ok ? '✓ Đã copy' : 'Copy lỗi';
@@ -3324,16 +3367,16 @@
         loadCreatorCaptionConfig();
     }
     function closeCreatorCaptionPopup() { if (creatorCaptionPopup) creatorCaptionPopup.hidden = true; }
-    function refreshTranslateOverlayUrl() { if (ltOverlayUrl) ltOverlayUrl.value = location.origin + '/overlay/translate'; }
+    function refreshTranslateOverlayUrl() { if (ltOverlayUrl) { ltOverlayUrl._baseOverlayPath = '/overlay/translate'; ltOverlayUrl.value = buildOverlayURL('/overlay/translate'); } }
     async function copyTranslateOverlayUrl() {
         refreshTranslateOverlayUrl();
-        const url = ltOverlayUrl?.value || (location.origin + '/overlay/translate');
+        const url = ltOverlayUrl?.value || buildOverlayURL('/overlay/translate');
         const ok = await copyText(url);
         if (ok) setTranslateStatus('Đã copy link OBS dịch', 'ok');
         else setTranslateStatus('Không copy tự động được. Link: ' + url, 'err');
     }
     async function copyDashboardOverlayUrl() {
-        const url = location.origin + '/overlay/dashboard';
+        const url = buildOverlayURL('/overlay/dashboard');
         const ok = await copyText(url);
         setTranslateStatus(ok ? 'Đã copy link OBS dashboard' : 'Không copy tự động được. Link: ' + url, ok ? 'ok' : 'err');
     }
@@ -3826,7 +3869,7 @@
         else await startCreatorCaptionListening();
     }
     async function copyCreatorCaptionOverlayUrl() {
-        const url = location.origin + '/overlay/creator-caption';
+        const url = buildOverlayURL('/overlay/creator-caption');
         const ok = await copyText(url);
         setCreatorCaptionStatus(ok ? 'Đã copy link OBS phụ đề' : 'Không copy tự động được. Link: ' + url, ok ? 'ok' : 'err');
     }
@@ -4357,6 +4400,351 @@
                 return ms;
             } catch (e) { return 0; }
         }
+        // ====== 💾 Backup ALL Settings modal ======
+        const $btnBackupAll = document.getElementById('btn-obse-lua-backup-all');
+        const $backupAllModal = document.getElementById('obse-backup-all-modal');
+        const $backupAllClose = document.getElementById('obse-backup-all-close');
+        const $backupCollection = document.getElementById('obse-backup-collection');
+        const $btnBackupDo = document.getElementById('obse-backup-do-btn');
+        const $backupResult = document.getElementById('obse-backup-result');
+        const $backupSummary = document.getElementById('obse-backup-summary');
+        const $backupLuasList = document.getElementById('obse-backup-luas-list');
+        const $btnBackupDownload = document.getElementById('obse-backup-download-btn');
+        const $btnBackupCopy = document.getElementById('obse-backup-copy-btn');
+        const $backupError = document.getElementById('obse-backup-error');
+        let _lastBackupData = null;
+
+        async function openBackupAllModal() {
+            if (!$backupAllModal) return;
+            $backupResult.hidden = true;
+            $backupError.hidden = true;
+            // Reuse loadSceneCollections nhưng populate vào $backupCollection
+            try {
+                const r = await fetch('/api/obs-settings/scene-collections');
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || 'Load fail');
+                const opts = j.collections.map(c =>
+                    `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)} (${new Date(c.modifiedAt).toLocaleString('vi-VN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})})</option>`
+                ).join('');
+                $backupCollection.innerHTML = opts || '<option value="">(không có)</option>';
+            } catch (e) {
+                toast('✗ Load collections: ' + e.message, 'error');
+            }
+            $backupAllModal.hidden = false;
+        }
+        function closeBackupAllModal() { if ($backupAllModal) $backupAllModal.hidden = true; }
+        $btnBackupAll?.addEventListener('click', openBackupAllModal);
+        $backupAllClose?.addEventListener('click', closeBackupAllModal);
+        $backupAllModal?.addEventListener('click', (e) => { if (e.target === $backupAllModal) closeBackupAllModal(); });
+
+        $btnBackupDo?.addEventListener('click', async () => {
+            const sceneCollection = $backupCollection?.value || '';
+            if (!sceneCollection) {
+                $backupError.hidden = false;
+                $backupError.textContent = '❌ Chọn scene collection trước';
+                return;
+            }
+            $btnBackupDo.disabled = true;
+            $btnBackupDo.textContent = '⏳ Đang backup...';
+            $backupError.hidden = true;
+            $backupResult.hidden = true;
+            try {
+                const r = await fetch('/api/obs-settings/backup-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sceneCollection })
+                });
+                const j = await r.json();
+                if (!j.ok) {
+                    $backupError.hidden = false;
+                    $backupError.textContent = '❌ ' + (j.error || 'Backup fail');
+                    return;
+                }
+                _lastBackupData = j.backup;
+                $backupResult.hidden = false;
+                $backupSummary.innerHTML = `<b>${j.matchedCount}/${j.totalLuas}</b> LUA tìm được settings trong "${escapeHtml(sceneCollection)}"`;
+                // Liệt kê các LUA matched
+                const luaIds = Object.keys(j.backup.luas || {});
+                if (luaIds.length === 0) {
+                    // ★ DIAGNOSTIC: show app đang tìm gì vs OBS thực có gì
+                    const searchedFor = j.searchedFor || [];
+                    const allScripts = j.allScripts || [];
+                    let diagnosticHtml = '<div class="obse-backup-empty"><b>❌ Không có LUA nào match.</b></div>';
+                    diagnosticHtml += '<div class="obse-backup-diag">';
+                    diagnosticHtml += '<div class="obse-backup-diag-section"><b>🔍 App đang tìm các file LUA này:</b>';
+                    if (searchedFor.length === 0) {
+                        diagnosticHtml += '<div class="obse-backup-diag-empty">(chưa tải LUA nào về)</div>';
+                    } else {
+                        diagnosticHtml += '<ul>' + searchedFor.map(s =>
+                            `<li><b>${escapeHtml(s.name)}</b>: <code>${escapeHtml(s.file)}</code></li>`
+                        ).join('') + '</ul>';
+                    }
+                    diagnosticHtml += '</div>';
+                    diagnosticHtml += '<div class="obse-backup-diag-section"><b>📋 Scripts thực có trong "' + escapeHtml(sceneCollection) + '":</b>';
+                    if (allScripts.length === 0) {
+                        diagnosticHtml += '<div class="obse-backup-diag-empty">(scene collection không có script nào — OBS Tools → Scripts trống)</div>';
+                    } else {
+                        diagnosticHtml += '<ul>' + allScripts.map(f => `<li><code>${escapeHtml(f)}</code></li>`).join('') + '</ul>';
+                    }
+                    diagnosticHtml += '</div>';
+                    diagnosticHtml += '<div class="obse-backup-hint">';
+                    if (allScripts.length === 0) {
+                        diagnosticHtml += '💡 <b>Nguyên nhân</b>: scene collection này chưa có script nào. Add LUA vào OBS (Tools → Scripts → +) rồi chọn lại scene collection.';
+                    } else if (searchedFor.length > 0) {
+                        diagnosticHtml += '💡 <b>Nguyên nhân thường gặp</b>: bạn add LUA vào collection KHÁC, không phải "' + escapeHtml(sceneCollection) + '". Đổi sang collection chứa LUA → backup lại.';
+                    }
+                    diagnosticHtml += '</div>';
+                    $backupLuasList.innerHTML = diagnosticHtml;
+                } else {
+                    $backupLuasList.innerHTML = luaIds.map(id => {
+                        const lua = j.backup.luas[id];
+                        const settingsCount = Object.keys(lua.settings || {}).length;
+                        const stratLabel = ({obfuscated:'🎭 obfuscated', original:'📄 original', signature:'🔍 signature'})[lua.matchStrategy] || lua.matchStrategy;
+                        const stratBadge = lua.matchStrategy ? ` <span class="obse-backup-strat ${lua.matchStrategy}">${stratLabel}</span>` : '';
+                        const fileBadge = lua.matchedFile ? ` <code>${escapeHtml(lua.matchedFile)}</code>` : '';
+                        return `<div class="obse-backup-lua-row">✓ <b>${escapeHtml(lua.name || id)}</b> <span class="obse-backup-lua-meta">v${escapeHtml(lua.version || '?')} · ${settingsCount} settings${fileBadge}${stratBadge}</span></div>`;
+                    }).join('');
+                }
+                // Errors (nếu có)
+                if (j.errors && j.errors.length > 0) {
+                    $backupLuasList.innerHTML += '<div class="obse-backup-errors">⚠ Errors: ' +
+                        j.errors.map(e => escapeHtml(e.id) + ': ' + escapeHtml(e.error)).join('; ') + '</div>';
+                }
+                if (j.matchedCount > 0) toast(`✓ Backup ${j.matchedCount}/${j.totalLuas} LUAs`, 'success', 3500);
+                else toast(`⚠ 0 LUA match — xem chi tiết trong modal`, 'warning', 4000);
+            } catch (e) {
+                $backupError.hidden = false;
+                $backupError.textContent = '❌ ' + e.message;
+            } finally {
+                $btnBackupDo.disabled = false;
+                $btnBackupDo.textContent = '💾 Backup ngay';
+            }
+        });
+
+        $btnBackupDownload?.addEventListener('click', () => {
+            if (!_lastBackupData) return;
+            const blob = new Blob([JSON.stringify(_lastBackupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const ts = new Date().toISOString().slice(0,19).replace(/[:.]/g, '-');
+            const collectionSafe = ($backupCollection.value || 'backup').replace(/\.json$/i, '').replace(/[^a-z0-9_-]/gi, '_');
+            a.href = url;
+            a.download = `lua-settings-${collectionSafe}-${ts}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast('⬇ Đã tải file backup', 'success', 2500);
+        });
+        $btnBackupCopy?.addEventListener('click', () => {
+            if (!_lastBackupData) return;
+            navigator.clipboard?.writeText(JSON.stringify(_lastBackupData, null, 2)).then(
+                () => toast('✓ Đã copy JSON backup', 'success', 2000),
+                () => toast('✗ Copy fail', 'error')
+            );
+        });
+
+        // ====== 🔄 LUA Settings Sync modal ======
+        const $settingsModal = document.getElementById('obse-settings-modal');
+        const $settingsLuaName = document.getElementById('obse-settings-luaname');
+        const $settingsClose = document.getElementById('obse-settings-close');
+        const $colExport = document.getElementById('obse-settings-collection-export');
+        const $colImport = document.getElementById('obse-settings-collection-import');
+        const $btnExtract = document.getElementById('obse-settings-extract-btn');
+        const $btnApply = document.getElementById('obse-settings-apply-btn');
+        const $exportResult = document.getElementById('obse-settings-export-result');
+        const $exportCount = document.getElementById('obse-settings-export-count');
+        const $exportJson = document.getElementById('obse-settings-export-json');
+        const $exportError = document.getElementById('obse-settings-export-error');
+        const $btnExportCopy = document.getElementById('obse-settings-export-copy');
+        const $btnExportSave = document.getElementById('obse-settings-export-save');
+        const $importJson = document.getElementById('obse-settings-import-json');
+        const $importError = document.getElementById('obse-settings-import-error');
+        const $importSuccess = document.getElementById('obse-settings-import-success');
+        const $btnImportFile = document.getElementById('obse-settings-import-file');
+        const $importFileInput = document.getElementById('obse-settings-import-fileinput');
+        let _currentSettingsLuaId = null;
+        let _currentSettingsLuaName = null;
+
+        async function loadSceneCollections() {
+            try {
+                const r = await fetch('/api/obs-settings/scene-collections');
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || 'Load collections fail');
+                const opts = j.collections.map(c =>
+                    `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)} (${new Date(c.modifiedAt).toLocaleString('vi-VN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})})</option>`
+                ).join('');
+                if ($colExport) $colExport.innerHTML = opts || '<option value="">(không có scene collection)</option>';
+                if ($colImport) $colImport.innerHTML = opts || '<option value="">(không có scene collection)</option>';
+            } catch (e) {
+                toast('✗ Load scene collections: ' + e.message, 'error');
+            }
+        }
+
+        function openSettingsSyncModal(luaId, luaName) {
+            _currentSettingsLuaId = luaId;
+            _currentSettingsLuaName = luaName;
+            if ($settingsLuaName) $settingsLuaName.textContent = luaName;
+            // Reset UI
+            if ($exportResult) $exportResult.hidden = true;
+            if ($exportError) { $exportError.hidden = true; $exportError.textContent = ''; }
+            if ($importJson) $importJson.value = '';
+            if ($importError) { $importError.hidden = true; $importError.textContent = ''; }
+            if ($importSuccess) { $importSuccess.hidden = true; $importSuccess.textContent = ''; }
+            // Default to Export tab
+            document.querySelectorAll('.obse-settings-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.tab === 'export');
+            });
+            document.querySelectorAll('.obse-settings-tab-content').forEach(c => {
+                c.hidden = c.dataset.content !== 'export';
+            });
+            // Load scene collections
+            loadSceneCollections();
+            $settingsModal.hidden = false;
+        }
+
+        function closeSettingsSyncModal() {
+            if ($settingsModal) $settingsModal.hidden = true;
+            _currentSettingsLuaId = null;
+        }
+        $settingsClose?.addEventListener('click', closeSettingsSyncModal);
+        $settingsModal?.addEventListener('click', (e) => { if (e.target === $settingsModal) closeSettingsSyncModal(); });
+
+        // Tab switching
+        document.querySelectorAll('.obse-settings-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const target = tab.dataset.tab;
+                document.querySelectorAll('.obse-settings-tab').forEach(t => t.classList.toggle('active', t === tab));
+                document.querySelectorAll('.obse-settings-tab-content').forEach(c => c.hidden = c.dataset.content !== target);
+            });
+        });
+
+        // Extract handler
+        $btnExtract?.addEventListener('click', async () => {
+            if (!_currentSettingsLuaId) return;
+            const sceneCollection = $colExport?.value || '';
+            if (!sceneCollection) {
+                $exportError.hidden = false;
+                $exportError.textContent = '❌ Chọn scene collection trước';
+                return;
+            }
+            $btnExtract.disabled = true;
+            $btnExtract.textContent = '⏳ Đang trích...';
+            $exportError.hidden = true;
+            $exportResult.hidden = true;
+            try {
+                const r = await fetch('/api/obs-settings/extract', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ luaId: _currentSettingsLuaId, sceneCollection })
+                });
+                const j = await r.json();
+                if (!j.ok) {
+                    $exportError.hidden = false;
+                    let errMsg = '❌ ' + (j.error || 'Extract fail');
+                    if (j.availableScripts && j.availableScripts.length > 0) {
+                        errMsg += '\n\nCác script có trong "' + sceneCollection + '":\n' + j.availableScripts.map(s => '  • ' + s).join('\n');
+                    }
+                    $exportError.textContent = errMsg;
+                    return;
+                }
+                $exportResult.hidden = false;
+                $exportCount.textContent = `${j.settingsCount} settings`;
+                $exportJson.value = JSON.stringify(j.settings, null, 2);
+                toast(`✓ Trích được ${j.settingsCount} settings`, 'success', 3000);
+            } catch (e) {
+                $exportError.hidden = false;
+                $exportError.textContent = '❌ ' + e.message;
+            } finally {
+                $btnExtract.disabled = false;
+                $btnExtract.textContent = '🔍 Trích settings';
+            }
+        });
+
+        // Copy + Save handlers
+        $btnExportCopy?.addEventListener('click', () => {
+            navigator.clipboard?.writeText($exportJson.value).then(
+                () => toast('✓ Đã copy JSON', 'success', 2000),
+                () => toast('✗ Copy fail — chọn text + Ctrl+C', 'error')
+            );
+        });
+        $btnExportSave?.addEventListener('click', () => {
+            const blob = new Blob([$exportJson.value], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const safeName = (_currentSettingsLuaName || 'lua').toLowerCase().replace(/[^a-z0-9]/g, '_');
+            const ts = new Date().toISOString().slice(0,19).replace(/[:.]/g, '-');
+            a.href = url;
+            a.download = `${safeName}-settings-${ts}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast('💾 Đã tải file settings', 'success', 2500);
+        });
+
+        // Import file picker
+        $btnImportFile?.addEventListener('click', () => $importFileInput?.click());
+        $importFileInput?.addEventListener('change', async () => {
+            const file = $importFileInput.files?.[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                $importJson.value = text;
+                toast('✓ Đã load file', 'success', 1500);
+            } catch (e) { toast('✗ Read file fail: ' + e.message, 'error'); }
+            $importFileInput.value = '';
+        });
+
+        // Apply handler
+        $btnApply?.addEventListener('click', async () => {
+            if (!_currentSettingsLuaId) return;
+            const sceneCollection = $colImport?.value || '';
+            const jsonText = $importJson?.value?.trim() || '';
+            if (!sceneCollection) {
+                $importError.hidden = false;
+                $importError.textContent = '❌ Chọn scene collection đích';
+                return;
+            }
+            if (!jsonText) {
+                $importError.hidden = false;
+                $importError.textContent = '❌ Paste JSON hoặc chọn file';
+                return;
+            }
+            let settings;
+            try { settings = JSON.parse(jsonText); }
+            catch (e) {
+                $importError.hidden = false;
+                $importError.textContent = '❌ JSON không hợp lệ: ' + e.message;
+                return;
+            }
+            if (!confirm('⚠ XÁC NHẬN: Bạn đã ĐÓNG OBS chưa?\n\nApply sẽ ghi đè settings vào scene collection. Nếu OBS đang chạy → corruption.\n\nBấm OK nếu OBS đã đóng.')) {
+                return;
+            }
+            $btnApply.disabled = true;
+            $btnApply.textContent = '⏳ Đang apply...';
+            $importError.hidden = true;
+            $importSuccess.hidden = true;
+            try {
+                const r = await fetch('/api/obs-settings/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ luaId: _currentSettingsLuaId, sceneCollection, settings })
+                });
+                const j = await r.json();
+                if (j.ok) {
+                    $importSuccess.hidden = false;
+                    $importSuccess.textContent = `✓ ${j.message} (${j.settingsCount} settings, action: ${j.action})`;
+                    toast('✓ Đã apply settings. Mở OBS để load.', 'success', 5000);
+                } else {
+                    $importError.hidden = false;
+                    $importError.textContent = '❌ ' + (j.error || 'Apply fail');
+                }
+            } catch (e) {
+                $importError.hidden = false;
+                $importError.textContent = '❌ ' + e.message;
+            } finally {
+                $btnApply.disabled = false;
+                $btnApply.textContent = '💉 Apply settings';
+            }
+        });
+
         // ====== LUA Sync ======
         const STATUS_BADGES = {
             latest:   { icon: '✓', label: 'Đã tải', cls: 'ok' },
@@ -4552,13 +4940,14 @@
                 if (lua.status === 'missing') {
                     actionBtn = `<button class="obse-btn primary mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬇ Tải</button>`;
                 } else if (lua.status === 'outdated') {
-                    actionBtn = `<button class="obse-btn warn mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬆ Update</button>`;
+                    actionBtn = `<button class="obse-btn warn mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬆ Up</button>`;
                 } else if (lua.status === 'latest') {
+                    // ★ Compact: chỉ icon, gom trong group
+                    const settingsBtn = `<button class="obse-btn ghost mini icon-only" data-action="settings" data-id="${escapeHtml(lua.id)}" data-name="${escapeHtml(lua.name || lua.id)}" title="Đồng bộ thông số (Export/Import)">⚙</button>`;
                     if (mapCount > 0) {
-                        // ★ Đã có mapping → hiện badge "Đã thêm" + nút thêm nữa
-                        actionBtn = `<button class="obse-btn ghost mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Đã có ${mapCount} mapping — bấm để thêm 1 mapping nữa cho gift khác">+ Thêm nữa</button>`;
+                        actionBtn = settingsBtn + `<button class="obse-btn ghost mini icon-only" data-action="add" data-id="${escapeHtml(lua.id)}" title="Đã có ${mapCount} mapping — bấm để thêm cho gift khác">+</button>`;
                     } else {
-                        actionBtn = `<button class="obse-btn primary mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Tự tạo mapping cho gift — không lộ path">+ Thêm</button>`;
+                        actionBtn = settingsBtn + `<button class="obse-btn primary mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Tự tạo mapping cho gift">+ Thêm</button>`;
                     }
                 }
                 const obFileHint = lua.obfuscatedName ? ` · 📄 <span class="obse-lua-obfilename">${escapeHtml(lua.obfuscatedName)}</span>` : '';
@@ -4572,8 +4961,8 @@
                         <div class="obse-lua-row-name">${escapeHtml(lua.name || lua.id)} <span class="obse-lua-version">v${escapeHtml(lua.version || '?')}</span>${mappingBadge}</div>
                         <div class="obse-lua-row-meta">${escapeHtml(lua.hotkey || '')}${obFileHint}${lua.localVersion && lua.localVersion !== lua.version ? ` · local v${escapeHtml(lua.localVersion)}` : ''}</div>
                     </div>
-                    <span class="obse-lua-status ${badge.cls}">${badge.icon} ${badge.label}</span>
-                    ${actionBtn}
+                    <span class="obse-lua-status ${badge.cls}" title="${badge.label}">${badge.icon}</span>
+                    <div class="obse-lua-row-actions">${actionBtn}</div>
                 `;
                 $luaList.appendChild(row);
             });
@@ -4583,6 +4972,9 @@
             });
             $luaList.querySelectorAll('button[data-action="add"]').forEach(b => {
                 b.addEventListener('click', () => doLuaAddToMapping(b.dataset.id));
+            });
+            $luaList.querySelectorAll('button[data-action="settings"]').forEach(b => {
+                b.addEventListener('click', () => openSettingsSyncModal(b.dataset.id, b.dataset.name));
             });
             // Enable "Download all" if có ít nhất 1 missing/outdated
             const hasMissingOrOutdated = luas.some(l => l.status === 'missing' || l.status === 'outdated');

@@ -182,7 +182,7 @@
             });
         });
         $('#bc-cfg-enabled')?.addEventListener('change', e => { cfg.enabled = !!e.target.checked; schedulePersist(); });
-        const url = location.origin + '/overlay/bancung';
+        const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/bancung') : (location.origin + '/overlay/bancung'));
         $('#bc-btn-copy')?.addEventListener('click', async () => {
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
             ok ? toastOk('Đã copy link OBS: ' + url) : toastWarn('Copy thất bại — link: ' + url);

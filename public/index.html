@@ -198,6 +198,10 @@
                     <div class="overlay-bar">
                         <input id="overlay-url" type="text" readonly hidden />
                         <button id="btn-reset-session-top" class="ghost small" title="Reset session: clear hũ + reset stats / leaderboard / mục tiêu">↺ HŨ MỚI</button>
+                        <select id="overlay-resolution-select" class="overlay-res-select" title="Độ phân giải overlay khi copy URL — 4K nét hơn khi scale xuống">
+                            <option value="hd">📺 HD 1080</option>
+                            <option value="4k">🖥 4K 2160 (sharper)</option>
+                        </select>
                         <button id="btn-copy-overlay" class="primary small" title="Copy URL overlay OBS vào clipboard">📋 Overlay OBS</button>
                         <button id="btn-save-all" class="primary small" title="Lưu mọi cài đặt ngay lập tức">💾 Lưu tất cả</button>
                     </div>
@@ -1627,6 +1631,7 @@
                                 <div class="obse-lua-sync-actions">
                                     <button id="btn-obse-lua-check" class="obse-btn primary">↻ Check</button>
                                     <button id="btn-obse-lua-download-all" class="obse-btn ghost" disabled>⬇ Tải tất cả</button>
+                                    <button id="btn-obse-lua-backup-all" class="obse-btn ghost" title="Backup settings TẤT CẢ LUAs đã tải về từ OBS">💾</button>
                                     <button id="btn-obse-lua-open-folder" class="obse-btn ghost" title="Mở folder cache (setup OBS Scripts lần đầu)">📁</button>
                                 </div>
                                 <div class="obse-lua-sync-settings" id="obse-lua-sync-settings" hidden>
@@ -1745,6 +1750,99 @@
                             <button id="obse-grm-cancel" class="obse-btn">Hủy</button>
                             <button id="obse-grm-save" class="obse-btn primary">Lưu</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 🔄 Settings Sync modal (cho LUA settings cross-machine) -->
+            <div id="obse-settings-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card obse-settings-card">
+                    <div class="obse-modal-head">
+                        <h3>🔄 Đồng bộ thông số LUA — <span id="obse-settings-luaname">(chưa chọn)</span></h3>
+                        <button id="obse-settings-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-body obse-settings-body">
+                        <!-- Tabs -->
+                        <div class="obse-settings-tabs">
+                            <button class="obse-settings-tab active" data-tab="export">📤 Export (máy này)</button>
+                            <button class="obse-settings-tab" data-tab="import">📥 Import (đè settings vào OBS)</button>
+                        </div>
+
+                        <!-- Tab Export -->
+                        <div class="obse-settings-tab-content" data-content="export">
+                            <p class="obse-settings-hint">
+                                Trích settings đã config trong OBS hiện tại → JSON để chuyển qua máy khác.
+                            </p>
+                            <label class="obse-settings-field">
+                                <span>Scene collection:</span>
+                                <select id="obse-settings-collection-export"></select>
+                            </label>
+                            <button id="obse-settings-extract-btn" class="obse-btn primary">🔍 Trích settings</button>
+                            <div class="obse-settings-result" id="obse-settings-export-result" hidden>
+                                <div class="obse-settings-result-head">
+                                    <span id="obse-settings-export-count">0 settings</span>
+                                    <div>
+                                        <button id="obse-settings-export-copy" class="obse-btn ghost mini">📋 Copy JSON</button>
+                                        <button id="obse-settings-export-save" class="obse-btn ghost mini">💾 Tải file</button>
+                                    </div>
+                                </div>
+                                <textarea id="obse-settings-export-json" readonly></textarea>
+                            </div>
+                            <div class="obse-settings-error" id="obse-settings-export-error" hidden></div>
+                        </div>
+
+                        <!-- Tab Import -->
+                        <div class="obse-settings-tab-content" data-content="import" hidden>
+                            <p class="obse-settings-hint">
+                                Đè settings JSON (từ máy khác hoặc file backup) vào scene collection OBS hiện tại.
+                                <br><b class="obse-settings-warn">⚠ Phải đóng OBS trước!</b>
+                            </p>
+                            <label class="obse-settings-field">
+                                <span>Scene collection (đích):</span>
+                                <select id="obse-settings-collection-import"></select>
+                            </label>
+                            <label class="obse-settings-field">
+                                <span>Paste JSON settings:</span>
+                                <textarea id="obse-settings-import-json" placeholder='{"idol_a_x": 120, "idol_a_y": 1500, ...}'></textarea>
+                            </label>
+                            <div class="obse-settings-import-actions">
+                                <button id="obse-settings-import-file" class="obse-btn ghost">📁 Chọn file JSON</button>
+                                <button id="obse-settings-apply-btn" class="obse-btn primary">💉 Apply settings</button>
+                            </div>
+                            <input type="file" id="obse-settings-import-fileinput" accept=".json" hidden />
+                            <div class="obse-settings-error" id="obse-settings-import-error" hidden></div>
+                            <div class="obse-settings-success" id="obse-settings-import-success" hidden></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 💾 Backup ALL settings modal -->
+            <div id="obse-backup-all-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card obse-backup-all-card">
+                    <div class="obse-modal-head">
+                        <h3>💾 Backup TẤT CẢ settings từ OBS</h3>
+                        <button id="obse-backup-all-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-body obse-backup-all-body">
+                        <p class="obse-settings-hint">
+                            Trích settings của <b>tất cả LUA đã tải</b> từ OBS scene collection.
+                            Tạo 1 file JSON tổng → dùng để restore/sync nhanh qua máy khác.
+                        </p>
+                        <label class="obse-settings-field">
+                            <span>Scene collection:</span>
+                            <select id="obse-backup-collection"></select>
+                        </label>
+                        <button id="obse-backup-do-btn" class="obse-btn primary block">💾 Backup ngay</button>
+                        <div class="obse-backup-result" id="obse-backup-result" hidden>
+                            <div class="obse-backup-summary" id="obse-backup-summary"></div>
+                            <div class="obse-backup-luas-list" id="obse-backup-luas-list"></div>
+                            <div class="obse-backup-download">
+                                <button id="obse-backup-download-btn" class="obse-btn primary">⬇ Tải file backup</button>
+                                <button id="obse-backup-copy-btn" class="obse-btn ghost">📋 Copy JSON</button>
+                            </div>
+                        </div>
+                        <div class="obse-settings-error" id="obse-backup-error" hidden></div>
                     </div>
                 </div>
             </div>

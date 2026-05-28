@@ -22,6 +22,7 @@ const fetch = require('node-fetch');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 const { OBSBridge } = require('./lib/obs-bridge');
 const { LuaSync } = require('./lib/lua-sync');
+const { OBSSettings } = require('./lib/obs-settings');
 
 const PORT = process.env.PORT || 3000;
 
@@ -785,6 +786,11 @@ luaSync.on('updates_available', (updates) => {
 luaSync.on('downloaded', (data) => {
     io.emit('luaSync:downloaded', data);
 });
+// ====== OBS Settings sync (đồng bộ thông số LUA giữa các máy) ======
+const obsSettings = new OBSSettings({
+    logger: { log: (...args) => console.log('[obs-settings]', ...args) }
+});
+
 // Auto-check khi license đã activated + autoCheck enabled
 if (appConfig.luaSync.autoCheckEnabled) {
     // Delay 5s sau startup để license validate xong
@@ -5899,6 +5905,155 @@ app.post('/api/lua-sync/add-to-mapping', express.json(), (req, res) => {
         mapping: newMapping,
         message: `✓ Đã thêm "${lua.name}" vào Mapping → giờ chỉ chọn quà`
     });
+});
+
+// ====== 🔄 OBS Settings Sync API ======
+
+// GET /api/obs-settings/scene-collections — list .json files trong OBS scenes folder
+app.get('/api/obs-settings/scene-collections', (req, res) => {
+    try {
+        const collections = obsSettings.listSceneCollections();
+        res.json({ ok: true, collections, scenesDir: obsSettings.scenesDir });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/obs-settings/extract — extract settings cho 1 LUA từ scene collection
+// Body: { luaId, sceneCollection }
+app.post('/api/obs-settings/extract', express.json(), (req, res) => {
+    const luaId = String(req.body?.luaId || '').trim();
+    const sceneCollection = String(req.body?.sceneCollection || '').trim();
+    if (!luaId || !sceneCollection) {
+        return res.status(400).json({ ok: false, error: 'Thiếu luaId hoặc sceneCollection' });
+    }
+    try {
+        const state = luaSync.getLocalState(luaId);
+        if (!state.exists) {
+            return res.status(400).json({ ok: false, error: 'LUA chưa tải về — bấm Tải trước' });
+        }
+        const obFilename = state.obName + '.lua';
+        const result = obsSettings.extractSettings(sceneCollection, obFilename, luaId);
+        if (!result.found) {
+            return res.status(404).json({
+                ok: false,
+                error: result.message,
+                availableScripts: result.availableScripts,
+                triedStrategies: result.triedStrategies
+            });
+        }
+        res.json({
+            ok: true,
+            settings: result.settings,
+            settingsCount: result.settingsCount,
+            scriptPath: result.scriptPath,
+            strategy: result.strategy,
+            matchedFile: result.matchedFile,
+            signatureMatched: result.signatureMatched
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/obs-settings/apply — inject settings vào scene collection
+// Body: { luaId, sceneCollection, settings }
+// SECURITY: refuse nếu OBS WS đang connect (= OBS đang chạy)
+app.post('/api/obs-settings/apply', express.json(), (req, res) => {
+    const luaId = String(req.body?.luaId || '').trim();
+    const sceneCollection = String(req.body?.sceneCollection || '').trim();
+    const settings = req.body?.settings;
+    if (!luaId || !sceneCollection || !settings || typeof settings !== 'object') {
+        return res.status(400).json({ ok: false, error: 'Thiếu luaId/sceneCollection/settings' });
+    }
+    if (obsBridge.isConnected()) {
+        return res.status(409).json({
+            ok: false,
+            error: '⚠ OBS đang chạy. Đóng OBS trước (Disconnect trên app + đóng OBS) rồi thử lại.',
+            requiresObsClose: true
+        });
+    }
+    try {
+        const state = luaSync.getLocalState(luaId);
+        if (!state.exists) {
+            return res.status(400).json({ ok: false, error: 'LUA chưa tải về — bấm Tải trước' });
+        }
+        const obFilename = state.obName + '.lua';
+        const cachedPath = state.path;
+        const result = obsSettings.applySettings(sceneCollection, obFilename, settings, cachedPath, luaId);
+        res.json({
+            ok: true,
+            action: result.action,
+            matchStrategy: result.matchStrategy,
+            scriptPath: result.scriptPath,
+            settingsCount: result.settingsCount,
+            message: `✓ Đã ${result.action === 'updated' ? 'cập nhật' : 'tạo mới'} script entry (match: ${result.matchStrategy}). Mở OBS để load.`
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/obs-settings/backup-all — extract settings TẤT CẢ LUAs trong cache + save vào file
+// Body: { sceneCollection }
+app.post('/api/obs-settings/backup-all', express.json(), (req, res) => {
+    const sceneCollection = String(req.body?.sceneCollection || '').trim();
+    if (!sceneCollection) {
+        return res.status(400).json({ ok: false, error: 'Thiếu sceneCollection' });
+    }
+    try {
+        const luas = (luaSync.getFullState().luas || []).filter(l => l.cached);
+        const backup = {
+            timestamp: Date.now(),
+            sceneCollection,
+            luas: {}
+        };
+        const errors = [];
+        // ★ Diagnostic info — show user mapping luaId→file đang tìm
+        const searchedFor = [];
+        // ★ List TẤT CẢ scripts thực có trong scene collection (cho user compare)
+        let allScriptsInCollection = [];
+        try {
+            allScriptsInCollection = obsSettings.listScripts(sceneCollection);
+        } catch (e) {
+            errors.push({ id: '_collection', error: 'List scripts fail: ' + e.message });
+        }
+        for (const lua of luas) {
+            try {
+                const state = luaSync.getLocalState(lua.id);
+                if (!state.exists) continue;
+                const lookingFor = state.obName + '.lua';
+                searchedFor.push({ id: lua.id, name: lua.name, file: lookingFor });
+                // ★ Pass luaId để multi-strategy fallback (obfuscated → original → signature)
+                const result = obsSettings.extractSettings(sceneCollection, lookingFor, lua.id);
+                if (result.found) {
+                    backup.luas[lua.id] = {
+                        name: lua.name,
+                        hotkey: lua.hotkey,
+                        version: lua.version,
+                        matchStrategy: result.strategy,   // ★ cho UI biết match bằng cách nào
+                        matchedFile: result.matchedFile,
+                        settings: result.settings
+                    };
+                }
+            } catch (e) {
+                errors.push({ id: lua.id, error: e.message });
+            }
+        }
+        const matchedCount = Object.keys(backup.luas).length;
+        res.json({
+            ok: true,
+            backup,
+            matchedCount,
+            totalLuas: luas.length,
+            errors,
+            searchedFor,            // ★ tên file app đang tìm
+            allScripts: allScriptsInCollection.map(s => s.filename),   // ★ tên file thực có trong OBS
+            message: `${matchedCount}/${luas.length} LUA matched`
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
 });
 
 // POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer (CẦN MẬT KHẨU)

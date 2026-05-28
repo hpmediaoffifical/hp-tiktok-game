@@ -181,7 +181,7 @@
         // v1.0.79 fix: dùng hpCopyText (có fallback execCommand) thay vì navigator.clipboard
         // trực tiếp → tránh silent fail trên 1 số máy khi clipboard API bị từ chối.
         $('#vc-btn-copy').addEventListener('click', async () => {
-            const url = location.origin + '/overlay/votecomment';
+            const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/votecomment') : (location.origin + '/overlay/votecomment'));
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;
             if (ok) flashCopy();
             else alert('Copy thất bại — link: ' + url);

@@ -2019,7 +2019,7 @@
     // ---------- Save / overlay copy ----------
     function wireCopyOverlay() {
         const inp = $('#caro-overlay-url');
-        const url = location.origin + '/overlay/caro';
+        const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/caro') : (location.origin + '/overlay/caro'));
         if (inp) inp.value = url;
         $('#caro-btn-copy').addEventListener('click', async () => {
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;

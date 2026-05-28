@@ -442,7 +442,7 @@
 
     function wireOverlayCopy() {
         const inp = $('#vipwelcome-overlay-url');
-        const url = location.origin + '/overlay/vipwelcome';
+        const url = (window.buildOverlayURL ? window.buildOverlayURL('/overlay/vipwelcome') : (location.origin + '/overlay/vipwelcome'));
         if (inp) inp.value = url;
         $('#vipwelcome-btn-copy')?.addEventListener('click', async () => {
             const ok = window.hpCopyText ? await window.hpCopyText(url) : false;

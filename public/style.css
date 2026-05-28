@@ -852,6 +852,20 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .game-header h2 { margin: 0 0 4px; font-size: 18px; }
 .game-sub { font-size: 12px; color: #8b93a8; }
 .overlay-bar { min-width: 380px; }
+.overlay-res-select {
+    background: #131722;
+    color: #c8cee0;
+    border: 1px solid #2a3144;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    margin-left: 4px;
+}
+.overlay-res-select:hover { border-color: #3b82f6; color: #e6e8ee; }
+.overlay-res-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.18); }
 .overlay-label { display: block; font-size: 11px; font-weight: 700; color: #c8cee0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
 .overlay-link-row { display: flex; gap: 6px; }
 .overlay-link-row input {
@@ -6885,12 +6899,28 @@ details.card > .obse-collapse-body { padding: 0 16px 16px; }
 }
 .obse-lua-row {
     display: grid;
-    grid-template-columns: 24px 1fr auto auto;
-    gap: 8px; align-items: center;
+    grid-template-columns: 22px 1fr auto auto;
+    gap: 6px; align-items: center;
     background: #131722;
     border: 1px solid #232936;
     border-radius: 6px;
-    padding: 6px 8px;
+    padding: 5px 7px;
+}
+.obse-lua-row-actions {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.obse-lua-status {
+    flex-shrink: 0;
+    min-width: 18px;
+    padding: 2px 5px !important;
+    font-size: 11px !important;
+}
+.obse-btn.mini.icon-only {
+    padding: 3px 6px;
+    min-width: 22px;
+    text-align: center;
 }
 .obse-lua-row.ok { border-color: rgba(34,197,94,0.3); }
 .obse-lua-row.warn { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.05); }
@@ -7196,6 +7226,243 @@ details.card > .obse-collapse-body { padding: 0 16px 16px; }
     margin-top: 6px;
 }
 .obse-pwd-actions .obse-btn { padding: 8px 16px; font-size: 12px; }
+
+/* ===== 🔄 Settings Sync modal ===== */
+.obse-settings-card { max-width: 720px; width: 92vw; max-height: 90vh; }
+.obse-settings-body { padding: 18px 22px; max-height: 75vh; overflow-y: auto; }
+.obse-settings-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid #232936;
+    margin-bottom: 16px;
+}
+.obse-settings-tab {
+    background: transparent;
+    color: #9ca3af;
+    border: none;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+.obse-settings-tab:hover { color: #d1d5db; }
+.obse-settings-tab.active {
+    color: #60a5fa;
+    border-bottom-color: #3b82f6;
+}
+.obse-settings-tab-content { display: block; }
+.obse-settings-tab-content[hidden] { display: none; }
+.obse-settings-hint {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: #d1d5db;
+    line-height: 1.5;
+}
+.obse-settings-warn {
+    color: #fbbf24;
+}
+.obse-settings-field {
+    display: block;
+    margin-bottom: 12px;
+}
+.obse-settings-field > span {
+    display: block;
+    font-size: 11px;
+    color: #9ca3af;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+.obse-settings-field select,
+.obse-settings-field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    background: #0e131c;
+    border: 1px solid #232936;
+    border-radius: 4px;
+    color: #e6e8ee;
+    font-size: 12px;
+    font-family: ui-monospace, Consolas, monospace;
+    outline: none;
+    box-sizing: border-box;
+}
+.obse-settings-field textarea {
+    min-height: 200px;
+    resize: vertical;
+}
+.obse-settings-field select:focus,
+.obse-settings-field textarea:focus {
+    border-color: #3b82f6;
+}
+#obse-settings-extract-btn { width: 100%; padding: 10px; font-size: 13px; margin-bottom: 12px; }
+.obse-settings-result {
+    margin-top: 12px;
+    padding: 12px;
+    background: #131722;
+    border: 1px solid rgba(34,197,94,0.4);
+    border-radius: 6px;
+}
+.obse-settings-result-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: #4ade80;
+    font-weight: 700;
+}
+.obse-settings-result-head > div { display: flex; gap: 4px; }
+#obse-settings-export-json {
+    width: 100%;
+    min-height: 260px;
+    background: #0e131c;
+    border: 1px solid #232936;
+    border-radius: 4px;
+    color: #e6e8ee;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    padding: 10px;
+    box-sizing: border-box;
+    resize: vertical;
+}
+.obse-settings-error {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.4);
+    border-radius: 6px;
+    color: #f87171;
+    font-size: 12px;
+    white-space: pre-wrap;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.obse-settings-success {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.4);
+    border-radius: 6px;
+    color: #4ade80;
+    font-size: 12px;
+}
+.obse-settings-import-actions {
+    display: flex; gap: 8px;
+    margin-top: 12px;
+}
+#obse-settings-import-file { flex: 0 0 auto; }
+#obse-settings-apply-btn { flex: 1; padding: 10px; font-size: 13px; }
+
+/* ===== 💾 Backup all settings modal ===== */
+.obse-backup-all-card { max-width: 560px; width: 92vw; }
+.obse-backup-all-body { padding: 18px 22px; max-height: 75vh; overflow-y: auto; }
+.obse-backup-result {
+    margin-top: 14px;
+    padding: 14px;
+    background: rgba(34,197,94,0.06);
+    border: 1px solid rgba(34,197,94,0.35);
+    border-radius: 6px;
+}
+.obse-backup-summary {
+    font-size: 13px;
+    color: #d1d5db;
+    margin-bottom: 10px;
+}
+.obse-backup-luas-list {
+    max-height: 280px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 4px;
+    margin-bottom: 12px;
+}
+.obse-backup-lua-row {
+    font-size: 11px;
+    padding: 6px 10px;
+    background: #131722;
+    border-radius: 4px;
+    border-left: 3px solid #22c55e;
+}
+.obse-backup-lua-meta {
+    color: #6b7280;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10px;
+    margin-left: 4px;
+}
+.obse-backup-lua-meta code {
+    background: rgba(59,130,246,0.1);
+    color: #93c5fd;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 9px;
+}
+.obse-backup-strat {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    margin-left: 2px;
+}
+.obse-backup-strat.obfuscated { background: rgba(168,85,247,0.18); color: #c084fc; }
+.obse-backup-strat.original { background: rgba(245,158,11,0.18); color: #fbbf24; }
+.obse-backup-strat.signature { background: rgba(34,197,94,0.18); color: #4ade80; }
+.obse-backup-empty {
+    text-align: center;
+    padding: 12px;
+    color: #fbbf24;
+    font-size: 12px;
+    background: rgba(245,158,11,0.06);
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.obse-backup-diag {
+    display: flex; flex-direction: column; gap: 8px;
+    margin-top: 6px;
+}
+.obse-backup-diag-section {
+    padding: 8px 10px;
+    background: #0e131c;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #d1d5db;
+}
+.obse-backup-diag-section b { color: #93c5fd; }
+.obse-backup-diag-section ul {
+    margin: 4px 0 0 0;
+    padding-left: 18px;
+}
+.obse-backup-diag-section li { margin: 2px 0; }
+.obse-backup-diag-section code {
+    background: rgba(59,130,246,0.1);
+    color: #93c5fd;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10px;
+}
+.obse-backup-diag-empty {
+    color: #6b7280;
+    font-style: italic;
+    margin-top: 4px;
+}
+.obse-backup-hint {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: rgba(59,130,246,0.08);
+    border-left: 3px solid #3b82f6;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #93c5fd;
+    line-height: 1.5;
+}
+.obse-backup-errors {
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: rgba(245,158,11,0.1);
+    border-radius: 4px;
+    color: #fbbf24;
+    font-size: 11px;
+}
+.obse-backup-download {
+    display: flex; gap: 8px;
+    margin-top: 8px;
+}
+.obse-backup-download .obse-btn { flex: 1; padding: 8px 12px; }
 
 /* ===== "Đã thêm" mapping badge ===== */
 .obse-lua-mapping-badge {
