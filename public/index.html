@@ -1676,6 +1676,10 @@
                                 <h3 class="obse-card-title">🎁 Mapping Gift → Effect</h3>
                                 <div class="obse-mappings-actions">
                                     <span id="obse-save-indicator" class="obse-save-indicator">💾 Tự động lưu</span>
+                                    <button id="btn-obse-manual-save" class="obse-btn primary" hidden title="Lưu thủ công (Ctrl+S)">💾 LƯU</button>
+                                    <label class="obse-autosave-toggle" title="Tắt nếu thấy lag khi gõ nhanh">
+                                        <input type="checkbox" id="btn-obse-autosave-toggle" checked> Auto
+                                    </label>
                                     <button id="btn-obse-refresh-hotkeys" class="obse-btn ghost" title="Tải lại danh sách hotkey từ OBS">↻ Refresh hotkeys</button>
                                     <button id="btn-obse-add-group" class="obse-btn primary">+ Tạo nhóm mới</button>
                                 </div>
@@ -1745,6 +1749,25 @@
                 </div>
             </div>
 
+            <!-- 🔒 Password prompt modal (cho mở folder cache) -->
+            <div id="obse-pwd-modal" class="obse-modal" hidden>
+                <div class="obse-modal-card obse-modal-small obse-pwd-card">
+                    <div class="obse-modal-head">
+                        <h3>🔒 Nhập mật khẩu</h3>
+                        <button id="obse-pwd-close" class="modal-close" title="Đóng">✕</button>
+                    </div>
+                    <div class="obse-modal-body obse-pwd-body">
+                        <p class="obse-pwd-prompt" id="obse-pwd-prompt">Nhập mật khẩu để mở folder cache:</p>
+                        <input type="password" id="obse-pwd-input" class="obse-pwd-input" placeholder="Mật khẩu" autocomplete="off" />
+                        <div class="obse-pwd-error" id="obse-pwd-error" hidden></div>
+                        <div class="obse-pwd-actions">
+                            <button id="obse-pwd-cancel" class="obse-btn ghost">Hủy</button>
+                            <button id="obse-pwd-ok" class="obse-btn primary">🔓 Mở</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 📥 Background Removal install modal -->
             <div id="obse-bgremoval-modal" class="obse-modal" hidden>
                 <div class="obse-modal-card">
@@ -1754,30 +1777,52 @@
                     </div>
                     <div class="obse-modal-body obse-bgremoval-body">
                         <p class="obse-bgremoval-intro">
-                            Plugin <b>obs-backgroundremoval</b> giúp <b>tách nền (xóa phông) NPC</b>
-                            qua AI — bắt buộc cho hầu hết LUA effects (Mario, Chạy bộ, Hố đen, v.v.)
+                            Plugin <b>obs-backgroundremoval</b> giúp <b>tách nền NPC</b> qua AI — bắt buộc cho LUA effects.
                         </p>
-                        <h4>📋 Các bước cài:</h4>
-                        <ol class="obse-bgremoval-steps">
-                            <li><b>Đóng OBS</b> hoàn toàn (kiểm tra Task Manager nếu OBS vẫn chạy nền).</li>
-                            <li>Tải installer từ trang chính thức:
-                                <div class="obse-bgremoval-url-row">
-                                    <code id="obse-bgremoval-url">https://github.com/locaal-ai/obs-backgroundremoval/releases/latest</code>
-                                    <button id="btn-obse-bgremoval-copy" class="obse-btn ghost mini">📋 Copy</button>
-                                    <button id="btn-obse-bgremoval-open" class="obse-btn primary mini">🌐 Mở trang</button>
+
+                        <!-- 🚀 AUTO-INSTALL (mặc định) -->
+                        <div class="obse-bgremoval-auto-box">
+                            <div class="obse-bgremoval-auto-title">🚀 Cài tự động (khuyên dùng)</div>
+                            <p class="obse-bgremoval-auto-desc">
+                                App tự tải zip ~100MB → giải nén → copy vào <code>%APPDATA%/obs-studio/plugins/</code><br>
+                                <b>KHÔNG cần admin</b>, không UAC prompt. Chỉ cần <b>đóng OBS trước</b>.
+                            </p>
+                            <div class="obse-bgremoval-progress" id="obse-bgremoval-progress" hidden>
+                                <div class="obse-bgremoval-progress-bar">
+                                    <div class="obse-bgremoval-progress-fill" id="obse-bgremoval-progress-fill"></div>
                                 </div>
-                            </li>
-                            <li>Trên trang GitHub, tải file <code>obs-backgroundremoval-X.Y.Z-windows-x64-Installer.exe</code> (file <b>Installer</b>, không phải zip).</li>
-                            <li>Chạy installer <b>với quyền Admin</b> (right-click → Run as administrator) → Next → Install.</li>
-                            <li>Mở lại OBS → vào source webcam → bấm <b>⚙ Filters</b> → <b>+</b> → chọn <b>Background Removal</b>.</li>
-                            <li>Quay lại HP Action LIVE → bấm <b>🔍 Kiểm tra</b> để verify.</li>
-                        </ol>
-                        <div class="obse-bgremoval-tip">
-                            💡 <b>Lưu ý:</b> Plugin ~100MB (chứa AI model ONNX). Quá trình cài cần internet để download model.
-                            Sau khi cài, mặc định filter name là <b>"Background Removal"</b> — khớp với config trong các LUA.
+                                <div class="obse-bgremoval-progress-text" id="obse-bgremoval-progress-text">Đang chuẩn bị...</div>
+                            </div>
+                            <button id="btn-obse-bgremoval-autoinstall" class="obse-btn primary block">
+                                🚀 Cài tự động ngay
+                            </button>
+                            <div class="obse-bgremoval-tip warn">
+                                ⚠ <b>Đóng OBS trước!</b> Plugin DLL không thể replace khi OBS đang chạy.
+                                Bấm Disconnect trên app trước nếu OBS WS đang connect.
+                            </div>
                         </div>
-                        <div class="obse-bgremoval-tip warn">
-                            ⚠ <b>Tương thích:</b> Plugin support OBS 28+ (64-bit). Nếu OBS cũ hơn → nâng cấp OBS trước.
+
+                        <!-- 📋 MANUAL FALLBACK -->
+                        <details class="obse-bgremoval-manual">
+                            <summary>📋 Cách cài thủ công (nếu auto-install fail)</summary>
+                            <ol class="obse-bgremoval-steps">
+                                <li>Đóng OBS hoàn toàn.</li>
+                                <li>Tải zip từ:
+                                    <div class="obse-bgremoval-url-row">
+                                        <code id="obse-bgremoval-url">https://github.com/locaal-ai/obs-backgroundremoval/releases/latest</code>
+                                        <button id="btn-obse-bgremoval-copy" class="obse-btn ghost mini">📋</button>
+                                        <button id="btn-obse-bgremoval-open" class="obse-btn primary mini">🌐</button>
+                                    </div>
+                                </li>
+                                <li>Tải file <code>obs-backgroundremoval-X.Y.Z-windows-x64.zip</code></li>
+                                <li>Giải nén → copy folder <code>obs-backgroundremoval/</code> vào <code>%APPDATA%\obs-studio\plugins\</code></li>
+                                <li>Mở lại OBS → thêm filter Background Removal vào source.</li>
+                            </ol>
+                        </details>
+
+                        <div class="obse-bgremoval-tip">
+                            💡 Sau khi cài, filter name mặc định là <b>"Background Removal"</b> — khớp với LUA.
+                            Plugin support OBS 28+ (64-bit).
                         </div>
                     </div>
                 </div>

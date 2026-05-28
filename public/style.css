@@ -7060,6 +7060,162 @@ details.card > .obse-collapse-body { padding: 0 16px 16px; }
     color: #fcd34d;
 }
 
+/* ===== Auto-install box ===== */
+.obse-bgremoval-auto-box {
+    padding: 14px 16px;
+    background: linear-gradient(135deg, rgba(34,197,94,0.08), rgba(59,130,246,0.06));
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.obse-bgremoval-auto-title {
+    font-size: 14px; font-weight: 700;
+    color: #4ade80;
+    margin-bottom: 6px;
+}
+.obse-bgremoval-auto-desc {
+    font-size: 11px; color: #d1d5db;
+    margin: 0 0 10px;
+    line-height: 1.5;
+}
+.obse-bgremoval-auto-desc code {
+    background: #0e131c;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #93c5fd;
+}
+.obse-btn.block {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 6px 0;
+}
+
+/* Progress bar */
+.obse-bgremoval-progress {
+    margin: 10px 0;
+    padding: 10px 12px;
+    background: #131722;
+    border: 1px solid #232936;
+    border-radius: 6px;
+}
+.obse-bgremoval-progress.phase-error {
+    border-color: #ef4444;
+    background: rgba(239,68,68,0.08);
+}
+.obse-bgremoval-progress.phase-done {
+    border-color: #22c55e;
+    background: rgba(34,197,94,0.08);
+}
+.obse-bgremoval-progress-bar {
+    height: 8px;
+    background: #0e131c;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.obse-bgremoval-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+    transition: width 0.3s ease;
+    width: 0%;
+}
+.obse-bgremoval-progress.phase-error .obse-bgremoval-progress-fill {
+    background: #ef4444;
+}
+.obse-bgremoval-progress-text {
+    font-size: 11px;
+    color: #d1d5db;
+    margin-top: 6px;
+    text-align: center;
+    font-family: ui-monospace, Consolas, monospace;
+}
+
+/* Manual fallback details */
+.obse-bgremoval-manual {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(107,114,128,0.06);
+    border-radius: 6px;
+    font-size: 11px;
+}
+.obse-bgremoval-manual summary {
+    cursor: pointer;
+    color: #9ca3af;
+    font-weight: 600;
+    user-select: none;
+}
+.obse-bgremoval-manual summary:hover { color: #d1d5db; }
+
+/* ===== Obfuscated filename hint ===== */
+.obse-lua-obfilename {
+    background: rgba(107,114,128,0.15);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 9px;
+    color: #93c5fd;
+}
+
+/* ===== 🔒 Password prompt modal ===== */
+.obse-pwd-card { max-width: 420px; }
+.obse-pwd-body { padding: 18px 22px; }
+.obse-pwd-prompt {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #d1d5db;
+}
+.obse-pwd-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0e131c;
+    border: 1px solid #232936;
+    border-radius: 6px;
+    color: #e6e8ee;
+    font-size: 14px;
+    font-family: ui-monospace, Consolas, monospace;
+    letter-spacing: 4px;
+    outline: none;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+}
+.obse-pwd-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+.obse-pwd-error {
+    color: #f87171;
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+.obse-pwd-actions {
+    display: flex; gap: 8px;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+.obse-pwd-actions .obse-btn { padding: 8px 16px; font-size: 12px; }
+
+/* ===== "Đã thêm" mapping badge ===== */
+.obse-lua-mapping-badge {
+    display: inline-block;
+    background: rgba(34,197,94,0.18);
+    color: #4ade80;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 4px;
+    border: 1px solid rgba(34,197,94,0.4);
+}
+.obse-lua-row.has-mapping {
+    background: rgba(34,197,94,0.04);
+}
+.obse-lua-row.has-mapping .obse-lua-row-name {
+    color: #d1fae5;
+}
+
 /* Right: mappings */
 .obse-mappings-card { min-height: 400px; }
 .obse-mappings-head {
@@ -7560,6 +7716,32 @@ details.card > .obse-collapse-body { padding: 0 16px 16px; }
 .obse-save-indicator.saved {
     animation: obseSavedFlash 0.5s ease-out;
 }
+.obse-save-indicator.unsaved {
+    background: rgba(245,158,11,0.18);
+    color: #fbbf24;
+    border-color: rgba(245,158,11,0.45);
+    animation: obseUnsavedPulse 1.2s ease-in-out infinite;
+}
+.obse-save-indicator.manual {
+    background: rgba(107,114,128,0.15);
+    color: #9ca3af;
+    border-color: rgba(107,114,128,0.3);
+}
+@keyframes obseUnsavedPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+    50%      { box-shadow: 0 0 0 4px rgba(245,158,11,0); }
+}
+.obse-autosave-toggle {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #9ca3af;
+    cursor: pointer;
+    padding: 4px 8px;
+    border: 1px solid #232936;
+    border-radius: 4px;
+    user-select: none;
+}
+.obse-autosave-toggle:hover { color: #d1d5db; border-color: #2a3144; }
+.obse-autosave-toggle input { margin: 0; cursor: pointer; }
 @keyframes obseSavedFlash {
     0% { transform: scale(1.08); background: rgba(34,197,94,0.3); }
     100% { transform: scale(1); }

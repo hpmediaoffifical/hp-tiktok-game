@@ -1,3 +1,15 @@
+// ★ Wrap console methods để chống EPIPE crash (Electron stdout có thể bị closed bất ngờ)
+// Khi pipe closed mà code log → throw EPIPE → main process crash. Silent fallback là an toàn.
+['log', 'warn', 'error', 'info'].forEach(method => {
+    const original = console[method];
+    console[method] = function(...args) {
+        try { original.apply(console, args); } catch (_) { /* ignore EPIPE/closed pipe */ }
+    };
+});
+// Cũng catch ở process level (defense in depth)
+process.stdout.on?.('error', (err) => { if (err.code === 'EPIPE') {} });
+process.stderr.on?.('error', (err) => { if (err.code === 'EPIPE') {} });
+
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -5752,6 +5764,21 @@ app.get('/api/obs-bridge/lua-duration', (req, res) => {
 });
 
 // ====== 📚 LUA Sync — REST API ======
+// Helper: augment LUA state với mapping count (cho UI badge "Đã thêm")
+function augmentLuaStateWithMapping(state) {
+    const mappings = (appConfig.obsBridge && Array.isArray(appConfig.obsBridge.mapping))
+        ? appConfig.obsBridge.mapping : [];
+    state.luas = state.luas.map(lua => {
+        const matched = mappings.filter(m => m.hotkey === lua.hotkey);
+        return {
+            ...lua,
+            inMappingCount: matched.length,
+            inMappingFilledCount: matched.filter(m => m.giftId && m.giftId !== '').length
+        };
+    });
+    return state;
+}
+
 // GET /api/lua-sync/status — get full state (luas list, status, cache dir)
 app.get('/api/lua-sync/status', (req, res) => {
     res.json({
@@ -5761,7 +5788,7 @@ app.get('/api/lua-sync/status', (req, res) => {
             autoCheckEnabled: !!(appConfig.luaSync && appConfig.luaSync.autoCheckEnabled),
             autoCheckIntervalSec: (appConfig.luaSync && appConfig.luaSync.autoCheckIntervalSec) || 300,
         },
-        state: luaSync.getFullState()
+        state: augmentLuaStateWithMapping(luaSync.getFullState())
     });
 });
 
@@ -5769,9 +5796,9 @@ app.get('/api/lua-sync/status', (req, res) => {
 app.post('/api/lua-sync/check', async (req, res) => {
     try {
         await luaSync.fetchManifest();
-        res.json({ ok: true, state: luaSync.getFullState() });
+        res.json({ ok: true, state: augmentLuaStateWithMapping(luaSync.getFullState()) });
     } catch (e) {
-        res.status(500).json({ ok: false, error: e.message, state: luaSync.getFullState() });
+        res.status(500).json({ ok: false, error: e.message, state: augmentLuaStateWithMapping(luaSync.getFullState()) });
     }
 });
 
@@ -5782,7 +5809,7 @@ app.post('/api/lua-sync/download', express.json(), async (req, res) => {
     if (!luaId) return res.status(400).json({ ok: false, error: 'Thiếu luaId' });
     try {
         const r = await luaSync.downloadLua(luaId);
-        res.json({ ok: true, ...r, state: luaSync.getFullState() });
+        res.json({ ok: true, ...r, state: augmentLuaStateWithMapping(luaSync.getFullState()) });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -5793,7 +5820,8 @@ app.post('/api/lua-sync/download-all', async (req, res) => {
     try {
         const results = await luaSync.downloadAll();
         const okCount = results.filter(r => r.ok).length;
-        res.json({ ok: true, results, okCount, failCount: results.length - okCount, state: luaSync.getFullState() });
+        res.json({ ok: true, results, okCount, failCount: results.length - okCount,
+            state: augmentLuaStateWithMapping(luaSync.getFullState()) });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -5873,14 +5901,188 @@ app.post('/api/lua-sync/add-to-mapping', express.json(), (req, res) => {
     });
 });
 
-// POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer
-app.post('/api/lua-sync/open-folder', (req, res) => {
+// POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer (CẦN MẬT KHẨU)
+// SECURITY: prompt password trước khi expose cache dir → chống vô tình mở khi share screen
+const LUA_FOLDER_PASSWORD = '101016';   // mật khẩu mở folder cache
+app.post('/api/lua-sync/open-folder', express.json(), (req, res) => {
+    const pwd = String(req.body?.password || '');
+    if (pwd !== LUA_FOLDER_PASSWORD) {
+        return res.status(403).json({ ok: false, error: 'Sai mật khẩu' });
+    }
     try {
         const { shell } = require('electron');
         shell.openPath(LUA_CACHE_DIR);
-        res.json({ ok: true, path: LUA_CACHE_DIR });
+        res.json({ ok: true });
     } catch (e) {
-        res.json({ ok: false, error: 'Electron shell không available', path: LUA_CACHE_DIR });
+        res.json({ ok: false, error: 'Electron shell không available' });
+    }
+});
+
+// ====== 🎭 BG Removal — AUTO-INSTALL (download zip + extract + copy to per-user OBS plugins) ======
+// Strategy: cài per-user (%APPDATA%/obs-studio/plugins/) → KHÔNG cần admin
+async function bgInstallDownloadFile(url, destPath, onProgress, redirectDepth = 0) {
+    return new Promise((resolve, reject) => {
+        if (redirectDepth > 5) return reject(new Error('Quá nhiều redirect'));
+        const https = require('https');
+        const fsmod = require('fs');
+        const req = https.get(url, {
+            headers: { 'User-Agent': 'HP-Action-LIVE/BGInstall' },
+            timeout: 60000
+        }, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume();
+                return bgInstallDownloadFile(res.headers.location, destPath, onProgress, redirectDepth + 1)
+                    .then(resolve, reject);
+            }
+            if (res.statusCode !== 200) {
+                res.resume();
+                return reject(new Error(`HTTP ${res.statusCode}`));
+            }
+            const total = parseInt(res.headers['content-length'] || '0', 10);
+            const stream = fsmod.createWriteStream(destPath);
+            let downloaded = 0;
+            res.on('data', chunk => {
+                downloaded += chunk.length;
+                if (total > 0 && onProgress) {
+                    onProgress(Math.round((downloaded / total) * 100), downloaded, total);
+                }
+            });
+            res.pipe(stream);
+            stream.on('finish', () => { stream.close(() => resolve(destPath)); });
+            stream.on('error', reject);
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Download timeout')); });
+    });
+}
+
+async function bgInstallExtractZip(zipPath, destDir) {
+    return new Promise((resolve, reject) => {
+        const { spawn } = require('child_process');
+        const fsmod = require('fs');
+        try { fsmod.mkdirSync(destDir, { recursive: true }); } catch (_) {}
+        // PowerShell Expand-Archive — built-in Windows, no deps
+        const cmd = `Expand-Archive -LiteralPath "${zipPath}" -DestinationPath "${destDir}" -Force`;
+        const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { windowsHide: true });
+        let errBuf = '';
+        ps.stderr.on('data', d => errBuf += d.toString());
+        ps.on('exit', code => {
+            if (code === 0) resolve();
+            else reject(new Error(`Expand-Archive fail (code ${code}): ${errBuf.slice(0, 500)}`));
+        });
+        ps.on('error', reject);
+    });
+}
+
+async function bgInstallCopyRecursive(src, dest) {
+    const fsp = require('fs').promises;
+    await fsp.cp(src, dest, { recursive: true, force: true });
+}
+
+async function bgInstallDoInstall() {
+    const fsmod = require('fs');
+    const osmod = require('os');
+    const tmpRoot = path.join(osmod.tmpdir(), 'hp-bg-install-' + Date.now());
+    fsmod.mkdirSync(tmpRoot, { recursive: true });
+
+    try {
+        // 1. Fetch latest release info từ GitHub API
+        io.emit('bgInstall:progress', { phase: 'metadata', percent: 0, message: 'Đang lấy thông tin phiên bản...' });
+        const fetchRel = await fetch('https://api.github.com/repos/locaal-ai/obs-backgroundremoval/releases/latest', {
+            headers: { 'User-Agent': 'HP-Action-LIVE' },
+            timeout: 15000
+        });
+        if (!fetchRel.ok) throw new Error(`GitHub API HTTP ${fetchRel.status}`);
+        const release = await fetchRel.json();
+        // Find Windows x64 zip asset
+        const winAsset = (release.assets || []).find(a => /windows-x64\.zip$/i.test(a.name))
+                      || (release.assets || []).find(a => /windows-x64.*\.zip$/i.test(a.name));
+        if (!winAsset) throw new Error('Không tìm thấy Windows x64 ZIP trong release');
+
+        const versionTag = String(release.tag_name || 'unknown').replace(/^v/i, '');
+        console.log(`[bg-install] Downloading ${winAsset.name} v${versionTag} (${winAsset.size} bytes)`);
+
+        // 2. Download zip với progress
+        io.emit('bgInstall:progress', { phase: 'download', percent: 0, message: `Đang tải ${winAsset.name}...` });
+        const zipPath = path.join(tmpRoot, winAsset.name);
+        await bgInstallDownloadFile(winAsset.browser_download_url, zipPath, (pct, dl, total) => {
+            io.emit('bgInstall:progress', {
+                phase: 'download', percent: pct,
+                message: `Tải: ${Math.round(dl/1024/1024)}MB / ${Math.round(total/1024/1024)}MB`
+            });
+        });
+
+        // 3. Extract
+        io.emit('bgInstall:progress', { phase: 'extract', percent: 50, message: 'Đang giải nén...' });
+        const extractDir = path.join(tmpRoot, 'extract');
+        await bgInstallExtractZip(zipPath, extractDir);
+
+        // 4. Locate source files (zip có folder root "obs-backgroundremoval/")
+        const srcRoot = path.join(extractDir, 'obs-backgroundremoval');
+        if (!fsmod.existsSync(srcRoot)) {
+            throw new Error('Cấu trúc zip lạ — không tìm thấy folder "obs-backgroundremoval/"');
+        }
+
+        // 5. Copy to per-user OBS plugin dir (KHÔNG cần admin)
+        const obsPluginDir = path.join(
+            process.env.APPDATA || osmod.homedir(),
+            'obs-studio', 'plugins', 'obs-backgroundremoval'
+        );
+        io.emit('bgInstall:progress', { phase: 'copy', percent: 70, message: `Copy vào ${obsPluginDir}...` });
+        // Remove old install nếu có
+        try {
+            if (fsmod.existsSync(obsPluginDir)) {
+                fsmod.rmSync(obsPluginDir, { recursive: true, force: true });
+                console.log('[bg-install] Removed old plugin install');
+            }
+        } catch (e) {
+            console.log('[bg-install] Old plugin remove FAIL:', e.message);
+        }
+        // Copy bin + data
+        fsmod.mkdirSync(obsPluginDir, { recursive: true });
+        await bgInstallCopyRecursive(path.join(srcRoot, 'bin'), path.join(obsPluginDir, 'bin'));
+        await bgInstallCopyRecursive(path.join(srcRoot, 'data'), path.join(obsPluginDir, 'data'));
+
+        // 6. Verify .dll exists
+        const dllPath = path.join(obsPluginDir, 'bin', '64bit', 'obs-backgroundremoval.dll');
+        if (!fsmod.existsSync(dllPath)) {
+            throw new Error('Plugin DLL không tồn tại sau khi copy — install fail');
+        }
+
+        // 7. Cleanup temp
+        try { fsmod.rmSync(tmpRoot, { recursive: true, force: true }); } catch (_) {}
+
+        io.emit('bgInstall:progress', { phase: 'done', percent: 100, message: `✓ Đã cài plugin v${versionTag}` });
+        return { ok: true, version: versionTag, installedTo: obsPluginDir, dll: dllPath };
+    } catch (e) {
+        // Cleanup on error
+        try { fsmod.rmSync(tmpRoot, { recursive: true, force: true }); } catch (_) {}
+        io.emit('bgInstall:progress', { phase: 'error', percent: 0, message: e.message });
+        throw e;
+    }
+}
+
+let bgInstallInProgress = false;
+app.post('/api/obs-bridge/install-bg-removal', async (req, res) => {
+    if (bgInstallInProgress) {
+        return res.status(429).json({ ok: false, error: 'Đang cài — đợi hoàn tất rồi thử lại' });
+    }
+    bgInstallInProgress = true;
+    try {
+        // Cảnh báo nếu OBS đang chạy (WS connected)
+        if (obsBridge.isConnected()) {
+            return res.status(409).json({
+                ok: false,
+                error: 'OBS đang chạy — đóng OBS trước (Ctrl+W trong OBS), sau đó bấm Cài tự động lại',
+                requiresObsClose: true
+            });
+        }
+        const r = await bgInstallDoInstall();
+        res.json({ ok: true, ...r, message: 'Plugin đã cài. MỞ LẠI OBS để load plugin.' });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    } finally {
+        bgInstallInProgress = false;
     }
 });
 

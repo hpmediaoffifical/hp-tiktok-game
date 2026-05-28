@@ -4432,12 +4432,62 @@
                 $btnLuaDlAll.textContent = '⬇ Tải tất cả';
             }
         }
+        // ★ Custom password modal (Electron không support window.prompt)
+        function showPasswordPrompt(message) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('obse-pwd-modal');
+                const input = document.getElementById('obse-pwd-input');
+                const prompt = document.getElementById('obse-pwd-prompt');
+                const error = document.getElementById('obse-pwd-error');
+                const btnOk = document.getElementById('obse-pwd-ok');
+                const btnCancel = document.getElementById('obse-pwd-cancel');
+                const btnClose = document.getElementById('obse-pwd-close');
+                if (!modal || !input) return resolve(null);
+                if (prompt) prompt.textContent = message || 'Nhập mật khẩu:';
+                input.value = '';
+                if (error) { error.hidden = true; error.textContent = ''; }
+                modal.hidden = false;
+                setTimeout(() => input.focus(), 50);
+
+                const cleanup = () => {
+                    modal.hidden = true;
+                    btnOk.onclick = null;
+                    btnCancel.onclick = null;
+                    btnClose.onclick = null;
+                    input.onkeydown = null;
+                    modal.onclick = null;
+                };
+                const submit = () => {
+                    const val = input.value;
+                    cleanup();
+                    resolve(val);
+                };
+                const cancel = () => { cleanup(); resolve(null); };
+                btnOk.onclick = submit;
+                btnCancel.onclick = cancel;
+                btnClose.onclick = cancel;
+                modal.onclick = (e) => { if (e.target === modal) cancel(); };
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                };
+            });
+        }
+
         async function doLuaOpenFolder() {
+            // SECURITY: custom modal prompt mật khẩu (chống Electron prompt() limitation)
+            const pwd = await showPasswordPrompt('Nhập mật khẩu để mở folder cache:');
+            if (pwd === null) return;   // user cancelled
             try {
-                const r = await fetch('/api/lua-sync/open-folder', { method: 'POST' });
+                const r = await fetch('/api/lua-sync/open-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwd })
+                });
                 const j = await r.json();
                 if (j.ok) toast('📁 Đã mở folder cache', 'success', 2000);
-                else toast('⚠ Path: ' + (j.path || ''), 'info', 4000);
+                else if (r.status === 403) toast('🔒 Sai mật khẩu — không mở được', 'error', 3500);
+                else toast('✗ ' + (j.error || 'fail'), 'error', 3000);
             } catch (e) { toast('✗ ' + e.message, 'error'); }
         }
         // SECURITY: KHÔNG còn copy path. Dùng "+ Thêm hiệu ứng" để auto-create mapping.
@@ -4455,11 +4505,12 @@
                     } else {
                         toast(`✓ ${j.message || 'Đã thêm'} — chọn quà ở panel bên phải`, 'success', 4500);
                     }
-                    // Refresh mapping panel để hiện entry mới
+                    // Refresh mapping panel + LUA list (để badge "Đã thêm" cập nhật)
                     if (typeof loadConfig === 'function') {
                         await loadConfig();
                         if (typeof renderGroups === 'function') renderGroups();
                     }
+                    fetchLuaSyncStatus();   // ★ Re-render LUA list với inMappingCount mới
                 } else {
                     toast('✗ ' + (j.error || 'Add fail'), 'error', 5000);
                 }
@@ -4494,21 +4545,32 @@
                 const badge = STATUS_BADGES[lua.status] || STATUS_BADGES.unknown;
                 const row = document.createElement('div');
                 row.className = 'obse-lua-row ' + badge.cls;
-                // Action button based on status — KHÔNG expose path (bảo mật)
+                const mapCount = lua.inMappingCount || 0;
+                if (mapCount > 0) row.classList.add('has-mapping');
+                // Action button based on status + mapping count
                 let actionBtn = '';
                 if (lua.status === 'missing') {
                     actionBtn = `<button class="obse-btn primary mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬇ Tải</button>`;
                 } else if (lua.status === 'outdated') {
                     actionBtn = `<button class="obse-btn warn mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬆ Update</button>`;
                 } else if (lua.status === 'latest') {
-                    // SECURITY: thay "Copy path" bằng "+ Thêm hiệu ứng" → auto-create mapping
-                    actionBtn = `<button class="obse-btn primary mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Tự tạo mapping cho gift — không lộ path">+ Thêm</button>`;
+                    if (mapCount > 0) {
+                        // ★ Đã có mapping → hiện badge "Đã thêm" + nút thêm nữa
+                        actionBtn = `<button class="obse-btn ghost mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Đã có ${mapCount} mapping — bấm để thêm 1 mapping nữa cho gift khác">+ Thêm nữa</button>`;
+                    } else {
+                        actionBtn = `<button class="obse-btn primary mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Tự tạo mapping cho gift — không lộ path">+ Thêm</button>`;
+                    }
                 }
+                const obFileHint = lua.obfuscatedName ? ` · 📄 <span class="obse-lua-obfilename">${escapeHtml(lua.obfuscatedName)}</span>` : '';
+                // ★ Mapping count badge
+                const mappingBadge = mapCount > 0
+                    ? `<span class="obse-lua-mapping-badge" title="${mapCount} mapping đã tạo">✅ ${mapCount}</span>`
+                    : '';
                 row.innerHTML = `
                     <div class="obse-lua-row-icon">${lua.icon || '📜'}</div>
                     <div class="obse-lua-row-info">
-                        <div class="obse-lua-row-name">${escapeHtml(lua.name || lua.id)} <span class="obse-lua-version">v${escapeHtml(lua.version || '?')}</span></div>
-                        <div class="obse-lua-row-meta">${escapeHtml(lua.hotkey || '')}${lua.localVersion && lua.localVersion !== lua.version ? ` · local v${escapeHtml(lua.localVersion)}` : ''}</div>
+                        <div class="obse-lua-row-name">${escapeHtml(lua.name || lua.id)} <span class="obse-lua-version">v${escapeHtml(lua.version || '?')}</span>${mappingBadge}</div>
+                        <div class="obse-lua-row-meta">${escapeHtml(lua.hotkey || '')}${obFileHint}${lua.localVersion && lua.localVersion !== lua.version ? ` · local v${escapeHtml(lua.localVersion)}` : ''}</div>
                     </div>
                     <span class="obse-lua-status ${badge.cls}">${badge.icon} ${badge.label}</span>
                     ${actionBtn}
@@ -4623,11 +4685,72 @@
         });
         if ($btnBgOpen && $bgUrl) $btnBgOpen.addEventListener('click', () => {
             const url = $bgUrl.textContent.trim();
-            // Electron: window.open → setWindowOpenHandler catch → shell.openExternal
-            // Browser: window.open new tab
             window.open(url, '_blank');
         });
 
+        // ★ AUTO-INSTALL BG Removal
+        const $btnAutoInst = document.getElementById('btn-obse-bgremoval-autoinstall');
+        const $progressBox = document.getElementById('obse-bgremoval-progress');
+        const $progressFill = document.getElementById('obse-bgremoval-progress-fill');
+        const $progressText = document.getElementById('obse-bgremoval-progress-text');
+        function updateInstallProgress(data) {
+            if (!$progressBox || !$progressFill || !$progressText) return;
+            $progressBox.hidden = false;
+            const pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
+            $progressFill.style.width = pct + '%';
+            $progressText.textContent = data.message || (data.phase + '...');
+            // Color per phase
+            $progressBox.className = 'obse-bgremoval-progress phase-' + data.phase;
+        }
+        if (typeof socket !== 'undefined' && socket) {
+            socket.on('bgInstall:progress', updateInstallProgress);
+        }
+        if ($btnAutoInst) {
+            $btnAutoInst.addEventListener('click', async () => {
+                if (!confirm('Bạn ĐÃ đóng OBS chưa? Plugin DLL không thể replace khi OBS chạy.\n\nNếu OBS WS đang connect → bấm "Disconnect" trên app TRƯỚC khi cài.\n\nBấm OK để bắt đầu cài.')) return;
+                $btnAutoInst.disabled = true;
+                $btnAutoInst.textContent = '⏳ Đang cài...';
+                if ($progressBox) $progressBox.hidden = false;
+                try {
+                    const r = await fetch('/api/obs-bridge/install-bg-removal', { method: 'POST' });
+                    const j = await r.json();
+                    if (j.ok) {
+                        updateInstallProgress({ phase: 'done', percent: 100, message: `✓ Đã cài v${j.version}. MỞ LẠI OBS.` });
+                        toast(`✓ Plugin đã cài v${j.version}. Hãy mở OBS lại!`, 'success', 8000);
+                        setBgStatus('installed', `✓ Plugin v${j.version} (cần khởi động OBS lại)`);
+                    } else {
+                        updateInstallProgress({ phase: 'error', percent: 0, message: '❌ ' + (j.error || 'Install fail') });
+                        toast('✗ ' + (j.error || 'Install fail'), 'error', 6000);
+                    }
+                } catch (e) {
+                    updateInstallProgress({ phase: 'error', percent: 0, message: '❌ ' + e.message });
+                    toast('✗ ' + e.message, 'error');
+                } finally {
+                    $btnAutoInst.disabled = false;
+                    $btnAutoInst.textContent = '🚀 Cài tự động ngay';
+                }
+            });
+        }
+
+        // ★ Auto-save mode toggle (localStorage)
+        // Nếu autoSave OFF → không tự lưu, hiện nút "💾 LƯU" + warning "có thay đổi"
+        function isAutoSaveEnabled() {
+            return localStorage.getItem('obse-autosave') !== 'false';   // default true
+        }
+        function setAutoSaveEnabled(on) {
+            localStorage.setItem('obse-autosave', String(!!on));
+            updateSaveIndicatorMode();
+        }
+        let _hasUnsavedChanges = false;
+        function markUnsaved() {
+            _hasUnsavedChanges = true;
+            const el = document.getElementById('obse-save-indicator');
+            if (!el) return;
+            if (!isAutoSaveEnabled()) {
+                el.textContent = '⚠ Có thay đổi chưa lưu — bấm 💾 LƯU';
+                el.className = 'obse-save-indicator unsaved';
+            }
+        }
         async function saveConfig(immediate = false) {
             clearTimeout(saveTimer);
             const doSave = async () => {
@@ -4637,17 +4760,40 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(cachedConfig)
                     });
-                    // Flash "Đã lưu" indicator
+                    _hasUnsavedChanges = false;
                     flashSavedIndicator();
                 } catch (e) { showError('Lưu config lỗi: ' + e.message); }
             };
+            // ★ Auto-save OFF mode: chỉ mark unsaved, không POST
+            if (!isAutoSaveEnabled() && !immediate) {
+                markUnsaved();
+                return;
+            }
             if (immediate) return doSave();
-            // Hiển thị "Đang lưu..." ngay khi user thay đổi (trước debounce)
             setSavingIndicator();
             saveTimer = setTimeout(doSave, 400);
         }
-        // Save indicator helpers — nhỏ + tinh tế, hiện cạnh title
+        async function manualSave() {
+            await saveConfig(true);
+            toast('💾 Đã lưu', 'success', 1500);
+        }
+        function updateSaveIndicatorMode() {
+            const el = document.getElementById('obse-save-indicator');
+            if (!el) return;
+            const autoOn = isAutoSaveEnabled();
+            if (!autoOn && _hasUnsavedChanges) {
+                el.textContent = '⚠ Có thay đổi chưa lưu — bấm 💾 LƯU';
+                el.className = 'obse-save-indicator unsaved';
+            } else if (!autoOn) {
+                el.textContent = '💾 Auto OFF — chế độ lưu tay';
+                el.className = 'obse-save-indicator manual';
+            } else {
+                el.textContent = '💾 Tự động lưu';
+                el.className = 'obse-save-indicator';
+            }
+        }
         function setSavingIndicator() {
+            if (!isAutoSaveEnabled()) return;   // skip ở manual mode
             const el = document.getElementById('obse-save-indicator');
             if (!el) return;
             el.textContent = '⏳ Đang lưu...';
@@ -4658,9 +4804,36 @@
             if (!el) return;
             const now = new Date();
             const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-            el.textContent = `💾 Đã lưu tự động (${hhmm})`;
+            el.textContent = `💾 Đã lưu (${hhmm})`;
             el.className = 'obse-save-indicator saved';
+            setTimeout(updateSaveIndicatorMode, 2500);   // revert về mode bình thường
         }
+        // Init save mode indicator
+        setTimeout(updateSaveIndicatorMode, 100);
+        // Wire up auto-save toggle button (added in HTML below)
+        const $btnAutoSaveToggle = document.getElementById('btn-obse-autosave-toggle');
+        const $btnManualSave = document.getElementById('btn-obse-manual-save');
+        if ($btnAutoSaveToggle) {
+            $btnAutoSaveToggle.checked = isAutoSaveEnabled();
+            $btnAutoSaveToggle.addEventListener('change', () => {
+                setAutoSaveEnabled($btnAutoSaveToggle.checked);
+                if ($btnManualSave) $btnManualSave.hidden = $btnAutoSaveToggle.checked;
+                if ($btnAutoSaveToggle.checked && _hasUnsavedChanges) {
+                    saveConfig(true);   // flush ngay khi bật lại auto
+                }
+            });
+            if ($btnManualSave) $btnManualSave.hidden = $btnAutoSaveToggle.checked;
+        }
+        if ($btnManualSave) $btnManualSave.addEventListener('click', manualSave);
+        // Ctrl+S = save khi manual mode
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (!isAutoSaveEnabled() && _hasUnsavedChanges) {
+                    e.preventDefault();
+                    manualSave();
+                }
+            }
+        });
         setInterval(async () => {
             // Poll status + queue mỗi 1s khi view active (1s để queue list update nhanh)
             if (!document.getElementById('view-obs-effects')?.classList.contains('active')) return;
