@@ -6818,6 +6818,37 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
     font-size: 11px; color: #93c5fd;
 }
 
+/* ========== Collapsible card (details/summary) ========== */
+details.card {
+    padding: 0;   /* override card padding để summary chiếm hết */
+}
+details.card > .obse-collapse-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 14px 16px;
+    display: flex; align-items: center; gap: 8px;
+    user-select: none;
+    transition: background 0.15s;
+    border-radius: 8px;
+}
+details.card > .obse-collapse-summary::-webkit-details-marker { display: none; }
+details.card[open] > .obse-collapse-summary { border-radius: 8px 8px 0 0; }
+details.card > .obse-collapse-summary:hover { background: rgba(255,255,255,0.02); }
+details.card > .obse-collapse-summary::before {
+    content: '▸';
+    font-size: 11px;
+    color: #6b7280;
+    transition: transform 0.18s;
+    display: inline-block;
+    margin-right: 2px;
+}
+details.card[open] > .obse-collapse-summary::before { transform: rotate(90deg); }
+details.card > .obse-collapse-summary .obse-card-title {
+    margin: 0; flex: 1;
+    font-size: 14px;
+}
+details.card > .obse-collapse-body { padding: 0 16px 16px; }
+
 /* ========== LUA Effects auto-sync card ========== */
 .obse-lua-sync-card { margin-top: 12px; }
 .obse-lua-sync-head {
@@ -6926,6 +6957,17 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
     padding: 2px 4px;
     font-size: 11px;
 }
+
+/* Summary icon — hiển thị status BG removal ngay cả khi collapsed */
+.obse-bgremoval-summary-icon {
+    font-size: 14px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(107, 114, 128, 0.15);
+}
+.obse-bgremoval-summary-icon.ok { background: rgba(34,197,94,0.15); color: #4ade80; }
+.obse-bgremoval-summary-icon.err { background: rgba(239,68,68,0.15); color: #f87171; }
+.obse-bgremoval-summary-icon.wait { background: rgba(59,130,246,0.15); color: #60a5fa; }
 
 /* ========== Background Removal helper card ========== */
 .obse-bgremoval-card {

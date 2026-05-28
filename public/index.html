@@ -1611,68 +1611,62 @@
                             </div>
                         </div>
 
-                        <div class="card obse-guide-card">
-                            <h3 class="obse-card-title">📚 Cách dùng</h3>
-                            <ol class="obse-guide">
-                                <li>Trong OBS: <b>Tools → WebSocket Server Settings</b> → enable.</li>
-                                <li>Load file <code>.lua</code> vào OBS (Tools → Scripts).</li>
-                                <li>Bấm <b>Kết nối</b> bên trên → check dot xanh.</li>
-                                <li>Tạo <b>Nhóm</b> bên phải → thêm mapping <b>Quà → Effect</b>.</li>
-                                <li>Khi user TikTok tặng quà đó → effect tự chạy.</li>
-                            </ol>
-                            <div class="obse-tip">💡 Test trigger thủ công bằng nút 🔥 không cần đợi gift thật.</div>
-                        </div>
+                        <!-- 📚 LUA Effects (auto-sync từ hpvn.media) — collapsible -->
+                        <details class="card obse-lua-sync-card" id="obse-lua-sync-details" open>
+                            <summary class="obse-collapse-summary">
+                                <span class="obse-card-title">📚 LUA Effects</span>
+                                <button id="btn-obse-lua-settings" class="obse-btn ghost mini" title="Cài đặt auto-sync" onclick="event.stopPropagation()">⚙</button>
+                            </summary>
+                            <div class="obse-collapse-body">
+                                <div class="obse-lua-sync-meta" id="obse-lua-sync-meta">
+                                    <span class="obse-lua-meta-text">Chưa kiểm tra</span>
+                                </div>
+                                <div class="obse-lua-sync-list" id="obse-lua-sync-list">
+                                    <div class="obse-lua-sync-empty">Bấm <b>↻ Check</b> để fetch danh sách effects từ HP Media</div>
+                                </div>
+                                <div class="obse-lua-sync-actions">
+                                    <button id="btn-obse-lua-check" class="obse-btn primary">↻ Check</button>
+                                    <button id="btn-obse-lua-download-all" class="obse-btn ghost" disabled>⬇ Tải tất cả</button>
+                                    <button id="btn-obse-lua-open-folder" class="obse-btn ghost" title="Mở folder cache (setup OBS Scripts lần đầu)">📁</button>
+                                </div>
+                                <div class="obse-lua-sync-settings" id="obse-lua-sync-settings" hidden>
+                                    <label class="obse-lua-set-row">
+                                        <input type="checkbox" id="obse-lua-auto-check"> Tự động check update
+                                    </label>
+                                    <label class="obse-lua-set-row">
+                                        Tần suất:
+                                        <select id="obse-lua-interval">
+                                            <option value="60">1 phút</option>
+                                            <option value="300" selected>5 phút</option>
+                                            <option value="600">10 phút</option>
+                                            <option value="1800">30 phút</option>
+                                            <option value="3600">1 giờ</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                        </details>
 
-                        <!-- 📚 LUA Effects (auto-sync từ hpvn.media) -->
-                        <div class="card obse-lua-sync-card">
-                            <div class="obse-lua-sync-head">
-                                <h3 class="obse-card-title">📚 LUA Effects</h3>
-                                <button id="btn-obse-lua-settings" class="obse-btn ghost mini" title="Cài đặt auto-sync">⚙</button>
+                        <!-- 🎭 Background Removal helper — collapsible -->
+                        <details class="card obse-bgremoval-card" id="obse-bgremoval-details">
+                            <summary class="obse-collapse-summary">
+                                <span class="obse-card-title">🎭 Background Removal</span>
+                                <span class="obse-bgremoval-summary-icon" id="obse-bgremoval-summary-icon">❓</span>
+                            </summary>
+                            <div class="obse-collapse-body">
+                                <div class="obse-bgremoval-status" id="obse-bgremoval-status">
+                                    <span class="obse-bgremoval-icon">❓</span>
+                                    <span class="obse-bgremoval-text">Chưa kiểm tra plugin</span>
+                                </div>
+                                <p class="obse-bgremoval-desc">
+                                    Plugin tách nền NPC — cần cho hầu hết LUA effects.
+                                </p>
+                                <div class="obse-bgremoval-actions">
+                                    <button id="btn-obse-check-bgremoval" class="obse-btn ghost">🔍 Kiểm tra</button>
+                                    <button id="btn-obse-install-bgremoval" class="obse-btn primary">📥 Cài đặt</button>
+                                </div>
                             </div>
-                            <div class="obse-lua-sync-meta" id="obse-lua-sync-meta">
-                                <span class="obse-lua-meta-text">Chưa kiểm tra</span>
-                            </div>
-                            <div class="obse-lua-sync-list" id="obse-lua-sync-list">
-                                <div class="obse-lua-sync-empty">Bấm <b>↻ Check</b> để fetch danh sách effects từ HP Media</div>
-                            </div>
-                            <div class="obse-lua-sync-actions">
-                                <button id="btn-obse-lua-check" class="obse-btn primary">↻ Check</button>
-                                <button id="btn-obse-lua-download-all" class="obse-btn ghost" disabled>⬇ Tải tất cả</button>
-                                <button id="btn-obse-lua-open-folder" class="obse-btn ghost" title="Mở folder cache trong Windows Explorer">📁</button>
-                            </div>
-                            <!-- Settings collapse -->
-                            <div class="obse-lua-sync-settings" id="obse-lua-sync-settings" hidden>
-                                <label class="obse-lua-set-row">
-                                    <input type="checkbox" id="obse-lua-auto-check"> Tự động check update
-                                </label>
-                                <label class="obse-lua-set-row">
-                                    Tần suất:
-                                    <select id="obse-lua-interval">
-                                        <option value="60">1 phút</option>
-                                        <option value="300" selected>5 phút</option>
-                                        <option value="600">10 phút</option>
-                                        <option value="1800">30 phút</option>
-                                        <option value="3600">1 giờ</option>
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- 📥 Background Removal helper -->
-                        <div class="card obse-bgremoval-card">
-                            <h3 class="obse-card-title">🎭 Background Removal</h3>
-                            <div class="obse-bgremoval-status" id="obse-bgremoval-status">
-                                <span class="obse-bgremoval-icon">❓</span>
-                                <span class="obse-bgremoval-text">Chưa kiểm tra plugin</span>
-                            </div>
-                            <p class="obse-bgremoval-desc">
-                                Plugin tách nền (xóa phông NPC) cần thiết cho hầu hết LUA effects.
-                            </p>
-                            <div class="obse-bgremoval-actions">
-                                <button id="btn-obse-check-bgremoval" class="obse-btn ghost">🔍 Kiểm tra</button>
-                                <button id="btn-obse-install-bgremoval" class="obse-btn primary">📥 Cài đặt</button>
-                            </div>
-                        </div>
+                        </details>
                     </aside>
 
                     <!-- RIGHT: Mappings nhóm theo group -->

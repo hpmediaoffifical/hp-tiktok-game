@@ -4440,11 +4440,32 @@
                 else toast('⚠ Path: ' + (j.path || ''), 'info', 4000);
             } catch (e) { toast('✗ ' + e.message, 'error'); }
         }
-        function copyTextToClipboard(text) {
-            navigator.clipboard?.writeText(text).then(
-                () => toast('✓ Đã copy path', 'success', 2000),
-                () => toast('✗ Copy fail — chọn + Ctrl+C thủ công', 'error')
-            );
+        // SECURITY: KHÔNG còn copy path. Dùng "+ Thêm hiệu ứng" để auto-create mapping.
+        async function doLuaAddToMapping(luaId) {
+            try {
+                const r = await fetch('/api/lua-sync/add-to-mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ luaId })
+                });
+                const j = await r.json();
+                if (j.ok) {
+                    if (j.duplicate) {
+                        toast(j.message, 'info', 4000);
+                    } else {
+                        toast(`✓ ${j.message || 'Đã thêm'} — chọn quà ở panel bên phải`, 'success', 4500);
+                    }
+                    // Refresh mapping panel để hiện entry mới
+                    if (typeof loadConfig === 'function') {
+                        await loadConfig();
+                        if (typeof renderGroups === 'function') renderGroups();
+                    }
+                } else {
+                    toast('✗ ' + (j.error || 'Add fail'), 'error', 5000);
+                }
+            } catch (e) {
+                toast('✗ ' + e.message, 'error');
+            }
         }
         function renderLuaSync(config, state) {
             if (config) {
@@ -4473,16 +4494,15 @@
                 const badge = STATUS_BADGES[lua.status] || STATUS_BADGES.unknown;
                 const row = document.createElement('div');
                 row.className = 'obse-lua-row ' + badge.cls;
-                const localPath = lua.localPath || '';
-                const localPathShort = localPath.split(/[\\/]/).pop() || '';
-                // Action button based on status
+                // Action button based on status — KHÔNG expose path (bảo mật)
                 let actionBtn = '';
                 if (lua.status === 'missing') {
                     actionBtn = `<button class="obse-btn primary mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬇ Tải</button>`;
                 } else if (lua.status === 'outdated') {
                     actionBtn = `<button class="obse-btn warn mini" data-action="dl" data-id="${escapeHtml(lua.id)}">⬆ Update</button>`;
                 } else if (lua.status === 'latest') {
-                    actionBtn = `<button class="obse-btn ghost mini" data-action="copy" data-path="${escapeHtml(localPath)}" title="${escapeHtml(localPath)}">📋 Copy path</button>`;
+                    // SECURITY: thay "Copy path" bằng "+ Thêm hiệu ứng" → auto-create mapping
+                    actionBtn = `<button class="obse-btn primary mini" data-action="add" data-id="${escapeHtml(lua.id)}" title="Tự tạo mapping cho gift — không lộ path">+ Thêm</button>`;
                 }
                 row.innerHTML = `
                     <div class="obse-lua-row-icon">${lua.icon || '📜'}</div>
@@ -4499,8 +4519,8 @@
             $luaList.querySelectorAll('button[data-action="dl"]').forEach(b => {
                 b.addEventListener('click', () => doLuaDownload(b.dataset.id));
             });
-            $luaList.querySelectorAll('button[data-action="copy"]').forEach(b => {
-                b.addEventListener('click', () => copyTextToClipboard(b.dataset.path));
+            $luaList.querySelectorAll('button[data-action="add"]').forEach(b => {
+                b.addEventListener('click', () => doLuaAddToMapping(b.dataset.id));
             });
             // Enable "Download all" if có ít nhất 1 missing/outdated
             const hasMissingOrOutdated = luas.some(l => l.status === 'missing' || l.status === 'outdated');
@@ -4540,6 +4560,19 @@
         // Initial fetch khi view active
         fetchLuaSyncStatus();
 
+        // ===== Persist collapse state (localStorage) =====
+        const persistCollapse = (id, key) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const stored = localStorage.getItem(key);
+            if (stored !== null) el.open = stored === 'true';
+            el.addEventListener('toggle', () => {
+                localStorage.setItem(key, String(el.open));
+            });
+        };
+        persistCollapse('obse-lua-sync-details', 'obse-lua-collapse');
+        persistCollapse('obse-bgremoval-details', 'obse-bg-collapse');
+
         // ====== Background Removal helper ======
         function setBgStatus(state, text) {
             // state: 'installed' | 'missing' | 'checking' | 'unknown'
@@ -4551,6 +4584,12 @@
             if (iconEl) iconEl.textContent = icons[state] || '❓';
             if (textEl) textEl.textContent = text || '';
             $bgStatus.className = 'obse-bgremoval-status ' + (colors[state] || '');
+            // Also update summary icon (visible even when collapsed)
+            const summaryIcon = document.getElementById('obse-bgremoval-summary-icon');
+            if (summaryIcon) {
+                summaryIcon.textContent = icons[state] || '❓';
+                summaryIcon.className = 'obse-bgremoval-summary-icon ' + (colors[state] || '');
+            }
         }
         if ($btnCheckBg) $btnCheckBg.addEventListener('click', async () => {
             setBgStatus('checking', 'Đang kiểm tra qua OBS WebSocket...');

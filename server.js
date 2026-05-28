@@ -5819,6 +5819,60 @@ app.put('/api/lua-sync/config', express.json(), (req, res) => {
     res.json({ ok: true, config: appConfig.luaSync });
 });
 
+// POST /api/lua-sync/add-to-mapping — tự tạo mapping entry cho LUA đã tải
+// Body: { luaId, group? }
+// SECURITY: KHÔNG expose path, chỉ tạo entry với hotkey + actionName + cooldown
+app.post('/api/lua-sync/add-to-mapping', express.json(), (req, res) => {
+    const luaId = String(req.body?.luaId || '').trim();
+    const group = String(req.body?.group || '📚 LUA Effects').trim().slice(0, 40);
+    if (!luaId) return res.status(400).json({ ok: false, error: 'Thiếu luaId' });
+
+    const state = luaSync.getFullState();
+    const lua = state.luas.find(l => l.id === luaId);
+    if (!lua) return res.status(404).json({ ok: false, error: 'LUA không có trong manifest' });
+    if (lua.status !== 'latest') {
+        return res.status(400).json({ ok: false, error: 'LUA chưa tải về — bấm Tải trước rồi thử lại' });
+    }
+    if (!lua.hotkey) {
+        return res.status(400).json({ ok: false, error: 'LUA thiếu hotkey trong manifest — không thể tạo mapping' });
+    }
+
+    if (!appConfig.obsBridge) appConfig.obsBridge = {};
+    if (!Array.isArray(appConfig.obsBridge.mapping)) appConfig.obsBridge.mapping = [];
+
+    // Check duplicate (cùng hotkey + chưa có giftId)
+    const existingEmpty = appConfig.obsBridge.mapping.find(
+        m => m.hotkey === lua.hotkey && (!m.giftId || m.giftId === '')
+    );
+    if (existingEmpty) {
+        return res.json({
+            ok: true,
+            duplicate: true,
+            mapping: existingEmpty,
+            message: `⚠ Đã có mapping trống cho "${lua.name}" — chọn quà cho nó thay vì tạo mới`
+        });
+    }
+
+    const newMapping = {
+        id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        giftId: '',                       // user picks gift later
+        giftName: '',
+        giftImage: '',
+        actionName: lua.name || lua.id,
+        hotkey: lua.hotkey,
+        cooldownMs: Math.max(0, Number(lua.durationMs) || 0),
+        group: group,
+        enabled: true
+    };
+    appConfig.obsBridge.mapping.push(newMapping);
+    saveAppConfig();
+    res.json({
+        ok: true,
+        mapping: newMapping,
+        message: `✓ Đã thêm "${lua.name}" vào Mapping → giờ chỉ chọn quà`
+    });
+});
+
 // POST /api/lua-sync/open-folder — mở folder cache trong Windows Explorer
 app.post('/api/lua-sync/open-folder', (req, res) => {
     try {
