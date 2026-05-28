@@ -6023,25 +6023,53 @@ async function bgInstallDoInstall() {
             throw new Error('Cấu trúc zip lạ — không tìm thấy folder "obs-backgroundremoval/"');
         }
 
-        // 5. Copy to per-user OBS plugin dir (KHÔNG cần admin)
+        // 5. Copy vào %PROGRAMDATA%\obs-studio\plugins\ (OBS official path)
+        // ★ FIX v1.2.1: %APPDATA% KHÔNG ĐÚNG — OBS đọc plugin từ %PROGRAMDATA%
         const obsPluginDir = path.join(
+            process.env.PROGRAMDATA || 'C:\\ProgramData',
+            'obs-studio', 'plugins', 'obs-backgroundremoval'
+        );
+
+        // ★ Cleanup old WRONG install ở %APPDATA% (do v1.2.0 cài sai)
+        const oldAppDataPath = path.join(
             process.env.APPDATA || osmod.homedir(),
             'obs-studio', 'plugins', 'obs-backgroundremoval'
         );
+        try {
+            if (fsmod.existsSync(oldAppDataPath)) {
+                fsmod.rmSync(oldAppDataPath, { recursive: true, force: true });
+                console.log('[bg-install] Cleaned up wrong install ở %APPDATA% (legacy v1.2.0)');
+            }
+        } catch (e) {
+            console.log('[bg-install] Old %APPDATA% cleanup warn:', e.message);
+        }
+
         io.emit('bgInstall:progress', { phase: 'copy', percent: 70, message: `Copy vào ${obsPluginDir}...` });
-        // Remove old install nếu có
+        // Remove old install nếu có (ở vị trí mới)
         try {
             if (fsmod.existsSync(obsPluginDir)) {
                 fsmod.rmSync(obsPluginDir, { recursive: true, force: true });
-                console.log('[bg-install] Removed old plugin install');
+                console.log('[bg-install] Removed previous plugin install');
             }
         } catch (e) {
             console.log('[bg-install] Old plugin remove FAIL:', e.message);
         }
-        // Copy bin + data
-        fsmod.mkdirSync(obsPluginDir, { recursive: true });
-        await bgInstallCopyRecursive(path.join(srcRoot, 'bin'), path.join(obsPluginDir, 'bin'));
-        await bgInstallCopyRecursive(path.join(srcRoot, 'data'), path.join(obsPluginDir, 'data'));
+        // Copy bin + data — có thể cần admin nếu ProgramData lock down
+        try {
+            fsmod.mkdirSync(obsPluginDir, { recursive: true });
+        } catch (e) {
+            throw new Error(`Không tạo được folder ${obsPluginDir}. Có thể cần Admin: ${e.message}`);
+        }
+        try {
+            await bgInstallCopyRecursive(path.join(srcRoot, 'bin'), path.join(obsPluginDir, 'bin'));
+            await bgInstallCopyRecursive(path.join(srcRoot, 'data'), path.join(obsPluginDir, 'data'));
+        } catch (e) {
+            // Quyền ghi vào ProgramData có thể bị deny → báo rõ cho user
+            if (e.code === 'EPERM' || e.code === 'EACCES') {
+                throw new Error(`Không có quyền ghi vào ${obsPluginDir}. Chạy HP Action LIVE bằng Admin rồi thử lại.`);
+            }
+            throw e;
+        }
 
         // 6. Verify .dll exists
         const dllPath = path.join(obsPluginDir, 'bin', '64bit', 'obs-backgroundremoval.dll');

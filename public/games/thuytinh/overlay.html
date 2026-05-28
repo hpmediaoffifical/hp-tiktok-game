@@ -6,7 +6,13 @@
 <link rel="icon" href="/favicon.ico" type="image/x-icon" />
 <link rel="stylesheet" href="/style.css" />
 <style>
-    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; }
+    html, body {
+        margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden;
+        /* HTML text (jar-count) rasterize chuẩn hình học → không bị pixel-snap mờ */
+        text-rendering: geometricPrecision;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
     #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; }
     #content {
         position: absolute;
@@ -17,12 +23,34 @@
         background: transparent;
         /* container-type cho phép cqw units → khớp app preview ↔ OBS overlay */
         container-type: inline-size;
+        /* GPU layer promotion: render trên compositor layer riêng (không pixel-snap),
+           browser dùng bilinear filter chất lượng cao thay vì nearest. Quan trọng khi
+           OBS Browser Source kích thước khác 1080×1920 → scale mượt, không răng cưa. */
+        will-change: transform;
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
     }
-    #content img.jar-bottom, #content img.jar-glass { position: absolute; pointer-events: none; }
+    /* image-rendering: high-quality → browser dùng bicubic/Lanczos thay vì bilinear
+       mặc định khi resize jar PNG (1024×1536 → 1080×1920 container). Kết hợp HD render
+       của canvas (xem game.js), tổng thể overlay nét rõ hơn trên OBS Browser Source. */
+    #content img.jar-bottom, #content img.jar-glass {
+        position: absolute; pointer-events: none;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: high-quality;
+    }
     #content img.jar-bottom { z-index: 2; }
-    #content #game-canvas { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; }
+    #content #game-canvas {
+        position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%;
+        /* Browser downsample canvas 3240×5760 → display 1080×1920 dùng filter cao cấp */
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: high-quality;
+    }
     #content img.jar-glass { z-index: 4; }
-    #content #fx-canvas { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; pointer-events: none; }
+    #content #fx-canvas {
+        position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; pointer-events: none;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: high-quality;
+    }
     #content .stage-overlays { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
     .jar-count {
         position: absolute; z-index: 7;

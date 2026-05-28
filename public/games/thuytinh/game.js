@@ -451,6 +451,28 @@
         const ctx = canvas.getContext('2d');
         const fxCanvas = opts.fxCanvas || null;
         const fxCtx = fxCanvas ? fxCanvas.getContext('2d') : null;
+        // === HD render (3× supersampling — "nét nhất có thể") ===
+        // Canvas backing-store gấp 3× kích thước hiển thị → text/đường vẽ rasterize ở
+        // 3240×5760 rồi browser downsample 3:1 về 1080×1920 → cực nét, anti-alias chất
+        // lượng cao (oversample 9 pixel/pixel hiển thị).
+        // FIX cho user feedback v1.2.0: overlay lên TikTok Live bị mờ vì backing-store
+        // cố định 1080×1920 đi qua nhiều lần re-scale (OBS encoder → TikTok server →
+        // thiết bị viewer). Drawing logic vẫn dùng coord 1080×1920 logic (CANVAS_W × CANVAS_H);
+        // ctx.scale(HD, HD) áp dụng 1 lần — mọi fillText/drawImage không cần đổi.
+        // Memory: 3240×5760×4byte = ~75MB/canvas × 2 (main + fx) = ~150MB. OK với PC modern.
+        const HD = Math.max(window.devicePixelRatio || 1, 3);
+        canvas.width = CANVAS_W * HD;
+        canvas.height = CANVAS_H * HD;
+        ctx.scale(HD, HD);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        if (fxCanvas && fxCtx) {
+            fxCanvas.width = CANVAS_W * HD;
+            fxCanvas.height = CANVAS_H * HD;
+            fxCtx.scale(HD, HD);
+            fxCtx.imageSmoothingEnabled = true;
+            fxCtx.imageSmoothingQuality = 'high';
+        }
         const jarBottomEl = opts.jarBottomEl;
         const jarGlassEl = opts.jarGlassEl;
         const countDisplay = opts.countDisplay || null;

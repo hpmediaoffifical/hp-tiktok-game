@@ -5,7 +5,14 @@
 <title>HP Caro LIVE — OBS Overlay</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon" />
 <style>
-    html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+    html, body {
+        margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; overflow: hidden;
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        /* HTML text (popout chip) — rasterize chuẩn hình học, không bị pixel-snap mờ */
+        text-rendering: geometricPrecision;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
     #stage { position: fixed; inset: 0; background: transparent; overflow: hidden; }
     #content {
         position: absolute;
@@ -15,8 +22,18 @@
         width: 1080px; height: 1920px;
         background: transparent;
         transition: top 0.25s ease, left 0.25s ease, transform 0.25s ease;
+        /* GPU layer promotion → bilinear filter chất lượng cao khi OBS scale khác
+           1080×1920 → không pixel-snap, không răng cưa, hỗ trợ HD canvas bên trong. */
+        will-change: transform;
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
     }
-    #content canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #content canvas {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        /* Khi browser downsample canvas 3240×5760 → 1080×1920 → dùng filter chất lượng cao */
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: high-quality;
+    }
     .debug-pill {
         position: fixed; bottom: 8px; left: 8px;
         background: rgba(0,0,0,0.5);

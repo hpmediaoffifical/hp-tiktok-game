@@ -388,10 +388,18 @@
             ctx.restore();
         }
 
-        // --- Pixel sizing ---
-        canvas.width = STAGE_W;
-        canvas.height = STAGE_H;
+        // --- Pixel sizing (HD render / 3× supersampling — "nét nhất có thể") ---
+        // Backing-store gấp 3× kích thước hiển thị (STAGE_W × STAGE_H) → text + đường
+        // vẽ rasterize ở 3240×5760 rồi downsample 3:1 về 1080×1920 → cực nét trên OBS
+        // Browser Source + TikTok Live (oversample 9 pixel/pixel hiển thị). Drawing
+        // logic vẫn dùng coord STAGE_W × STAGE_H; ctx.scale(HD, HD) áp dụng 1 lần.
+        // pickCell phải dùng STAGE_W/STAGE_H để map mouse đúng.
+        const HD = Math.max(window.devicePixelRatio || 1, 3);
+        canvas.width = STAGE_W * HD;
+        canvas.height = STAGE_H * HD;
+        ctx.scale(HD, HD);
         ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
         // Cursor preview (hover) — chỉ app preview, không bật ở OBS
         let hover = null;
@@ -413,8 +421,11 @@
 
         function pickCell(ev) {
             const rect = canvas.getBoundingClientRect();
-            const sx = canvas.width / rect.width;
-            const sy = canvas.height / rect.height;
+            // Dùng STAGE_W/STAGE_H (logical space) thay vì canvas.width/height vì
+            // backing-store giờ là STAGE_W × HD (xem HD render setup ở trên). pixelToCell
+            // expect coord trong logical space.
+            const sx = STAGE_W / rect.width;
+            const sy = STAGE_H / rect.height;
             const px = (ev.clientX - rect.left) * sx;
             const py = (ev.clientY - rect.top) * sy;
             return pixelToCell(px, py);
