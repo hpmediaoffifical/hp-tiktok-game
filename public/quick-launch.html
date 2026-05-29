@@ -889,11 +889,19 @@
                 } catch (_) {}
             }, 90);
         }
-        let curLayout = localStorage.getItem(LAYOUT_KEY) === 'ngang' ? 'ngang' : 'doc';
-        applyLayout(curLayout);   // áp tạm theo localStorage để không nháy
-        // Nguồn CHUẨN: chế độ lưu trong prefs Electron (bền qua các lần mở, đồng bộ với vị trí cửa sổ)
+        // Nguồn CHUẨN: query param ?layout=... do Electron truyền lúc mở (đọc đồng bộ, không race IPC).
+        // Fallback: localStorage. → mở lại luôn đúng chế độ đã lưu, không tự về Dọc.
+        const _qpLayout = new URLSearchParams(location.search).get('layout');
+        let curLayout = (_qpLayout === 'ngang' || _qpLayout === 'doc')
+            ? _qpLayout
+            : (localStorage.getItem(LAYOUT_KEY) === 'ngang' ? 'ngang' : 'doc');
+        localStorage.setItem(LAYOUT_KEY, curLayout);
+        applyLayout(curLayout);
+        // Backup: nếu Electron còn gửi initLayout qua IPC thì vẫn áp (phòng trường hợp khác)
         ipc?.onInitLayout?.((mode) => {
-            curLayout = mode === 'ngang' ? 'ngang' : 'doc';
+            const m = mode === 'ngang' ? 'ngang' : 'doc';
+            if (m === curLayout) return;
+            curLayout = m;
             localStorage.setItem(LAYOUT_KEY, curLayout);
             applyLayout(curLayout);
         });

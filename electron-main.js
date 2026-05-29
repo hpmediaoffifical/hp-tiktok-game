@@ -599,7 +599,8 @@ function openQuickLaunchWindow() {
         opts.x = prefs.x; opts.y = prefs.y;
     }
     quickLaunchWindow = new BrowserWindow(opts);
-    quickLaunchWindow.loadURL(`${APP_URL}/quick-launch`);
+    // Truyền chế độ bố cục qua QUERY PARAM → renderer đọc đồng bộ lúc load (không bị race như IPC).
+    quickLaunchWindow.loadURL(`${APP_URL}/quick-launch?layout=${prefs.layout === 'ngang' ? 'ngang' : 'doc'}`);
     quickLaunchWindow.once('ready-to-show', () => {
         // Báo renderer biết trạng thái Pin lúc khởi tạo để sync UI nút 📌
         try { quickLaunchWindow.webContents.send('quick-launch:initPin', opts.alwaysOnTop); } catch {}
