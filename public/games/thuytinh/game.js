@@ -5198,8 +5198,27 @@
         }
 
         // ===== Render =====
+        // App preview có thể TẮT render (🙈 Ẩn preview) để giảm lag. Physics (Runner) VẪN chạy nên
+        // app vẫn là authoritative → hiệu ứng gửi sang OBS KHÔNG đổi; chỉ ngừng vẽ canvas HD (3240×5760)
+        // vốn là nguồn tốn CPU nhất trong app. OBS overlay là instance riêng, không gọi hàm này.
+        let renderActive = true;
+        function setRenderActive(on) {
+            on = !!on;
+            if (on === renderActive) return;
+            renderActive = on;
+            if (on) {
+                // Bật lại → re-kick cả 2 vòng RAF
+                requestAnimationFrame(render);
+                requestAnimationFrame(renderFx);
+            } else {
+                // Tắt → xóa frame cuối cho sạch (canvas thường đã display:none nhưng vẫn clear cho chắc)
+                try { ctx.clearRect(0, 0, CANVAS_W, CANVAS_H); } catch (e) {}
+                try { if (fxCtx) fxCtx.clearRect(0, 0, CANVAS_W, CANVAS_H); } catch (e) {}
+            }
+        }
         const CULL_BELOW_Y = CANVAS_H + 2000; // bodies stack ở floor (CANVAS_H+12) — safety net cho bug fall-through hiếm gặp
         function render() {
+            if (!renderActive) return;   // preview tắt → dừng vòng vẽ (resume qua setRenderActive(true))
             ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
             // Khi hũ bị trộm, không vẽ bodies (tạo cảm giác hũ + quà cùng biến mất)
             if (jarStolen) { requestAnimationFrame(render); return; }
@@ -5241,6 +5260,7 @@
             requestAnimationFrame(render);
         }
         function renderFx() {
+            if (!renderActive) return;   // preview tắt → dừng vòng vẽ hiệu ứng
             if (!fxCtx) { requestAnimationFrame(renderFx); return; }
             fxCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
             if (zigzagLuck.active && zigzagLuck.rect) {
@@ -5601,6 +5621,7 @@
 
         return {
             drop, shake, clearAll, setConfig, getConfig, getStats, resetSession,
+            setRenderActive,
             getJarRect, setJarPosition,
             triggerThief, triggerOsin, triggerUFO, fxKickJar, fxThrowJar, fxSpinJar, fxOsinKickOut, fxDragonFire, setThiefAppearance, setPoliceAppearance,
             banThief, unbanThief, isThiefBanned, bailUser,

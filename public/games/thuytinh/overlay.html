@@ -372,6 +372,14 @@
             gameEnabled = true;
             syncFromServer();
         });
+
+        // ★ Universal reload — App phát 'overlay:reload' khi mở/bật game (app.js openGame).
+        // Trước đây thuytinh KHÔNG nghe event này → OBS browser source kẹt state cũ, phải vào OBS
+        // Reset (refresh) thủ công mới hiện hũ. Giờ tự location.reload() → reconnect → subscribe →
+        // server đẩy gameConfig + gameStateSnapshot → hũ hiển thị lại tự động, khỏi đụng OBS.
+        socket.on('overlay:reload', (data) => {
+            if (!data || !data.gameId || data.gameId === 'thuytinh') location.reload();
+        });
     })();
     </script>
 </body>

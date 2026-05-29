@@ -283,6 +283,13 @@
     padding: 30px;
   }
   body.overlay-mode .panel{ display: none !important; }
+
+  /* ============ LAB PREVIEW (xem trong app, KHÔNG ?mode=overlay) ============
+     Thu nhỏ khung preview cho gọn. KHÔNG ảnh hưởng overlay OBS vì overlay dùng
+     ?mode=overlay → body.overlay-mode (kích thước/chất lượng riêng, giữ nguyên). */
+  body:not(.overlay-mode) .stage{ min-height: 300px; padding: 18px 12px; overflow: hidden; }
+  body:not(.overlay-mode) .quest-group{ transform: scale(0.58); transform-origin: center center; }
+
   .conn-indicator{
     position: fixed; top: 8px; right: 8px;
     background: rgba(0,0,0,.55); color: #fff;
@@ -626,7 +633,7 @@
         <div class="kpi-table-wrap">
           <table class="kpi-table" id="kpiTable">
             <thead>
-              <tr><th>Lv</th><th>💎 Kim Cương</th><th>❤ Tim</th><th>🔄 Share</th></tr>
+              <tr><th>Lv</th><th>💎 Kim Cương</th><th>💎 Σ Cộng dồn</th><th>❤ Tim</th><th>🔄 Share</th></tr>
             </thead>
             <tbody id="kpiTbody"></tbody>
           </table>
@@ -1104,11 +1111,13 @@ function renderKpiTable(){
     const sClass = cfg.useShare ? "share" : "share muted";
     const d = kpiDia(lv), h = kpiHeart(lv), s = kpiShare(lv);
     tD += d; tH += h; tS += s;
-    tr.innerHTML = `<td>Lv ${lv+1}</td><td class="${dClass}"><b>${fmt(d)}</b></td><td class="${hClass}"><b>${fmt(h)}</b></td><td class="${sClass}"><b>${fmt(s)}</b></td>`;
+    // Cột "Σ Cộng dồn" = tổng KC tích lũy để HOÀN THÀNH level này (tức để lên level kế) →
+    // user nhìn biết cần chuẩn bị bao nhiêu KC. tD đã +d ở trên nên đã gồm level hiện tại.
+    tr.innerHTML = `<td>Lv ${lv+1}</td><td class="${dClass}"><b>${fmt(d)}</b></td><td class="${dClass}"><b>${fmt(tD)}</b></td><td class="${hClass}"><b>${fmt(h)}</b></td><td class="${sClass}"><b>${fmt(s)}</b></td>`;
     tb.appendChild(tr);
   }
   const trTot = document.createElement("tr"); trTot.className = "tot";
-  trTot.innerHTML = `<td><b>Σ Tổng</b></td><td class="dia"><b>${fmt(tD)}</b></td><td class="heart"><b>${fmt(tH)}</b></td><td class="share"><b>${fmt(tS)}</b></td>`;
+  trTot.innerHTML = `<td><b>Σ Tổng</b></td><td class="dia"><b>${fmt(tD)}</b></td><td class="dia">—</td><td class="heart"><b>${fmt(tH)}</b></td><td class="share"><b>${fmt(tS)}</b></td>`;
   tb.appendChild(trTot);
 }
 

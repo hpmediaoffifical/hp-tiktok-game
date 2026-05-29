@@ -6762,16 +6762,29 @@ img.nd-gift-icon { background: #11131a; border-radius: 4px; }
 
 /* Body 2-column layout */
 .obse-body {
-    display: grid !important;
-    grid-template-columns: 320px 1fr;
-    gap: 16px;
-    padding: 16px;
-    align-items: start;
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
 }
+/* Khu Kết nối / LUA Effects / Background Removal: ĐƯA LÊN TRÊN thành dải NGANG 3 thẻ —
+   lấp khoảng trống đầu trang (cạnh "Đã kết nối"), nhường full chiều rộng cho bảng Mapping. */
 .obse-col-left {
-    display: flex; flex-direction: column; gap: 12px;
-    position: sticky; top: 0;
+    display: flex; flex-direction: row; flex-wrap: wrap;
+    gap: 12px; align-items: flex-start;
+    position: static;
 }
+.obse-col-left > .card,
+.obse-col-left > details.card {
+    flex: 1 1 300px; min-width: 0; margin: 0;
+}
+.obse-col-right { width: 100%; min-width: 0; }
+/* Thẻ Kết nối: URL + Password xếp cạnh nhau cho thấp gọn (card giờ rộng hơn) */
+.obse-col-left .obse-form { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
+.obse-col-left .obse-form > .obse-label { flex: 1 1 150px; }
+.obse-col-left .obse-form > .obse-check,
+.obse-col-left .obse-form > .obse-actions,
+.obse-col-left .obse-form > .obse-error { flex: 1 1 100%; }
 .obse-col-left .card,
 .obse-col-right .card {
     background: #131722; border: 1px solid #232936;
@@ -7767,6 +7780,22 @@ details.card > .obse-collapse-body { padding: 0 16px 16px; }
 .obse-toast.error {
     background: linear-gradient(135deg, #7f1d1d, #5f1010);
     border-color: #ef4444;
+}
+/* ★ WARN — toast cảnh báo NỔI BẬT (vd game đang tắt): cam rực, chữ to đậm, viền sáng +
+   glow nhấp nháy để bắt mắt ngay, tránh user bỏ sót. */
+.obse-toast.warn {
+    background: linear-gradient(135deg, #ea580c, #b91c1c);
+    border: 2px solid #fb923c;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 800;
+    padding: 16px 28px;
+    letter-spacing: 0.2px;
+    animation: obse-warn-glow 0.9s ease-in-out infinite;
+}
+@keyframes obse-warn-glow {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(251,146,60,0.30), 0 12px 34px rgba(0,0,0,0.6); }
+    50%      { box-shadow: 0 0 0 7px rgba(251,146,60,0.60), 0 14px 44px rgba(0,0,0,0.75); }
 }
 
 /* ====== Queue pill in header ====== */

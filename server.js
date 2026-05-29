@@ -292,7 +292,7 @@ function makeDefaultNhietDoConfig() {
     // Default values curated từ setup thực tế của HP Media (v1.0.99+)
     return {
         enabled: true,
-        sessionActive: true,
+        sessionActive: false,        // mặc định DỪNG — phải bấm ▶ Bắt đầu mới chạy (tránh "tự đang chạy")
         heatMode: 'perCoin',         // perCoin = an toàn cho fresh install (mọi quà đều +°)
         perCoinDegrees: 0.1,         // user-curated: 1 xu = 0.1°
         perGiftDegrees: 5,
@@ -350,7 +350,7 @@ function makeDefaultBanCungConfig() {
     // Default values curated từ setup thực tế của HP Media (v1.0.99+)
     return {
         enabled: true,
-        sessionActive: true,
+        sessionActive: false,        // mặc định DỪNG — phải bấm ▶ Bắt đầu mới chạy (tránh "tự đang chạy")
         // ===== HP =====
         maxHearts: 10,
         initialHearts: 10,
@@ -517,6 +517,7 @@ const appConfig = loadAppConfig();
 // License-gated: chỉ trigger nếu license activated.
 if (!appConfig.obsBridge) {
     appConfig.obsBridge = {
+        enabled: true,          // master ON/OFF "Hiệu ứng OBS" (đồng bộ với toggle ở 🎮 Thư viện Game)
         url: 'ws://localhost:4455',
         password: '',
         autoConnect: false,
@@ -527,6 +528,10 @@ if (!appConfig.obsBridge) {
 // Backward-compat: thêm groupsDisabled nếu config cũ chưa có
 if (!Array.isArray(appConfig.obsBridge.groupsDisabled)) {
     appConfig.obsBridge.groupsDisabled = [];
+}
+// Backward-compat: config cũ chưa có cờ master → mặc định BẬT
+if (typeof appConfig.obsBridge.enabled !== 'boolean') {
+    appConfig.obsBridge.enabled = true;
 }
 
 // ====== LUA Duration Registry ======
@@ -585,6 +590,11 @@ const OBS_QUEUE_KEY = '__global__';
 
 function obsBridgeEnqueueForGift(giftId, repeatCount, opts = {}) {
     if (!giftId) return { enqueued: 0, reason: 'no-gift-id' };
+    // ⛔ Master OFF: "Hiệu ứng OBS" đã TẮT trong 🎮 Thư viện Game → KHÔNG nhận quà, không trigger
+    // bất kỳ effect nào (kể cả quà test). Đây là cổng chặn chính ở server.
+    if (appConfig.obsBridge && appConfig.obsBridge.enabled === false) {
+        return { enqueued: 0, reason: 'obs-effects-disabled' };
+    }
     const mapping = (appConfig.obsBridge && appConfig.obsBridge.mapping) || [];
     const match = mapping.find(m => String(m.giftId) === String(giftId));
     if (!match || !match.hotkey) return { enqueued: 0, reason: 'no-mapping' };
@@ -881,6 +891,11 @@ if (appConfig.games.bancung) {
 if (appConfig.games.nhietdo) {
     const def = makeDefaultNhietDoConfig();
     appConfig.games.nhietdo.display = { ...def.display, ...(appConfig.games.nhietdo.display || {}) };
+}
+// Mỗi lần mở app → các game có "phiên" (session) về DỪNG, buộc bấm ▶ Bắt đầu mới chạy.
+// Khắc phục triệu chứng popup Khởi động nhanh "tự hiển thị Đang chạy" do config cũ lưu sessionActive:true.
+for (const gId of ['nhietdo', 'bancung']) {
+    if (appConfig.games[gId]) appConfig.games[gId].sessionActive = false;
 }
 appConfig.liveTranslate = {
     ...DEFAULT_LIVE_TRANSLATE_CONFIG,
@@ -2712,45 +2727,69 @@ function isRetryableTikTokConnectError(err) {
 
 function normalizeTikTokConnectError(err, attempts = []) {
     const msg = String(err?.message || err || 'connect_failed');
+    const tried = attempts.length ? ` (đã tự thử lại ${attempts.length} lần)` : '';
     if (/unexpected server response:\s*200/i.test(msg)) {
-        return 'TikTok trả HTTP 200 thay vì nâng cấp WebSocket. Thường do TikTok/sign-server đổi route tạm thời hoặc mạng/proxy chặn WebSocket. App đã thử fallback nhưng vẫn chưa kết nối được, hãy thử lại sau vài giây.';
+        return `TikTok trả HTTP 200 thay vì nâng cấp WebSocket — thường do sign-server (EulerStream) bị giới hạn lượt hoặc route TikTok chập chờn tạm thời${tried}. Hãy đợi ~30–60 giây rồi kết nối lại. Nếu bị thường xuyên, đặt EulerStream API key (biến môi trường TIKTOK_SIGN_API_KEY — lấy free tại eulerstream.com) để ký ổn định.`;
     }
-    if (/websocket not responding/i.test(msg)) return 'WebSocket TikTok không phản hồi trong thời gian chờ. Hãy thử kết nối lại.';
+    if (/websocket not responding/i.test(msg)) return `WebSocket TikTok không phản hồi trong thời gian chờ${tried}. Hãy thử kết nối lại sau ít giây.`;
     if (attempts.length > 1) return `${msg} (đã thử ${attempts.length} đường kết nối)`;
     return msg;
 }
 
+// EulerStream sign-server API key (TÙY CHỌN) — set để ký WebSocket ổn định, tránh lỗi "HTTP 200"
+// do tier ẩn danh bị rate-limit. Lấy free key tại https://www.eulerstream.com
+function getTikTokSignApiKey() {
+    return process.env.TIKTOK_SIGN_API_KEY
+        || process.env.EULER_API_KEY
+        || appConfig.tiktokSignApiKey
+        || null;
+}
+
 async function createTikTokConnectionWithFallback(username) {
+    const signApiKey = getTikTokSignApiKey();
+    const mk = (extra = {}) => makeTikTokConnectOptions({ ...(signApiKey ? { signApiKey } : {}), ...extra });
+    // Lỗi "unexpected server response: 200" / "websocket not responding" thường TẠM THỜI (sign-server
+    // ẩn danh bị rate-limit hoặc route TikTok chập chờn). Thử lại nhiều lần với backoff tăng dần →
+    // đa số tự khỏi sau vài giây. Trước đây chỉ thử 1 lần (web) nên user hay dính lỗi.
     const attempts = [
-        { label: 'web', options: makeTikTokConnectOptions() }
+        { label: 'web',         options: mk() },
+        { label: 'web-retry-1', options: mk() },
+        { label: 'uniqueid',    options: mk({ connectWithUniqueId: true }) },
+        { label: 'web-retry-2', options: mk() }
     ];
     if (hasTikTokMobileAuth()) {
         attempts.push(
-            { label: 'web-mobile-sign', options: makeTikTokConnectOptions({ useMobile: true }) },
-            { label: 'uniqueid-mobile-sign', options: makeTikTokConnectOptions({ connectWithUniqueId: true, useMobile: true }) }
+            { label: 'web-mobile-sign',      options: mk({ useMobile: true }) },
+            { label: 'uniqueid-mobile-sign', options: mk({ connectWithUniqueId: true, useMobile: true }) }
         );
     }
+    // Backoff (ms) trước mỗi lần thử kế tiếp — đủ dài để vượt cửa sổ rate-limit của sign-server.
+    const backoffs = [1500, 3000, 5000, 6000, 6000];
     const errors = [];
     for (let i = 0; i < attempts.length; i++) {
         const attempt = attempts[i];
         const conn = new TikTokLiveConnection(username, attempt.options);
         attachConnectionEvents(conn);
         try {
-            console.log(`[tiktok] Connect attempt ${i + 1}/${attempts.length}: ${attempt.label}`);
+            console.log(`[tiktok] Connect attempt ${i + 1}/${attempts.length}: ${attempt.label}${signApiKey ? ' (signed)' : ''}`);
             const state = await conn.connect();
+            if (i > 0) console.log(`[tiktok] ✓ Kết nối THÀNH CÔNG ở lần thử ${i + 1} (${attempt.label})`);
             return { conn, state, attempt: attempt.label, errors };
         } catch (err) {
             const message = String(err?.message || err || 'connect_failed');
             errors.push({ attempt: attempt.label, message });
             console.warn(`[tiktok] Connect attempt failed (${attempt.label}): ${message}`);
             try { await conn.disconnect(); } catch (e) {}
+            // Lỗi không-thể-retry (user offline, đã kết nối) → dừng ngay; hoặc đã hết lần thử.
             if (!isRetryableTikTokConnectError(err) || i === attempts.length - 1) {
                 const out = new Error(normalizeTikTokConnectError(err, errors));
                 out.cause = err;
                 out.attempts = errors;
                 throw out;
             }
-            await new Promise(resolve => setTimeout(resolve, 900 + i * 700));
+            const wait = backoffs[Math.min(i, backoffs.length - 1)];
+            console.log(`[tiktok] Thử lại sau ${wait}ms...`);
+            await new Promise(resolve => setTimeout(resolve, wait));
         }
     }
 }
@@ -5752,6 +5791,7 @@ try {
 app.get('/api/obs-bridge/config', (req, res) => {
     const cfg = appConfig.obsBridge || {};
     res.json({
+        enabled: cfg.enabled !== false,
         url: cfg.url || '',
         password: cfg.password || '',
         autoConnect: !!cfg.autoConnect,
@@ -6322,6 +6362,7 @@ app.post('/api/obs-bridge/queue/simulate-gift', express.json(), (req, res) => {
 app.put('/api/obs-bridge/config', express.json(), (req, res) => {
     const body = req.body || {};
     if (!appConfig.obsBridge) appConfig.obsBridge = {};
+    if (typeof body.enabled === 'boolean') appConfig.obsBridge.enabled = body.enabled;
     if (typeof body.url === 'string') appConfig.obsBridge.url = body.url.trim();
     if (typeof body.password === 'string') appConfig.obsBridge.password = body.password;
     if (typeof body.autoConnect === 'boolean') appConfig.obsBridge.autoConnect = body.autoConnect;

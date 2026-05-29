@@ -64,8 +64,13 @@
                 const nowHidden = gameBody.classList.contains('preview-hidden');
                 localStorage.setItem('hp-thuytinh-preview-hidden', String(nowHidden));
                 updateUI();
+                // ẨN preview → DỪNG vẽ quà + hiệu ứng trong app (giảm lag thật sự). Physics vẫn chạy
+                // nên OBS overlay KHÔNG bị ảnh hưởng. HIỆN lại → vẽ tiếp từ state hiện tại.
+                if (gameInstance && currentGame?.id === 'thuytinh') {
+                    try { gameInstance.setRenderActive(!nowHidden); } catch (e) {}
+                }
                 if (typeof toast === 'function') {
-                    toast(nowHidden ? '🙈 Đã ẨN preview (giảm lag)' : '👁 Đã HIỆN preview', 'info', 1800);
+                    toast(nowHidden ? '🙈 Đã ẨN preview — dừng vẽ quà/hiệu ứng trong app (OBS vẫn chạy)' : '👁 Đã HIỆN preview', 'info', 2200);
                 }
             });
         }
@@ -413,6 +418,16 @@
             virtual: true,
             config: { enabled: localStorage.getItem('hp-obs-effects-enabled') !== 'false' }
         });
+        // ★ Đẩy trạng thái master obs-effects (theo UI/localStorage) lên server NGAY khi khởi động —
+        // server là nơi gate quà. Sửa drift của user đã tắt từ trước (localStorage=false nhưng server
+        // mặc định true → trước đây vẫn nhận quà dù UI hiện tắt).
+        try {
+            const obsOn = localStorage.getItem('hp-obs-effects-enabled') !== 'false';
+            fetch('/api/obs-bridge/config', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: obsOn })
+            }).catch(() => {});
+        } catch (e) {}
         renderGameList();
         renderHomeGrid();
         renderQuickLaunch();
@@ -453,6 +468,14 @@
                     localStorage.setItem(lsKey, next ? 'true' : 'false');
                     if (g.config) g.config.enabled = next;
                     updateQuickLaunchCardState(g.id);
+                    // ★ obs-effects: trạng thái bật/tắt PHẢI lên server vì việc nhận quà/trigger effect
+                    // chạy ở server. Không đẩy lên → tắt UI nhưng server vẫn enqueue (bug cũ).
+                    if (g.id === 'obs-effects') {
+                        fetch('/api/obs-bridge/config', {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ enabled: next })
+                        }).catch(() => {});
+                    }
                     // Side effects khi tắt — chỉ áp dụng cho liveTranslate (giữ behavior cũ)
                     if (!next && g.id === 'liveTranslate') {
                         if (ltEnabled) ltEnabled.checked = false;
@@ -934,6 +957,13 @@
         }
 
         startStateSync();
+
+        // Đồng bộ render với nút 🙈 Ẩn preview: đang ẩn → tắt vẽ canvas trong app (giảm lag),
+        // physics vẫn chạy nên OBS không đổi. Áp mỗi lần mở game phòng khi state đổi giữa các lần.
+        try {
+            const previewHidden = document.querySelector('#view-thuytinh .game-body')?.classList.contains('preview-hidden');
+            gameInstance.setRenderActive?.(!previewHidden);
+        } catch (e) {}
     }
 
     // ===== Định kỳ push state lên server (overlay nhận realtime) =====
@@ -1967,6 +1997,9 @@
 
     function appendGiftEvent(g) {
         if (!dom.giftStreamEl) return;
+        // Quà TEST/preview (bấm thử từ DANH SÁCH QUÀ) → KHÔNG ghi vào "🎁 Quà nhận từ LIVE".
+        // Danh sách này chỉ dành cho quà THẬT từ viewer. (Quà test vẫn rơi vào hũ để test.)
+        if (g.source === 'test') return;
         const sheet = giftMap[String(g.giftId)];
         const item = document.createElement('div');
         item.className = 'gift-event';
@@ -2003,9 +2036,22 @@
         dom.giftStreamEl.scrollTop = dom.giftStreamEl.scrollHeight;
     }
 
+    // Toast "game đang TẮT" — throttle 2.5s để quà về dồn dập không spam.
+    let _thuyDisabledToastTs = 0;
+    function notifyThuyDisabled() {
+        const now = Date.now();
+        if (now - _thuyDisabledToastTs < 2500) return;
+        _thuyDisabledToastTs = now;
+        if (typeof toast === 'function') {
+            toast('🫙 HŨ THỦY TINH ĐANG TẮT — bật ở 🎮 Thư viện Game để quà rơi vào hũ', 'warn', 3500);
+        }
+    }
     function spawnInGame(g) {
         if (!gameInstance) return;
-        if (currentGame?.id === 'thuytinh' && currentGame.config?.enabled === false) return;
+        if (currentGame?.id === 'thuytinh' && currentGame.config?.enabled === false) {
+            notifyThuyDisabled();   // thả tay từ danh sách quà khi game tắt
+            return;
+        }
         const sheet = giftMap[String(g.giftId)];
         gameInstance.drop({
             giftId: String(g.giftId),
@@ -3059,7 +3105,13 @@
         // Cũng spawn vào preview thực (overlay nhận qua room 'overlay').
         // Gate: nếu game hiện tại đang TẮT trong Thư viện → KHÔNG spawn (tránh quà rơi vào hũ
         // khi user đã tắt). Áp dụng cho mọi game có field enabled.
-        if (currentGame && currentGame.config?.enabled !== false) spawnInGame(g);
+        if (currentGame && currentGame.config?.enabled !== false) {
+            spawnInGame(g);
+        } else if (currentGame?.id === 'thuytinh') {
+            // Quà THẬT/TEST tới khi Hũ đang TẮT → quà bị chặn ở đây (trước spawnInGame) nên
+            // toast trong spawnInGame không chạy. Báo trực tiếp tại điểm chặn này.
+            notifyThuyDisabled();
+        }
     });
     socket.on('gameGift', (g) => {
         // tin từ server đẩy cho preview/overlay — preview cũng đã xử lý qua 'gift' event
@@ -4305,11 +4357,15 @@
                 toastEl.className = 'obse-toast';
                 document.body.appendChild(toastEl);
             }
-            toastEl.className = 'obse-toast show ' + (kind === 'error' ? 'error' : kind === 'success' ? 'success' : '');
+            toastEl.className = 'obse-toast show ' + (kind === 'error' ? 'error' : kind === 'success' ? 'success' : kind === 'warn' ? 'warn' : '');
             toastEl.textContent = msg;
             clearTimeout(toastEl._t);
             toastEl._t = setTimeout(() => { toastEl.classList.remove('show'); }, durationMs);
         }
+        // ★ FIX: export toast ra global. Trước đây toast bị nhốt trong IIFE setupOBSEffectsView
+        // → mọi chỗ gọi `if (typeof toast === 'function')` (đổi 4K, ẩn preview, báo game tắt...)
+        // đều thấy undefined → KHÔNG toast nào hiện. Giờ bare `toast` resolve được toàn app.
+        try { window.toast = toast; } catch (e) {}
 
         // Gift picker modal elements
         const $gpModal  = document.getElementById('obse-gift-modal');

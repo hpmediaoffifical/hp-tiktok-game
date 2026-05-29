@@ -254,6 +254,57 @@
     }
     .ql-btn-reset:hover { background: #4a5470; }
 
+    /* ===== Bố cục danh sách game — mỗi game = 1 ô độc lập, LUÔN 1 game/hàng (giống taskbar) ===== */
+    #grid { display: flex; flex-direction: column; gap: 8px; }
+    /* Card gọn — bo sát viền trên/dưới. DỌC: 1 HÀNG NGANG (icon+tên bên trái, nút dồn PHẢI) → hết trống */
+    .ql-card { padding: 7px 9px; gap: 8px; flex-direction: row; align-items: center; }
+    .ql-card-head { flex: 1 1 auto; min-width: 0; }
+    .ql-card-actions { flex: 0 0 auto; }
+    /* Tên dài (vd Dịch Thuật LIVE) → 1 dòng + "…", trạng thái cũng 1 dòng → ô đều nhau */
+    .ql-card-meta { min-width: 0; }
+    .ql-card-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ql-card-state { min-width: 0; }
+    .ql-card-state .state-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* DỌC: nút ▶/⏸ NGẮN lại (không kéo full ngang) cho gọn — như ảnh mẫu */
+    .ql-card-actions { display: flex; gap: 6px; align-items: center; }
+    .ql-btn-toggle { flex: 0 0 auto; min-width: 58px; padding: 7px 18px; }
+    .ql-btn-reset  { flex: 0 0 auto; }
+
+    /* Ô nhập + nút Kết nối TikTok gọn lại */
+    .conn-input { padding: 6px 9px; }
+    .conn-btn { padding: 6px 12px; }
+
+    /* ===== NGANG: cửa sổ rộng & thấp → Kết nối + các ô game NẰM TRÊN 1 HÀNG NGANG, cuộn ngang ===== */
+    body.layout-ngang main {
+        flex-direction: row; flex-wrap: wrap; align-items: flex-start; align-content: flex-start;
+        gap: 8px; overflow-x: hidden; overflow-y: auto; padding: 10px 12px;
+    }
+    body.layout-ngang .hint { display: none; }
+    /* Kết nối TikTok: cùng hàng với game, NỀN MÀU KHÁC để phân biệt */
+    body.layout-ngang #conn-card {
+        flex: 0 0 230px;
+        background: linear-gradient(135deg, #122031, #16283c);
+        border-color: #2c4a6e;
+    }
+    /* #grid "tàng hình" để các ô game trở thành flex-item của main → WRAP CHUNG với Kết nối,
+       cửa sổ hẹp thì tự xuống hàng (không đè, không tràn ngang). */
+    body.layout-ngang #grid { display: contents; }
+    /* Ô game ĐỀU NHAU, cố định, dạng tile DỌC (icon+tên trên, nút dưới) như ảnh 3 */
+    body.layout-ngang .ql-card {
+        flex: 0 0 150px; width: 150px; overflow: hidden;
+        flex-direction: column; align-items: stretch;
+    }
+    body.layout-ngang .ql-card-head { flex: 0 0 auto; }
+    body.layout-ngang .ql-card-ico { font-size: 19px; }
+    body.layout-ngang .ql-card-name { font-size: 12px; }
+    /* Ngang: nút ▶ lấp đầy bề ngang ô (như ảnh 3) */
+    body.layout-ngang .ql-card-actions { display: grid; grid-template-columns: 1fr auto; }
+    body.layout-ngang .ql-btn-toggle { min-width: 0; padding: 7px 8px; }
+    /* cuộn gọn (khi wrap nhiều hàng vượt chiều cao) */
+    body.layout-ngang main::-webkit-scrollbar { width: 7px; height: 7px; }
+    body.layout-ngang main::-webkit-scrollbar-thumb { background: #2a3046; border-radius: 3px; }
+
     footer {
         flex-shrink: 0;
         padding: 8px 14px;
@@ -373,6 +424,7 @@
     <header>
         <h1>🚀 Khởi động nhanh</h1>
         <div class="actions">
+            <button id="btn-layout" class="hdr-btn" title="Đổi bố cục Dọc / Ngang">⬍</button>
             <button id="btn-settings" class="hdr-btn" title="Cài đặt — chọn game hiển thị">⚙</button>
             <button id="btn-pin" class="hdr-btn is-on" title="Luôn hiện trên cùng (Always on top)"><span class="ico">📌</span><span>Pin</span></button>
             <button id="btn-close" class="hdr-btn" title="Đóng cửa sổ">✕</button>
@@ -757,14 +809,18 @@
 
         function fireAction(g, action) {
             const card = gridEl.querySelector(`.ql-card[data-game-id="${g.id}"]`);
-            const btnSel = { start: '.ql-btn-toggle', stop: '.ql-btn-toggle', reset: '.ql-btn-reset' }[action];
-            const btn = btnSel ? card?.querySelector(btnSel) : null;
+            const isReset = action === 'reset';
+            const btn = card?.querySelector(isReset ? '.ql-btn-reset' : '.ql-btn-toggle');
             if (btn) {
-                const orig = btn.textContent;
-                const flash = { start: '⏳', stop: '⏳', reset: '⏳' }[action];
-                btn.textContent = flash;
+                btn.textContent = '⏳';
                 btn.disabled = true;
-                setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 700);
+                // ⚠ KHÔNG khôi phục lại text cũ — phải vẽ lại theo trạng thái running THẬT.
+                // Trước đây restore `orig` ('⏸') ghi đè icon ▶ mà server vừa cập nhật → icon kẹt ⏸.
+                setTimeout(() => {
+                    btn.disabled = false;
+                    if (isReset) btn.textContent = '↺';   // nút reset cố định icon ↺
+                    else updateCard(g.id);                 // nút toggle: re-render ▶/⏸ theo running[g.id]
+                }, 700);
             }
             socket.emit('quickLaunch:cmd', { gameId: g.id, action });
         }
@@ -793,6 +849,85 @@
         closeBtn.addEventListener('click', () => {
             if (ipc?.close) ipc.close();
             else window.close();
+        });
+
+        // ===== Bố cục Dọc / Ngang =====
+        const layoutBtn = document.getElementById('btn-layout');
+        const LAYOUT_KEY = 'hp-ql-layout';
+        function applyLayout(mode) {
+            const ngang = mode === 'ngang';
+            document.body.classList.toggle('layout-ngang', ngang);
+            if (layoutBtn) {
+                layoutBtn.textContent = ngang ? '⬌' : '⬍';
+                layoutBtn.title = ngang ? 'Đang NGANG — bấm để chuyển Dọc' : 'Đang DỌC — bấm để chuyển Ngang';
+                layoutBtn.classList.toggle('is-on', ngang);
+            }
+            // Resize cửa sổ ÔM SÁT nội dung: đặt bề rộng trước → đo chiều cao thật của card → set lại.
+            // Tự nhỏ nhất khi nội dung 1 dòng, tự to khi card cao hơn (2-3 dòng).
+            const w = ngang ? 760 : 340;
+            const setSize = (ww, hh) => {
+                try { if (ipc?.setSize) ipc.setSize(ww, hh); else window.resizeTo(ww, hh); } catch (_) {}
+            };
+            setSize(w, ngang ? 240 : 600);   // bước 1: đặt bề rộng trước để layout reflow/wrap đúng
+            // bước 2: chờ cửa sổ đổi bề rộng & reflow xong → đo ĐÁY thấp nhất của card thật → fit chiều cao
+            clearTimeout(window.__qlFitTimer);
+            window.__qlFitTimer = setTimeout(() => {
+                try {
+                    const main = document.querySelector('main');
+                    const footer = document.querySelector('footer');
+                    if (!main || !footer) return;
+                    let bottom = 0;
+                    main.querySelectorAll('#conn-card, .ql-card').forEach(el => {
+                        const r = el.getBoundingClientRect();
+                        if (r.height > 0) bottom = Math.max(bottom, r.bottom);
+                    });
+                    if (!bottom) return;
+                    const padB = parseFloat(getComputedStyle(main).paddingBottom || 0) || 0;
+                    let h = Math.round(bottom + padB + footer.offsetHeight + 6);
+                    h = Math.max(150, Math.min(h, 940));   // ôm sát; cap để không tràn màn hình (dọc nhiều game → cuộn)
+                    setSize(w, h);
+                } catch (_) {}
+            }, 90);
+        }
+        let curLayout = localStorage.getItem(LAYOUT_KEY) === 'ngang' ? 'ngang' : 'doc';
+        applyLayout(curLayout);   // áp tạm theo localStorage để không nháy
+        // Nguồn CHUẨN: chế độ lưu trong prefs Electron (bền qua các lần mở, đồng bộ với vị trí cửa sổ)
+        ipc?.onInitLayout?.((mode) => {
+            curLayout = mode === 'ngang' ? 'ngang' : 'doc';
+            localStorage.setItem(LAYOUT_KEY, curLayout);
+            applyLayout(curLayout);
+        });
+        layoutBtn?.addEventListener('click', () => {
+            curLayout = curLayout === 'ngang' ? 'doc' : 'ngang';
+            localStorage.setItem(LAYOUT_KEY, curLayout);
+            ipc?.setLayout?.(curLayout);   // lưu bền vào prefs → mở lại giữ đúng chế độ
+            applyLayout(curLayout);
+        });
+
+        // Khi user KÉO TAY đổi bề rộng → card tự wrap (CSS) → tự đo lại & ôm sát chiều cao (không thừa/đè).
+        // Guard ±8px chống loop (setSize → resize → setSize...).
+        let _qlResizeFit;
+        window.addEventListener('resize', () => {
+            clearTimeout(_qlResizeFit);
+            _qlResizeFit = setTimeout(() => {
+                try {
+                    const main = document.querySelector('main');
+                    const footer = document.querySelector('footer');
+                    if (!main || !footer) return;
+                    let bottom = 0;
+                    main.querySelectorAll('#conn-card, .ql-card').forEach(el => {
+                        const r = el.getBoundingClientRect();
+                        if (r.height > 0) bottom = Math.max(bottom, r.bottom);
+                    });
+                    if (!bottom) return;
+                    const padB = parseFloat(getComputedStyle(main).paddingBottom || 0) || 0;
+                    let h = Math.max(150, Math.min(Math.round(bottom + padB + footer.offsetHeight + 6), 940));
+                    if (Math.abs(h - window.innerHeight) > 8) {
+                        const ww = Math.round(window.outerWidth || window.innerWidth);
+                        if (ipc?.setSize) ipc.setSize(ww, h); else window.resizeTo(ww, h);
+                    }
+                } catch (_) {}
+            }, 160);
         });
 
         // ============================================

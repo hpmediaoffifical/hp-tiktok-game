@@ -234,6 +234,11 @@
             cancelOffline();
             syncFromServer();
         });
+        // ★ Universal reload — App phát 'overlay:reload' khi mở/bật game → OBS source tự refresh,
+        // khỏi phải Reset OBS thủ công.
+        socket.on('overlay:reload', (data) => {
+            if (!data || !data.gameId || data.gameId === 'pktiktok') location.reload();
+        });
         socket.on('disconnect', (reason) => {
             debugEl.textContent = 'disconnected: ' + reason;
             debugEl.classList.remove('hidden');

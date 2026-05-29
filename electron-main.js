@@ -549,7 +549,10 @@ function loadQuickLaunchPrefs() {
     } catch { return {}; }
 }
 let qlSaveTimer = null;
+let qlPendingPatch = {};
 function saveQuickLaunchPrefs(patch) {
+    // GỘP patch đang chờ — tránh patch sau (vd bounds) ghi đè/hủy patch trước (vd layout)
+    qlPendingPatch = { ...qlPendingPatch, ...(patch || {}) };
     // Debounce 250ms — move/resize emit liên tục, tránh ghi disk dồn dập
     if (qlSaveTimer) clearTimeout(qlSaveTimer);
     qlSaveTimer = setTimeout(() => {
@@ -559,8 +562,9 @@ function saveQuickLaunchPrefs(patch) {
             const dir = path.dirname(p);
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
             const cur = loadQuickLaunchPrefs();
-            const next = { ...cur, ...patch };
+            const next = { ...cur, ...qlPendingPatch };
             fs.writeFileSync(p, JSON.stringify(next, null, 2), 'utf8');
+            qlPendingPatch = {};
         } catch (e) { /* swallow */ }
     }, 250);
 }
@@ -571,9 +575,9 @@ function openQuickLaunchWindow() {
     const prefs = loadQuickLaunchPrefs();
     const opts = {
         width: Math.max(320, parseInt(prefs.w, 10) || 380),
-        height: Math.max(360, parseInt(prefs.h, 10) || 560),
+        height: Math.max(150, parseInt(prefs.h, 10) || 560),
         minWidth: 320,
-        minHeight: 360,
+        minHeight: 150,   // cho phép bố cục Ngang thấp gọn (ôm sát card)
         resizable: true,
         maximizable: false,
         fullscreenable: false,
@@ -599,6 +603,8 @@ function openQuickLaunchWindow() {
     quickLaunchWindow.once('ready-to-show', () => {
         // Báo renderer biết trạng thái Pin lúc khởi tạo để sync UI nút 📌
         try { quickLaunchWindow.webContents.send('quick-launch:initPin', opts.alwaysOnTop); } catch {}
+        // Khôi phục chế độ bố cục Dọc/Ngang đã lưu (mặc định 'doc' nếu chưa có)
+        try { quickLaunchWindow.webContents.send('quick-launch:initLayout', prefs.layout === 'ngang' ? 'ngang' : 'doc'); } catch {}
         quickLaunchWindow.show();
     });
     const persistBounds = () => {
@@ -621,6 +627,16 @@ ipcMain.on('quick-launch:setAlwaysOnTop', (e, on) => {
         quickLaunchWindow.setAlwaysOnTop(!!on);
         saveQuickLaunchPrefs({ alwaysOnTop: !!on });
     }
+});
+ipcMain.on('quick-launch:setLayout', (e, mode) => {
+    saveQuickLaunchPrefs({ layout: mode === 'ngang' ? 'ngang' : 'doc' });
+});
+ipcMain.on('quick-launch:setSize', (e, size) => {
+    if (!quickLaunchWindow || quickLaunchWindow.isDestroyed()) return;
+    const w = Math.max(320, Math.round(Number(size?.w) || 0));
+    const h = Math.max(150, Math.round(Number(size?.h) || 0));
+    if (!w || !h) return;
+    try { quickLaunchWindow.setSize(w, h, true); } catch {}
 });
 ipcMain.on('quick-launch:close', () => {
     if (quickLaunchWindow && !quickLaunchWindow.isDestroyed()) quickLaunchWindow.close();
