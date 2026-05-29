@@ -16,6 +16,43 @@
 //   3. Source trong scene → bấm Ctrl+F (Fit to Screen) → tự scale 0.5 về 1080×1920
 //   4. Hũ/text/đồ họa giữ NGUYÊN size như HD nhưng siêu nét
 
+// ══════════════════════════════════════════════════════════════════════════
+// AUTO-RELOAD khi app (server) khởi động lại
+// ──────────────────────────────────────────────────────────────────────────
+// Mục đích: OBS Browser Source giữ nguyên URL, nhưng trang cũ cần load LẠI mỗi
+// lần mở app để: (1) TTS audio autoplay reset → đọc được, (2) lấy config mới.
+// Trước đây user phải vào OBS bấm "Refresh" overlay thủ công. Giờ tự động.
+//
+// CÁCH LÀM (tách biệt tuyệt đối — KHÔNG đụng socket.io của game):
+//   - Server có GET /api/server-bootid → { bootId } (đổi mỗi lần process khởi động).
+//   - Overlay poll endpoint này mỗi vài giây. Nhớ bootId đầu tiên; nếu thấy bootId
+//     KHÁC (app vừa restart xong) → location.reload().
+//   - Server đang restart → fetch lỗi → bỏ qua, thử lại lần sau.
+// Hoàn toàn độc lập với mọi <socket> của từng overlay → không ảnh hưởng game khác.
+(function () {
+    if (typeof fetch !== 'function') return;
+    var seenBootId = null;
+    var reloading = false;
+    var POLL_MS = 4000;
+    function check() {
+        fetch('/api/server-bootid', { cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                var boot = d && d.bootId;
+                if (!boot || reloading) return;
+                if (seenBootId === null) { seenBootId = boot; return; }
+                if (boot !== seenBootId) {
+                    reloading = true;
+                    console.log('[overlay-autoreload] app restart (bootId đổi) → reload overlay');
+                    setTimeout(function () { try { location.reload(); } catch (_) {} }, 400);
+                }
+            })
+            .catch(function () { /* server đang restart / mất kết nối → bỏ qua */ });
+    }
+    check();
+    setInterval(check, POLL_MS);
+})();
+
 (function () {
     var url = new URL(window.location.href);
     var res = (url.searchParams.get('res') || 'hd').toLowerCase();

@@ -247,19 +247,21 @@
                 const done = () => { if (finished) return; finished = true; resolve(); };
 
                 // ===== Path 1: BROWSER TTS (mặc định) =====
-                if (source === 'browser') {
-                    if ('speechSynthesis' in window && hasLocalVoice(speechLang)) {
-                        speakWithBrowser(value, volume, rate, item, speechLang, done);
-                    } else {
-                        // Không có browser voice → skip (KHÔNG fallback remote để tránh phát 2 tiếng)
-                        console.log('[translate-tts] SKIP: source=browser nhưng không có voice cho', speechLang);
-                        done();
-                    }
+                // Chỉ dùng trình duyệt khi máy THỰC SỰ có giọng cho ngôn ngữ đó.
+                if (source === 'browser' && 'speechSynthesis' in window && hasLocalVoice(speechLang)) {
+                    speakWithBrowser(value, volume, rate, item, speechLang, done);
                     return;
+                }
+                // Không có giọng máy (vd: OBS Browser Source không kèm voice hệ thống)
+                // → rơi xuống Google remote để VẪN có tiếng. Đây là fallback TUẦN TỰ
+                //   (browser không hề phát ở nhánh này) nên không gây phát 2 tiếng đè nhau.
+                if (source === 'browser') {
+                    console.log('[translate-tts] browser không có voice cho', speechLang, '→ fallback Google remote');
                 }
 
                 // ===== Path 2: REMOTE TTS (Google translate_tts) =====
-                // Single path: chỉ remote, KHÔNG fallback sang browser (tránh phát 2 tiếng)
+                // Dùng cho source=remote HOẶC browser-không-có-voice. Single path, có guard
+                // fallbackFired để chống fire 2 lần (race: error event + play().catch).
                 const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(speechLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
                 audio.volume = volume;
                 audio.playbackRate = rate;

@@ -3041,6 +3041,17 @@ app.get('/api/live-translate/tts', async (req, res) => {
     }
 });
 
+// ★ Server boot id — đổi mỗi lần process khởi động. Overlay (OBS Browser Source) poll
+//   endpoint này: nếu bootId khác lần trước → tự location.reload(). Nhờ vậy MỖI LẦN MỞ APP
+//   overlay tự nạp lại, KHÔNG cần vào OBS bấm "Refresh" thủ công, và TTS phát lại sau restart.
+//   Dùng REST poll (KHÔNG dùng socket.io) để TÁCH BIỆT hoàn toàn — không đụng tới socket
+//   của bất kỳ game overlay nào.
+const SERVER_BOOT_ID = String(Date.now());
+app.get('/api/server-bootid', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ bootId: SERVER_BOOT_ID });
+});
+
 // ===== Unknown gifts API (quà mới phát hiện ngoài Google Sheet) =====
 // Trả về sorted theo lastSeen DESC để quà vừa thấy nằm trên cùng.
 app.get('/api/unknown-gifts', (req, res) => {
