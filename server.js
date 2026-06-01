@@ -6460,6 +6460,22 @@ const relayCache = {
     timer:      { cfg: null, state: null }
 };
 
+// ===== Dịch Thuật LIVE — bầu "speaker" duy nhất (chống 2 tiếng đè nhau) =====
+// Vì sao: io.emit('translate:comment') broadcast tới MỌI overlay. Nếu user đặt cùng 1
+// link /overlay/translate vào nhiều Scene OBS → mỗi Browser Source là 1 instance trình
+// duyệt riêng, đều phát TTS → 2-3 tiếng đè nhau. Hàng đợi tuần tự trong overlay chỉ chống
+// đè TRONG 1 trang, không phối hợp giữa các instance. Giải pháp: chỉ overlay "speaker"
+// (instance vào room sớm nhất) mới đọc; các overlay còn lại chỉ hiện chữ, không phát tiếng.
+// Khi speaker đóng → tự bầu lại instance kế tiếp.
+function assignTranslateSpeaker() {
+    const room = io.sockets.adapter.rooms.get('translateOverlay');
+    const ids = room ? Array.from(room) : [];
+    const speakerId = ids[0] || null; // Set giữ thứ tự chèn → phần tử đầu = cũ nhất
+    for (const id of ids) {
+        io.to(id).emit('translate:role', { isSpeaker: id === speakerId });
+    }
+}
+
 io.on('connection', (socket) => {
     // Default emits
     socket.emit('giftSheet', giftList);
@@ -6514,6 +6530,8 @@ io.on('connection', (socket) => {
     socket.on('subscribe', (roomName) => {
         if (typeof roomName === 'string' && roomName.length < 32) {
             socket.join(roomName);
+            // Dịch Thuật LIVE: mỗi lần có overlay mới vào/ra → bầu lại speaker duy nhất
+            if (roomName === 'translateOverlay') assignTranslateSpeaker();
             // Khi overlay/preview subscribe → gửi BOTH config + state snapshot.
             // Trước đây chỉ gửi state → OBS có thể render với default config (race).
             // Giờ gửi config trước, state sau → OBS apply config → loadState → khớp App.
@@ -6535,6 +6553,11 @@ io.on('connection', (socket) => {
             }
         }
     });
+
+    // Dịch Thuật LIVE: speaker đóng OBS → bầu lại instance kế tiếp làm speaker.
+    // Lúc 'disconnect' socket đã rời mọi room nên assignTranslateSpeaker() chỉ tính các
+    // overlay còn lại. Gọi vô điều kiện cũng an toàn (room rỗng → no-op).
+    socket.on('disconnect', () => { assignTranslateSpeaker(); });
 });
 
 httpServer.listen(PORT, async () => {

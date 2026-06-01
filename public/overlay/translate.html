@@ -105,6 +105,10 @@
         const socket = io({ reconnection: true, reconnectionDelay: 600, reconnectionDelayMax: 5000 });
         let config = { enabled: true, ttsEnabled: true, ttsVoice: 'auto', ttsPreset: 'auto', ttsReadMode: 'nameAndComment', ttsVolume: 85, ttsRate: 1, readUsername: true, maxItems: 8, sourceLang: 'auto', targetLang: 'vi', ttsSource: 'browser' };
         let voices = [];
+        // ★ Chỉ overlay "speaker" (do server bầu) mới phát TTS — chống 2 tiếng đè nhau khi
+        //   cùng 1 link đặt ở nhiều Scene OBS. Mặc định true để 1 overlay đơn lẻ vẫn đọc
+        //   ngay (server gửi translate:role để hạ xuống false nếu có overlay khác).
+        let isSpeaker = true;
         let voicesReadyResolved = false;
         let voicesReadyPromise = null;
         let randomGenderNext = Math.random() < 0.5 ? 'male' : 'female';
@@ -205,6 +209,7 @@
         }
 
         function enqueueSpeak(text, item) {
+            if (!isSpeaker) return; // overlay không phải speaker → chỉ hiện chữ, không đọc
             const ttsOn = item?.ttsEnabled == null ? config.ttsEnabled : item.ttsEnabled;
             if (!ttsOn || item?.canSpeak === false) return;
             const mode = item?.ttsReadMode || config.ttsReadMode || (config.readUsername ? 'nameAndComment' : 'commentOnly');
@@ -353,6 +358,15 @@
         }
 
         socket.on('connect', () => socket.emit('subscribe', 'translateOverlay'));
+        // Server bầu speaker duy nhất: chỉ overlay được chọn mới đọc TTS. Khi bị hạ xuống
+        // non-speaker mà đang đọc dở → dừng ngay + xả hàng đợi để tắt tiếng dứt điểm.
+        socket.on('translate:role', r => {
+            isSpeaker = !!(r && r.isSpeaker);
+            if (!isSpeaker) {
+                pendingQueue.length = 0;
+                try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {}
+            }
+        });
         socket.on('translate:config', cfg => { config = { ...config, ...(cfg || {}) }; });
         socket.on('translate:comment', addComment);
         socket.on('translate:testSpeak', item => enqueueSpeak(item?.translatedText || 'HP Media xin chào, đây là giọng đọc thử bằng tiếng Việt.', item || {}));
