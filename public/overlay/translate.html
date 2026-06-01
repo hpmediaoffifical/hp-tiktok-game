@@ -109,6 +109,9 @@
         //   cùng 1 link đặt ở nhiều Scene OBS. Mặc định true để 1 overlay đơn lẻ vẫn đọc
         //   ngay (server gửi translate:role để hạ xuống false nếu có overlay khác).
         let isSpeaker = true;
+        // Audio Google TTS đang phát — giữ tham chiếu để dừng DỨT ĐIỂM khi chuyển câu kế
+        // hoặc khi bị hạ xuống non-speaker (tránh clip cũ đọc đè lên clip mới).
+        let currentRemoteAudio = null;
         let voicesReadyResolved = false;
         let voicesReadyPromise = null;
         let randomGenderNext = Math.random() < 0.5 ? 'male' : 'female';
@@ -270,19 +273,37 @@
                 const audio = new Audio('/api/live-translate/tts?lang=' + encodeURIComponent(speechLang || 'vi') + '&text=' + encodeURIComponent(value.slice(0, 220)));
                 audio.volume = volume;
                 audio.playbackRate = rate;
-                audio.addEventListener('ended', done, { once: true });
+                currentRemoteAudio = audio;
+                // stopAndDone: DỪNG clip hiện tại rồi mới resolve. Bắt buộc phải pause() —
+                // nếu chỉ done() mà không pause, watchdog bắn sớm sẽ để clip cũ đọc tiếp
+                // trong khi câu kế đã phát → 2 tiếng đè nhau (đây là lỗi cũ với câu dài).
+                let watchdog = setTimeout(stopAndDone, 20000); // fallback khi metadata không load
+                function stopAndDone() {
+                    clearTimeout(watchdog);
+                    try { audio.pause(); audio.src = ''; } catch (_) {}
+                    if (currentRemoteAudio === audio) currentRemoteAudio = null;
+                    done();
+                }
+                // Biết thời lượng thật → đặt watchdog = đúng độ dài clip (đã chia tốc độ) + đệm
+                // 1.5s. Tránh cắt sớm clip dài (gây đè) lẫn chờ thừa khi clip ngắn.
+                audio.addEventListener('loadedmetadata', () => {
+                    if (isFinite(audio.duration) && audio.duration > 0) {
+                        clearTimeout(watchdog);
+                        watchdog = setTimeout(stopAndDone, (audio.duration / (rate || 1)) * 1000 + 1500);
+                    }
+                }, { once: true });
+                audio.addEventListener('ended', stopAndDone, { once: true });
                 audio.addEventListener('error', () => {
                     if (fallbackFired || finished) return;
                     fallbackFired = true;
                     console.log('[translate-tts] remote audio error → done (no fallback to avoid double-speak)');
-                    done();
+                    stopAndDone();
                 }, { once: true });
-                setTimeout(done, 12000);
                 audio.play().catch(() => {
                     if (fallbackFired || finished) return;
                     fallbackFired = true;
                     console.log('[translate-tts] remote audio play rejected → done');
-                    done();
+                    stopAndDone();
                 });
             });
         }
@@ -303,8 +324,9 @@
             const done = () => { if (finished) return; finished = true; finish(); };
             utter.onend = done;
             utter.onerror = done;
-            // Safety timeout: Web Speech API thỉnh thoảng nuốt event onend.
-            setTimeout(done, Math.max(6000, value.length * 140));
+            // Safety timeout: Web Speech API thỉnh thoảng nuốt event onend. Chia tốc độ đọc
+            // để đọc chậm (rate < 1) không bị cắt sớm → câu kế khỏi chồng lên.
+            setTimeout(done, Math.max(6000, (value.length * 140) / (utter.rate || 1)));
             window.speechSynthesis.speak(utter);
         }
 
@@ -365,6 +387,7 @@
             if (!isSpeaker) {
                 pendingQueue.length = 0;
                 try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {}
+                try { if (currentRemoteAudio) { currentRemoteAudio.pause(); currentRemoteAudio.src = ''; currentRemoteAudio = null; } } catch (_) {}
             }
         });
         socket.on('translate:config', cfg => { config = { ...config, ...(cfg || {}) }; });
